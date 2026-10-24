@@ -42,7 +42,7 @@ only when its done-check passes on this machine.
 - Open rulings: thinking on or off by default; `CLAUDE_CODE_MAX_OUTPUT_TOKENS`
   value.
 
-## P3 — Bench matrix
+## P3 — Bench matrix (DONE 2026-10-24)
 
 - Goal: pick the default model on measured numbers.
 - Steps: for Qwen3.6-35B-A3B, Qwen3.8-27B, Gemma 4 26B-A4B, GLM-4.7-Flash and
@@ -50,9 +50,15 @@ only when its done-check passes on this machine.
   success over 20 prompts and whether the target context fits. Results as JSON
   per `bench/README.md`.
 - Done-check: one result file per model in `bench/results/`, summary table in
-  `config/models.md`.
-- Open rulings: uploader per model (Unsloth vs Bartowski, given the tool-call
-  gap reported for one quant).
+  `config/models.md`. Passed: five result files (see "Phase 3 part B"); the full
+  table is `bench/summary-2026-10-24.md`, and `config/models.md` carries the
+  measured fit and status per row.
+- UNVERIFIED: prefill only at 20K tokens; the 20 tool prompts are synthetic (two
+  tools, one turn); one run per model, no variance; every model ran with the
+  Qwen-tuned `serve.ps1` sampling; decode text quality not inspected.
+- Open rulings: the default model (the numbers are in; the logon task still runs
+  Qwen3.6-35B-A3B UD-IQ3_XXS); uploader per model (Unsloth vs Bartowski, given
+  the tool-call gap reported for one quant).
 
 ## P4 — MoE CPU offload
 
@@ -292,3 +298,31 @@ No slow start that spilled into shared memory: consistent with "Prefer No Sysmem
 Fallback" being in effect for `llama-server.exe` (the driver setting itself was not
 read). Then `Start-ScheduledTask LocalInferenceStudio-llama-server`: `/health` ok after
 10 s, `scripts/smoke.ps1` PASS (`get_weather {"city":"Mexico City"}`).
+
+## Phase 3 part B 2026-10-24
+
+The four downloaded candidates, one at a time on :8080: `scripts/stop.ps1` (nothing
+listening confirmed), `scripts/serve.ps1 -Model <local .gguf> -Alias local -Ctx 131072`
+with `--fit` on, then `pwsh bench/run.ps1 -Label <label> -Quant <quant> -Ctx 131072
+-NCpuMoe 0`. Placement (fit, buffers, KV) was read from a separate `-lv 4` start with
+the same flags, stopped before the bench start. All four started at 131072 ctx on the
+first try (no 65536 retry, no exit, no blocked model). Table and observations:
+[bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md).
+
+| Model | Decode tok/s | Prefill 20K ms | Tools /20 | Fit all-GPU at 131072 |
+| --- | --- | --- | --- | --- |
+| Qwen3.6-35B-A3B UD-IQ3_XXS (baseline) | 104.4 | 4,859 | 20 | no (part of 2 layers' experts on CPU) |
+| Qwen3.8-27B UD-Q3_K_XL | 12.1 | 18,199 | 20 | no (50/66 layers on GPU, 1,088 MiB KV on CPU) |
+| Gemma 4 26B-A4B UD-IQ4_XS | 93.4 | 4,534 | 20 | no (4 layers' experts partly on CPU) |
+| GLM-4.7-Flash UD-Q3_K_XL | 91.0 | 13,768 | 20 | no (12 layers' experts partly on CPU) |
+| gpt-oss-20b MXFP4 | 170.6 | 2,885 | 20 | yes (`--fit` made no change) |
+
+- Every model passed 20/20 tool calls; no wrong tool, no missing call, no empty
+  argument, no HTTP error.
+- Qwen3.8-27B's `blk.64.nextn.*` (MTP) tensors load as unused (P6).
+- Template and tokenizer warnings per model are listed in the summary; no template
+  was patched.
+- After the matrix: `Start-ScheduledTask LocalInferenceStudio-llama-server`,
+  `/health` ok after 25 s, `scripts/smoke.ps1` PASS (`get_weather {"city":"Mexico City"}`).
+- Pending operator item: the elevated `pktmon` egress capture from "Phase 3 part A"
+  (Egress) is still open.

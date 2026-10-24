@@ -214,6 +214,8 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
 - (5) llama-server runs as the logon task `LocalInferenceStudio-llama-server`
   (`scripts/register-task.ps1`, log `logs/llama-server.log`). Cutover 2026-10-24:
   the shell-started server (PID 20548) was stopped, the task registered without
-  elevation and started; `smoke.ps1` PASS. `scripts/stop.ps1` stops it for good
-  (the task's restart-on-failure did not bring it back within 85 s); start it
-  again with `Start-ScheduledTask -TaskName LocalInferenceStudio-llama-server`.
+  elevation and started; `smoke.ps1` PASS. The task's restart settings only retry
+  a launch that fails: a llama-server crash or `scripts/stop.ps1` stays down until
+  the next logon or `Start-ScheduledTask -TaskName LocalInferenceStudio-llama-server`
+  (after a stop it did not come back within 85 s). It runs on battery too.
+  Re-run `register-task.ps1` after moving the repo (paths are absolute).

@@ -61,8 +61,9 @@ on first run into its own cache.
 
 - Register: `pwsh scripts/register-task.ps1` (task `LocalInferenceStudio-llama-server`, current user, no elevation needed); start now with `Start-ScheduledTask -TaskName LocalInferenceStudio-llama-server`.
 - Unregister: `pwsh scripts/unregister-task.ps1` (leaves a running server alone).
-- Stop: `pwsh scripts/stop.ps1` (stays stopped until the next logon or `Start-ScheduledTask`).
-- Log: `logs/llama-server.log` (appended; gitignored). From a shell, `serve.ps1 -LogFile <path>` does the same.
+- Stop: `pwsh scripts/stop.ps1`. A stop or a llama-server crash stays down until the next logon or `Start-ScheduledTask`: the task's restart settings only retry a launch that fails. It also runs on battery.
+- Re-run `register-task.ps1` after moving the repo (paths are absolute).
+- Log: `logs/llama-server.log` (appended, renamed to `.1` past 50 MB, ends each run with `llama-server exited <code>`; gitignored). From a shell, `serve.ps1 -LogFile <path>` does the same.
 - Ollama is paused, not uninstalled: [docs/ollama-paused.md](docs/ollama-paused.md).
 
 ## Docs

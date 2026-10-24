@@ -219,3 +219,76 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   the next logon or `Start-ScheduledTask -TaskName LocalInferenceStudio-llama-server`
   (after a stop it did not come back within 85 s). It runs on battery too.
   Re-run `register-task.ps1` after moving the repo (paths are absolute).
+
+## Phase 3 part A 2026-10-24
+
+Baseline bench, the WebSearch/WebFetch deny overlay, an egress check and the
+sysmem-fallback check. P3 stays open: part B (candidate matrix) is pending.
+
+### Baseline
+
+`pwsh bench/run.ps1 -Label qwen3.6-35b-a3b -Quant UD-IQ3_XXS -Ctx 131072 -NCpuMoe 0`
+against the logon-task server (build `b11868-78a8ae14b`, flags as in
+`scripts/serve.ps1` defaults). Result: `bench/results/20261024-163147-qwen3.6-35b-a3b.json`.
+
+| Metric | Value |
+| --- | --- |
+| decode tok/s (median of 3, 256 tokens) | 104.4 (runs 77.8, 105.9, 104.4; the first is a warm-up) |
+| prefill 20,000 tokens, cold (median of 3) | 4,859 ms (4,116 tok/s) |
+| prefill 20,000 tokens, prefix cached | 30.5 ms (4 tokens evaluated) |
+| tool calls (2 tools, 20 prompts) | 20/20 pass (0 wrong tool, 0 no call, 0 bad args, 0 errors) |
+| tool-call latency, median | 1,583 ms |
+| VRAM peak (whole GPU, nvidia-smi) | 15,797 MiB of 16,376 (idle with the server loaded: 15,698) |
+
+The 128K context fits with the default `--fit` placement (ruling 4: about 535 MiB
+of experts on CPU); 579 MiB of VRAM stays free at peak.
+
+### Overlay: deny WebSearch and WebFetch
+
+`config/claude-settings.json` gains `"permissions": {"deny": ["WebSearch", "WebFetch"]}`
+(those tools run on Anthropic's side and cannot work against the local server).
+VERIFIED from the `system/init` event of `--output-format stream-json --verbose`,
+run through `scripts/claude-local.ps1` from a throwaway git repo:
+
+- With the overlay: 22 tools, no WebSearch, no WebFetch.
+- Control (scratch copy of the launcher with the old settings file): 24 tools,
+  WebFetch and WebSearch present.
+- Debug log: `Adding 2 deny rule(s) to destination 'flagSettings': ["WebSearch","WebFetch"]`.
+  The operator's user settings allow `WebSearch`; the `--settings` deny wins.
+
+### Egress (pktmon)
+
+NOT RUN: `pktmon` needs elevation (`Failed to communicate with the PktMon driver:
+Access is denied.` from a non-elevated shell). Weaker evidence, VERIFIED: during run A
+(`-p "Reply with exactly: READY" --max-turns 1`, result `READY`) the new `claude.exe`
+TCP connections, sampled every 100 ms (21 samples), showed only `127.0.0.1:8080`.
+Short-lived connections between samples can be missed, so "no other egress" is
+UNVERIFIED. Operator, from an elevated PowerShell 7 (one line):
+
+```powershell
+$d="$env:TEMP\p3-egress"; New-Item -ItemType Directory -Force $d | Out-Null; git -C $d init -q; (Resolve-DnsName api.anthropic.com -Type A).IPAddress | Set-Content "$d\anthropic-ips.txt"; pktmon start --capture --comp nics --pkt-size 0 -f "$d\p3.etl"; Push-Location $d; pwsh -NoProfile -File Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -p "Reply with exactly: READY" --max-turns 1; Pop-Location; pktmon stop; pktmon etl2txt "$d\p3.etl" -o "$d\p3.txt"; Select-String -Path "$d\p3.txt" -Pattern (Get-Content "$d\anthropic-ips.txt") -SimpleMatch | Measure-Object | % Count
+```
+
+Expected: `0` (no packet to an api.anthropic.com address). Loopback traffic
+(`127.0.0.1:8080`) does not cross a NIC, so `--comp nics` cannot show it; pktmon
+does not attribute packets to a PID (UNVERIFIED for this build), so other traffic on
+the machine in the same window (for example model downloads) also appears in `p3.txt`.
+
+### Sysmem fallback
+
+The task server was stopped (`scripts/stop.ps1`), then `bin\llama-server.exe` ran
+directly with the `serve.ps1` default flags plus `-c 1048576 --fit off --port 8090`.
+It failed loudly in about 6 s, exit code 1, peak VRAM 15,629 MiB:
+
+```
+W llama_context: n_ctx_seq (1048576) > n_ctx_train (262144) -- possible training context overflow
+E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 10880.00 MiB on device 0: cudaMalloc failed: out of memory
+E ggml_backend_buft_alloc_buffer_n_default: failed to allocate CUDA0 buffer of size 11408506880
+E llama_init_from_model: failed to initialize the context: failed to allocate buffer for kv cache
+E srv  server_run_i: exiting due to model loading error
+```
+
+No slow start that spilled into shared memory: consistent with "Prefer No Sysmem
+Fallback" being in effect for `llama-server.exe` (the driver setting itself was not
+read). Then `Start-ScheduledTask LocalInferenceStudio-llama-server`: `/health` ok after
+10 s, `scripts/smoke.ps1` PASS (`get_weather {"city":"Mexico City"}`).

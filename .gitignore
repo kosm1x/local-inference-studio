@@ -1,0 +1,7 @@
+bin/
+models/
+*.gguf
+*.zip
+.cache/
+bench/results/*.json
+.env

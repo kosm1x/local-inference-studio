@@ -1,0 +1,6 @@
+{
+  "model": "local",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "local"
+  }
+}

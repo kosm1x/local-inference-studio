@@ -14,24 +14,42 @@
     the process env, so config/claude-settings.json is passed via --settings to set
     CLAUDE_CODE_SUBAGENT_MODEL=local and model=local at CLI precedence.
   - ANTHROPIC_MODEL must override `model: fable`.
-  Both are UNVERIFIED: confirm in P2 from the model names in the llama-server log.
+  Both are VERIFIED (Phase 2 run 2026-10-24): all requests reached 127.0.0.1:8080
+  with model `local`, including subagents; see docs/ROADMAP.md.
 
   There is deliberately no param() block. A declared parameter binds claude's
   positional prompt (or any unmatched token such as --model) to itself and claims
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The one script option, -LisContextTokens N, is taken out of $args here.
+  A prompt that starts with `-` must be passed after a quoted `'--'` when calling in-process.
 .EXAMPLE
   pwsh scripts/claude-local.ps1 -p "list the files in this repo"
 .EXAMPLE
   pwsh scripts/claude-local.ps1 -LisContextTokens 65536 -p "list the files in this repo"
 #>
+$ErrorActionPreference = 'Stop'
+
+# -LisContextTokens N, -LisContextTokens:N (any case). In-process, PowerShell hands
+# -LisContextTokens:N over as '-LisContextTokens:' followed by N, so an empty inline
+# value takes the next token. All checks run before any env change.
 $LisContextTokens = 131072
-$claudeArgs = [System.Collections.Generic.List[object]]$args
-$i = $claudeArgs.IndexOf('-LisContextTokens')
-if ($i -ge 0) {
-    $LisContextTokens = [int]$claudeArgs[$i + 1]
-    $claudeArgs.RemoveRange($i, 2)
+$claudeArgs = [System.Collections.Generic.List[object]]::new()
+$seen = $false
+for ($j = 0; $j -lt $args.Count; $j++) {
+    $a = $args[$j]
+    if ($a -isnot [string] -or $a -notmatch '^-LisContextTokens(:(.*))?$') { $claudeArgs.Add($a); continue }
+    if ($seen) { throw "-LisContextTokens was given more than once." }
+    $seen = $true
+    $v = $Matches[2]
+    if (-not $v) {
+        if ($j + 1 -ge $args.Count) { throw "-LisContextTokens needs a value (an integer >= 1024)." }
+        $v = "$($args[++$j])"
+    }
+    $n = 0
+    if (-not [int]::TryParse($v, [ref]$n)) { throw "-LisContextTokens value '$v' is not an integer." }
+    if ($n -lt 1024) { throw "-LisContextTokens value $n is below the minimum of 1024." }
+    $LisContextTokens = $n
 }
 
 $set = [ordered]@{

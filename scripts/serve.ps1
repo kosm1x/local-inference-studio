@@ -7,12 +7,17 @@
   --host/--port, --reasoning-format auto, --api-key local and --no-mmproj (the vision
   projector is skipped unless -WithMmproj). -Model is a Hugging Face "repo:quant"
   (passed as -hf, downloaded on first run) or a local .gguf path (passed as -m).
-  -ExtraArgs given as one space-separated string is split on whitespace, so the same
-  form works from `pwsh -File` and from inside pwsh. Stop with scripts/stop.ps1.
+  -ExtraArgs (string[]) is passed through verbatim, one element per argument, so a
+  value with spaces stays whole; use it from inside pwsh. `pwsh -File` hands
+  -ExtraArgs 'a','b' over as the single string "a,b", so from `pwsh -File` use
+  -ExtraArgLine, which is split on whitespace (no quoting; values with spaces need
+  -ExtraArgs). Stop with scripts/stop.ps1.
 .EXAMPLE
   pwsh scripts/serve.ps1 -Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ4_XS -NCpuMoe 8
 .EXAMPLE
-  pwsh scripts/serve.ps1 -ExtraArgs '--spec-type draft-mtp --spec-draft-n-max 2'
+  pwsh scripts/serve.ps1 -ExtraArgLine '-lv 4'
+.EXAMPLE
+  & scripts/serve.ps1 -ExtraArgs '--chat-template-kwargs', '{"enable_thinking": false}'
 #>
 [CmdletBinding()]
 param(
@@ -23,7 +28,8 @@ param(
     [string]$KvType = 'q8_0',
     [string]$Alias = 'local',
     [switch]$WithMmproj,
-    [string[]]$ExtraArgs = @()
+    [string[]]$ExtraArgs = @(),
+    [string]$ExtraArgLine = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -54,10 +60,8 @@ $cmdArgs = @(
 )
 if (-not $WithMmproj) { $cmdArgs += '--no-mmproj' }
 if ($NCpuMoe -gt 0) { $cmdArgs += '--n-cpu-moe', "$NCpuMoe" }
-# `pwsh -File` hands -ExtraArgs 'a','b' over as the single string "a,b", so pass one
-# space-separated string instead; it is split here.
-if ($ExtraArgs.Count -eq 1 -and $ExtraArgs[0] -match '\s') { $ExtraArgs = $ExtraArgs[0] -split '\s+' | Where-Object { $_ } }
 $cmdArgs += $ExtraArgs
+$cmdArgs += $ExtraArgLine -split '\s+' | Where-Object { $_ }
 
 Write-Host "$exe $($cmdArgs -join ' ')"
 & $exe @cmdArgs

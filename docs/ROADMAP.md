@@ -72,7 +72,7 @@ only when its done-check passes on this machine.
 ## P6 — Speculative decoding / MTP
 
 - Goal: speed-up from MTP heads once Qwen MTP GGUFs load in stock llama.cpp.
-- Steps: `-ExtraArgs '--spec-type draft-mtp --spec-draft-n-max 2'`;
+- Steps: `-ExtraArgLine '--spec-type draft-mtp --spec-draft-n-max 2'`;
   compare against P3 numbers.
 - Done-check: bench JSON with and without MTP on the same model.
 - Open rulings: none until the GGUFs exist upstream.
@@ -119,6 +119,8 @@ only when its done-check passes on this machine.
   from inside pwsh (`& scripts/serve.ps1 -ExtraArgs ...`) or via `pwsh -Command`.
   `serve.ps1` now splits a single space-separated string, so
   `pwsh -File scripts/serve.ps1 -ExtraArgs '-lv 4'` works (used for the re-run below).
+  Superseded: that split broke a single value with spaces, so `-ExtraArgs` is now
+  passed verbatim and the `pwsh -File` form is `-ExtraArgLine '-lv 4'`.
 - 2026-10-24, re-run with `--no-mmproj` (now the `serve.ps1` default, plus
   `--api-key local`):
   - `--fit` still offloads: projected 14049 MiB against 15047 MiB free missed

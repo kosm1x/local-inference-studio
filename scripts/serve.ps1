@@ -11,7 +11,9 @@
   value with spaces stays whole; use it from inside pwsh. `pwsh -File` hands
   -ExtraArgs 'a','b' over as the single string "a,b", so from `pwsh -File` use
   -ExtraArgLine, which is split on whitespace (no quoting; values with spaces need
-  -ExtraArgs). Stop with scripts/stop.ps1.
+  -ExtraArgs). -LogFile appends the command line and llama-server stdout/stderr to
+  that file (its folder is created) instead of the console; the logon task from
+  scripts/register-task.ps1 uses logs/llama-server.log. Stop with scripts/stop.ps1.
 .EXAMPLE
   pwsh scripts/serve.ps1 -Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ4_XS -NCpuMoe 8
 .EXAMPLE
@@ -29,7 +31,8 @@ param(
     [string]$Alias = 'local',
     [switch]$WithMmproj,
     [string[]]$ExtraArgs = @(),
-    [string]$ExtraArgLine = ''
+    [string]$ExtraArgLine = '',
+    [string]$LogFile = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -63,6 +66,14 @@ if ($NCpuMoe -gt 0) { $cmdArgs += '--n-cpu-moe', "$NCpuMoe" }
 $cmdArgs += $ExtraArgs
 $cmdArgs += $ExtraArgLine -split '\s+' | Where-Object { $_ }
 
-Write-Host "$exe $($cmdArgs -join ' ')"
-& $exe @cmdArgs
+$cmdLine = "$exe $($cmdArgs -join ' ')"
+if ($LogFile) {
+    $logDir = Split-Path -Parent ([IO.Path]::GetFullPath($LogFile))
+    New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+    Add-Content -Path $LogFile -Value "[$(Get-Date -Format o)] $cmdLine"
+    & $exe @cmdArgs *>> $LogFile
+} else {
+    Write-Host $cmdLine
+    & $exe @cmdArgs
+}
 exit $LASTEXITCODE

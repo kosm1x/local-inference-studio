@@ -5,3 +5,5 @@ models/
 .cache/
 bench/results/*.json
 .env
+logs/*
+!logs/.gitkeep

@@ -40,7 +40,7 @@ only when its done-check passes on this machine.
 - Done-check: one multi-step edit + test loop completes without manual
   intervention.
 - Open rulings: thinking on or off by default; `CLAUDE_CODE_MAX_OUTPUT_TOKENS`
-  value; whether `--bare` is the default local profile.
+  value.
 
 ## P3 — Bench matrix
 
@@ -199,4 +199,21 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   No rejected `thinking` / `output_config` and no retries were logged.
 - Not `--bare`: the operator's global hooks (SessionStart orientation, PreToolUse
   reminders), skills and CLAUDE.md loaded; that makes the 21162-token first
-  prompt. Input for the open `--bare` ruling.
+  prompt. Ruled 2026-10-24: no `--bare` (see Rulings 2026-10-24).
+
+## Rulings 2026-10-24
+
+- (1) Ollama is paused, not uninstalled: its Startup-folder entry is disabled the
+  way Task Manager does it and its processes are stopped. Details and the revert
+  command: [ollama-paused.md](ollama-paused.md).
+- (2) No `--bare`. The operator's global config (hooks, skills, CLAUDE.md, memory)
+  stands in local sessions, and the 21K-token first prompt is accepted. P3
+  measures its prefill cost instead.
+- (4) The ~535 MiB of MoE expert tensors that `--fit` offloads to CPU (398 + 137
+  MiB CPU_Mapped, 2 layers, P1 re-run) stays for now; revisit after the P3 numbers.
+- (5) llama-server runs as the logon task `LocalInferenceStudio-llama-server`
+  (`scripts/register-task.ps1`, log `logs/llama-server.log`). Cutover 2026-10-24:
+  the shell-started server (PID 20548) was stopped, the task registered without
+  elevation and started; `smoke.ps1` PASS. `scripts/stop.ps1` stops it for good
+  (the task's restart-on-failure did not bring it back within 85 s); start it
+  again with `Start-ScheduledTask -TaskName LocalInferenceStudio-llama-server`.

@@ -41,7 +41,8 @@ GGUF model: weights + KV cache on the RTX 4070 Ti SUPER
 Phase 0 done (2026-10-24): evaluation of two reference repos, landscape
 survey, and this scaffold. Phase 1 done (2026-10-24): llama.cpp b11868 CUDA 13.4
 installed, Qwen3.6-35B-A3B UD-IQ3_XXS serves `/v1/messages` with tool_use
-(`smoke.ps1` PASS); numbers in [docs/ROADMAP.md](docs/ROADMAP.md). Next: Phase 2.
+(`smoke.ps1` PASS); numbers in [docs/ROADMAP.md](docs/ROADMAP.md). Phase 2 done
+(2026-10-24): Claude Code runs an edit-test-fix loop on the local server. Next: Phase 3.
 
 ## Quick start
 
@@ -55,6 +56,14 @@ pwsh scripts/claude-local.ps1   # Claude Code pointed at the local server
 `install.ps1` fetches binaries only. The model (default
 `unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS`) is downloaded by `llama-server -hf`
 on first run into its own cache.
+
+## Run at logon
+
+- Register: `pwsh scripts/register-task.ps1` (task `LocalInferenceStudio-llama-server`, current user, no elevation needed); start now with `Start-ScheduledTask -TaskName LocalInferenceStudio-llama-server`.
+- Unregister: `pwsh scripts/unregister-task.ps1` (leaves a running server alone).
+- Stop: `pwsh scripts/stop.ps1` (stays stopped until the next logon or `Start-ScheduledTask`).
+- Log: `logs/llama-server.log` (appended; gitignored). From a shell, `serve.ps1 -LogFile <path>` does the same.
+- Ollama is paused, not uninstalled: [docs/ollama-paused.md](docs/ollama-paused.md).
 
 ## Docs
 

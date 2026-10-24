@@ -230,7 +230,7 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
 ## Phase 3 part A 2026-10-24
 
 Baseline bench, the WebSearch/WebFetch deny overlay, an egress check and the
-sysmem-fallback check. P3 stays open: part B (candidate matrix) is pending.
+sysmem-fallback check. Part B (candidate matrix) followed the same day; see P3 above.
 
 ### Baseline
 
@@ -243,7 +243,7 @@ the re-run with a discarded warm-up is in "Phase 3 part B" and
 
 | Metric | Value |
 | --- | --- |
-| decode tok/s (median of 3, 256 tokens) | 104.4 (runs 77.8, 105.9, 104.4; the first is a warm-up) |
+| decode tok/s (median of 3, 256 tokens) | 104.4 (runs 77.8, 105.9, 104.4; the first was a cold first request, measured, which is why this table is superseded) |
 | prefill 20,000 tokens, cold (median of 3) | 4,859 ms (4,116 tok/s) |
 | prefill 20,000 tokens, prefix cached | 30.5 ms (4 tokens evaluated) |
 | tool calls (2 tools, 20 prompts) | 20/20 pass (0 wrong tool, 0 no call, 0 bad args, 0 errors) |

@@ -7,3 +7,4 @@ bench/results/*.json
 .env
 logs/*
 !logs/.gitkeep
+bench/results/*.log

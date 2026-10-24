@@ -6,13 +6,14 @@
   PASS (exit 0) when the /v1/messages reply contains a tool_use block, else FAIL (exit 1).
   count_tokens is reported but does not fail the run (Claude Code falls back to an
   estimate without it).
-  Qwen3.6 thinks by default; if FAIL shows only thinking blocks, raise -MaxTokens.
+  Qwen3.6 thinks by default: 256 tokens ended in thinking only (2026-10-24), so the
+  default is 2048. If FAIL shows only thinking blocks, raise -MaxTokens.
 #>
 [CmdletBinding()]
 param(
     [int]$Port = 8080,
     [string]$Model = 'local',
-    [int]$MaxTokens = 256
+    [int]$MaxTokens = 2048
 )
 $ErrorActionPreference = 'Stop'
 

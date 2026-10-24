@@ -12,7 +12,7 @@ only when its done-check passes on this machine.
   and `scripts/*.ps1` exist; the scripts parse without errors.
 - Open rulings: none.
 
-## P1 — Install + smoke
+## P1 — Install + smoke (DONE 2026-10-24)
 
 - Goal: llama-server answers `/v1/messages` with a tool call.
 - Steps:
@@ -75,3 +75,44 @@ only when its done-check passes on this machine.
   compare against P3 numbers.
 - Done-check: bench JSON with and without MTP on the same model.
 - Open rulings: none until the GGUFs exist upstream.
+
+## Phase 1 run 2026-10-24
+
+- Install: `scripts/install.ps1` defaults (b11868, CUDA 13.4). No `.sha256`
+  sidecars are published; the script now checks the GitHub API asset `digest`
+  instead, and both zips matched. `llama-server --version`: 0.7.0-dev (build
+  11868, commit 78a8ae14b). cudart64_13, cublas64_13 and cublasLt64_13 DLLs sit
+  next to it in `bin/`. `--list-devices`: CUDA0 RTX 4070 Ti SUPER (16375 MiB,
+  15111 MiB free).
+- Model: `-hf` pulled `Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf` (13,211,155,424 B) plus
+  `mmproj-BF16.gguf` (902,822,624 B, vision projector, loaded by default) into
+  `%USERPROFILE%\.cache\huggingface\hub`, about 5 min. Load from cache: about 7 s.
+- Architecture `qwen35moe`: 40 layers, 10 of them with a KV cache (hybrid), 256
+  experts / 8 active, n_ctx_train 262144.
+- Context: n_ctx 131072 allocated as requested (`--fit` left it unchanged).
+- KV cache: q8_0 K and V, 1360 MiB (680 + 680) on CUDA0, 131072 cells over 10
+  layers; recurrent state 62.81 MiB.
+- `--fit` trimmed: yes. The full GPU load was projected at 14049 MiB against a
+  free target of 2133 MiB (margin plus 1134 MiB mmproj worst case), so `--fit`
+  kept 41/41 layers on GPU but moved part of the MoE expert tensors of 6 layers
+  to CPU (overflow type GATE). Buffers: CUDA0 model 10968 MiB, CPU_Mapped about
+  1621 MiB, CUDA0 compute 444 MiB, mmproj compute 248 MiB. The log warns
+  "tensor overrides to CPU are used with mmap enabled".
+- VRAM (`nvidia-smi --query-gpu=memory.used`): 15594 MiB on first load, 15408 to
+  15432 MiB after restarts, of 16376 MiB. That includes about 1.3 to 2.4 GB used
+  by the desktop and other apps before load (1694 to 2400 MiB observed).
+- Smoke: FAIL at the old default `-MaxTokens 256` (stop_reason max_tokens, one
+  1029-char thinking block). PASS 4/4 at 2048 (stop_reason tool_use,
+  `get_weather {"city":"Mexico City"}`, thinking 230 to 1041 chars).
+  `smoke.ps1` default raised to 2048. count_tokens: input_tokens=305 or 306.
+- Speed (305-306-token prompt, `-np 1`): prompt processing 459 to 1421 tok/s
+  (cold or partly cached, too short to compare with anything); generation
+  108 to 121 tok/s.
+- No thinking or template flags were needed. Startup warnings: no API key / CORS
+  allows all origins; reasoning preserve is on by default; Qwen-VL image-token
+  minimum.
+- Not done: step 3 (NVIDIA control panel "Prefer No Sysmem Fallback") is a GUI
+  setting for the operator.
+- Found: `pwsh -File scripts/serve.ps1 -ExtraArgs '-lv','4'` passes the single
+  string `-lv,4` (llama-server: invalid argument). `-ExtraArgs` works only from
+  inside pwsh (`& scripts/serve.ps1 -ExtraArgs ...`) or via `pwsh -Command`.

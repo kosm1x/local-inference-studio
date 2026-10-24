@@ -4,8 +4,8 @@
   Download a prebuilt llama.cpp Windows CUDA release into bin/.
 .DESCRIPTION
   Fetches the llama.cpp Windows x64 CUDA zip and its cudart companion zip from the
-  ggml-org/llama.cpp GitHub release, verifies SHA256 when a .sha256 sidecar is
-  published, and extracts both into -BinDir. Never builds from source.
+  ggml-org/llama.cpp GitHub release, verifies SHA256 against the digest the GitHub
+  release API publishes, and extracts both into -BinDir. Never builds from source.
 
   Models are NOT downloaded here. `llama-server -hf <repo>:<quant>` (scripts/serve.ps1)
   fetches the GGUF on first run into its own cache. -ModelsDir is only created, for
@@ -46,14 +46,15 @@ foreach ($name in $assets) {
     Write-Host "Downloading $url"
     Invoke-WebRequest -Uri $url -OutFile $zip
 
+    # llama.cpp releases publish no .sha256 sidecars; the GitHub API exposes each
+    # asset's digest ("sha256:<hex>") instead.
     $expected = $null
     try {
-        $resp = Invoke-WebRequest -Uri "$url.sha256"
-        $text = if ($resp.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($resp.Content) } else { $resp.Content }
-        $expected = $text.Trim().Split()[0]
-    } catch {
-        Write-Warning "No $name.sha256 sidecar found (or fetch failed); SHA256 not verified."
-    }
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LlamaRelease"
+        $digest = ($release.assets | Where-Object { $_.name -eq $name }).digest
+        if ($digest -like 'sha256:*') { $expected = $digest.Substring(7) }
+    } catch {}
+    if (-not $expected) { Write-Warning "No published SHA256 digest for $name (or fetch failed); SHA256 not verified." }
     if ($expected) {
         $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash
         if ($actual -ne $expected) { throw "SHA256 mismatch for ${name}: expected $expected, got $actual" }

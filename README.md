@@ -39,8 +39,9 @@ GGUF model: weights + KV cache on the RTX 4070 Ti SUPER
 ## Status
 
 Phase 0 done (2026-10-24): evaluation of two reference repos, landscape
-survey, and this scaffold. Nothing is installed yet; none of the scripts has
-been run. Next: Phase 1 in [docs/ROADMAP.md](docs/ROADMAP.md).
+survey, and this scaffold. Phase 1 done (2026-10-24): llama.cpp b11868 CUDA 13.4
+installed, Qwen3.6-35B-A3B UD-IQ3_XXS serves `/v1/messages` with tool_use
+(`smoke.ps1` PASS); numbers in [docs/ROADMAP.md](docs/ROADMAP.md). Next: Phase 2.
 
 ## Quick start
 

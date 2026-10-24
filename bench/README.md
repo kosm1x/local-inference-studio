@@ -23,11 +23,14 @@ prints one line per measurement, then a one-line summary with the result path.
 Method:
 
 - Decode: `/completion` with a fixed 200-token prompt, `n_predict` 256,
-  `ignore_eos`, `cache_prompt` false; median of 3 `timings.predicted_per_second`.
+  `ignore_eos`, `cache_prompt` false; one warm-up request is sent and discarded
+  (the first request after a server start decodes slower), then median of 3
+  `timings.predicted_per_second`.
 - Prefill: a deterministic English prompt (seeded word lists), tokenized with
   `/tokenize` and cut to exactly `-PrefillTokens` tokens, sent as a token array
   with `n_predict` 1, `cache_prompt` false; median of 3 `timings.prompt_ms` and
-  `timings.prompt_per_second`. Cached: the same prompt twice with `cache_prompt`
+  `timings.prompt_per_second`. No warm-up request: `cache_prompt` false makes every
+  run a cold prefill by design, and the decode warm-up has already run. Cached: the same prompt twice with `cache_prompt`
   true; the second request is recorded.
 - Tool calls: `-ToolTrials` `/v1/messages` requests (`max_tokens` 4096) with two
   tools, `get_weather{city}` and `run_tests{path}`, rotating over 20 fixed user
@@ -41,7 +44,7 @@ Method:
 | Field | Meaning |
 | --- | --- |
 | `model`, `quant`, `ctx`, `ngl`, `n_cpu_moe` | as given on the command line |
-| `decode_tps` | median decode tok/s |
+| `decode_tps` | median decode tok/s of the 3 measured runs (warm-up excluded) |
 | `prefill_ms_20k`, `prefill_tps` | median cold prefill ms and tok/s for the prompt |
 | `prefill_tokens` | prompt tokens the server evaluated (`timings.prompt_n`) |
 | `prefill_ms_20k_cached` | prefill ms for the same prompt with `cache_prompt` true |

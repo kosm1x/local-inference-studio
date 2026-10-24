@@ -6,21 +6,23 @@ verified against the HF API (`/api/models/<repo>?blobs=true`, all ungated) on
 the API exactly. Repo names still marked UNVERIFIED have not been checked.
 "Fits all-GPU" is measured for the benched rows (P3 part B, 2026-10-24): whether
 `--fit` kept every tensor on GPU at the target context with the `serve.ps1`
-defaults (q8_0 KV); numbers in `bench/summary-2026-10-24.md`. Unbenched rows are
-the weights-only estimate. "lastModified" is the repo's, not the file's.
+defaults (q8_0 KV). "Decode tok/s" (median of 3 after one discarded warm-up) and
+"Prefill 20K ms" (cold, median of 3) are the P3 bench numbers; the full table is
+`bench/summary-2026-10-24.md`. Unbenched rows are the weights-only estimate.
+"lastModified" is the repo's, not the file's.
 
-| Model | HF repo | Quant | Size | Fits all-GPU? | Ctx target | Status | Local file |
-|---|---|---|---|---|---|---|---|
-| Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ3_XXS | 13.2 GB | no, measured: `--fit` keeps 41/41 layers on GPU but moves part of 2 layers' experts to CPU (~535 MiB) at 131072 ctx with `--no-mmproj` | 131072 | benched (default) | - |
-| Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ4_XS | 17.7 GB | no (partial offload) | 131072 | candidate | - |
-| Qwen3.8-27B dense | unsloth/Qwen3.8-27B-GGUF `Qwen3.8-27B-UD-Q3_K_XL.gguf` (lastModified 2026-08-20) | UD-Q3_K_XL | 13.15 GB (13146393504 B) | no, measured: `--fit` puts 50/66 layers on GPU, 2921 MiB CPU_Mapped, 1088 MiB of the 4352 MiB KV on CPU at 131072 ctx | 131072 | benched | `models\qwen3.8-27b\Qwen3.8-27B-UD-Q3_K_XL.gguf` |
-| Gemma 4 26B-A4B | unsloth/gemma-4-26B-A4B-it-GGUF `gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` (lastModified 2026-07-17) | UD-IQ4_XS | 13.60 GB (13597177568 B) | no, measured: 31/31 layers on GPU, 4 layers overflowing (experts), 1964 MiB CPU_Mapped at 131072 ctx | 131072 | benched | `models\gemma-4-26b-a4b\gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` |
-| GLM-4.7-Flash | unsloth/GLM-4.7-Flash-GGUF `GLM-4.7-Flash-UD-Q3_K_XL.gguf` (lastModified 2026-02-12) | UD-Q3_K_XL (substitute; IQ4_XS 16.27 GB needs offload) | 13.78 GB (13782004064 B) | no, measured: 48/48 layers on GPU, 12 layers overflowing (experts), 3026 MiB CPU_Mapped at 131072 ctx | 131072 | benched | `models\glm-4.7-flash\GLM-4.7-Flash-UD-Q3_K_XL.gguf` |
-| Qwen3-Coder-Next 80B-A3B | UNVERIFIED | UD-IQ4_XS | 38.4 GB | no (`--n-cpu-moe`) | 131072 | candidate | - |
-| Nemotron Super 120B | UNVERIFIED | IQ3_XXS | 56 GB | no (`--n-cpu-moe`) | 131072 (fit UNVERIFIED) | candidate | - |
-| gpt-oss-20b | ggml-org/gpt-oss-20b-GGUF `gpt-oss-20b-MXFP4.gguf` (lastModified 2026-10-19) | native MXFP4 | 12.11 GB (12109566624 B) | yes, measured: `--fit` made no change at 131072 ctx (2096 MiB left free; 587 MiB CPU_Mapped) | 131072 | benched | `models\gpt-oss-20b\gpt-oss-20b-MXFP4.gguf` |
-| Qwen3.8-27B OrcaSAQ2 (3.21 bpw, vLLM + vendor kernel) | orcarouter/OrcaSAQ-2-27B | OrcaSAQ2 safetensors | 12.3 GB | yes (WSL2 vLLM only) | 131072 | phase-5-only | - |
-| Qwen3.8-27B-Uncensored (abliterated) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) | IQ3_M | 12.8 GB | yes (KV tight) | 131072 | fallback | - |
+| Model | HF repo | Quant | Size | Fits all-GPU? | Decode tok/s | Prefill 20K ms | Ctx target | Status | Local file |
+|---|---|---|---|---|---|---|---|---|---|
+| Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ3_XXS | 13.2 GB | no, measured: `--fit` keeps 41/41 layers on GPU but moves part of 2 layers' experts to CPU (~535 MiB) at 131072 ctx with `--no-mmproj` | 134.0 | 5,351 | 131072 | benched (default) | - |
+| Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ4_XS | 17.7 GB | no (partial offload) | - | - | 131072 | candidate | - |
+| Qwen3.8-27B dense | unsloth/Qwen3.8-27B-GGUF `Qwen3.8-27B-UD-Q3_K_XL.gguf` (lastModified 2026-08-20) | UD-Q3_K_XL | 13.15 GB (13146393504 B) | no, measured: `--fit` puts 50/66 layers on GPU, 2921 MiB CPU_Mapped, 1088 MiB of the 4352 MiB KV on CPU at 131072 ctx | 11.7 | 19,001 | 131072 | benched | `models\qwen3.8-27b\Qwen3.8-27B-UD-Q3_K_XL.gguf` |
+| Gemma 4 26B-A4B | unsloth/gemma-4-26B-A4B-it-GGUF `gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` (lastModified 2026-07-17) | UD-IQ4_XS | 13.60 GB (13597177568 B) | no, measured: 31/31 layers on GPU, 4 layers overflowing (experts), 1964 MiB CPU_Mapped at 131072 ctx | 96.9 | 4,653 | 131072 | benched | `models\gemma-4-26b-a4b\gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` |
+| GLM-4.7-Flash | unsloth/GLM-4.7-Flash-GGUF `GLM-4.7-Flash-UD-Q3_K_XL.gguf` (lastModified 2026-02-12) | UD-Q3_K_XL (substitute; IQ4_XS 16.27 GB needs offload) | 13.78 GB (13782004064 B) | no, measured: 48/48 layers on GPU, 12 layers overflowing (experts), 3026 MiB CPU_Mapped at 131072 ctx | 89.9 | 13,755 | 131072 | benched | `models\glm-4.7-flash\GLM-4.7-Flash-UD-Q3_K_XL.gguf` |
+| Qwen3-Coder-Next 80B-A3B | UNVERIFIED | UD-IQ4_XS | 38.4 GB | no (`--n-cpu-moe`) | - | - | 131072 | candidate | - |
+| Nemotron Super 120B | UNVERIFIED | IQ3_XXS | 56 GB | no (`--n-cpu-moe`) | - | - | 131072 (fit UNVERIFIED) | candidate | - |
+| gpt-oss-20b | ggml-org/gpt-oss-20b-GGUF `gpt-oss-20b-MXFP4.gguf` (lastModified 2026-10-19) | native MXFP4 | 12.11 GB (12109566624 B) | yes, measured: `--fit` made no change at 131072 ctx (2096 MiB left free; 587 MiB CPU_Mapped) | 170.4 | 2,977 | 131072 | benched | `models\gpt-oss-20b\gpt-oss-20b-MXFP4.gguf` |
+| Qwen3.8-27B OrcaSAQ2 (3.21 bpw, vLLM + vendor kernel) | orcarouter/OrcaSAQ-2-27B | OrcaSAQ2 safetensors | 12.3 GB | yes (WSL2 vLLM only) | - | - | 131072 | phase-5-only | - |
+| Qwen3.8-27B-Uncensored (abliterated) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) | IQ3_M | 12.8 GB | yes (KV tight) | - | - | 131072 | fallback | - |
 
 GGUF header (read locally from each downloaded file, GGUF v3):
 

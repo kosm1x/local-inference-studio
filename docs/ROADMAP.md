@@ -42,7 +42,7 @@ only when its done-check passes on this machine.
 - Open rulings: thinking on or off by default; `CLAUDE_CODE_MAX_OUTPUT_TOKENS`
   value.
 
-## P3 — Bench matrix (DONE 2026-10-24)
+## P3 — Bench matrix (DONE (measurement); default-model selection = open ruling)
 
 - Goal: pick the default model on measured numbers.
 - Steps: for Qwen3.6-35B-A3B, Qwen3.8-27B, Gemma 4 26B-A4B, GLM-4.7-Flash and
@@ -50,9 +50,10 @@ only when its done-check passes on this machine.
   success over 20 prompts and whether the target context fits. Results as JSON
   per `bench/README.md`.
 - Done-check: one result file per model in `bench/results/`, summary table in
-  `config/models.md`. Passed: five result files (see "Phase 3 part B"); the full
-  table is `bench/summary-2026-10-24.md`, and `config/models.md` carries the
-  measured fit and status per row.
+  `config/models.md`. Passed: five result files from the warm-up-fixed re-run
+  (see "Phase 3 part B"); the full table is `bench/summary-2026-10-24.md`, and
+  `config/models.md` carries the measured fit, decode tok/s, prefill 20K ms and
+  status per row.
 - UNVERIFIED: prefill only at 20K tokens; the 20 tool prompts are synthetic (two
   tools, one turn); one run per model, no variance; every model ran with the
   Qwen-tuned `serve.ps1` sampling; decode text quality not inspected.
@@ -235,7 +236,10 @@ sysmem-fallback check. P3 stays open: part B (candidate matrix) is pending.
 
 `pwsh bench/run.ps1 -Label qwen3.6-35b-a3b -Quant UD-IQ3_XXS -Ctx 131072 -NCpuMoe 0`
 against the logon-task server (build `b11868-78a8ae14b`, flags as in
-`scripts/serve.ps1` defaults). Result: `bench/results/20261024-163147-qwen3.6-35b-a3b.json`.
+`scripts/serve.ps1` defaults). Result: `bench/results/20261024-163147-qwen3.6-35b-a3b.json`
+(deleted). SUPERSEDED: the decode median below included the cold first request;
+the re-run with a discarded warm-up is in "Phase 3 part B" and
+`bench/summary-2026-10-24.md`.
 
 | Metric | Value |
 | --- | --- |
@@ -306,23 +310,24 @@ listening confirmed), `scripts/serve.ps1 -Model <local .gguf> -Alias local -Ctx 
 with `--fit` on, then `pwsh bench/run.ps1 -Label <label> -Quant <quant> -Ctx 131072
 -NCpuMoe 0`. Placement (fit, buffers, KV) was read from a separate `-lv 4` start with
 the same flags, stopped before the bench start. All four started at 131072 ctx on the
-first try (no 65536 retry, no exit, no blocked model). Table and observations:
-[bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md).
+first try (no 65536 retry, no exit, no blocked model).
 
-| Model | Decode tok/s | Prefill 20K ms | Tools /20 | Fit all-GPU at 131072 |
-| --- | --- | --- | --- | --- |
-| Qwen3.6-35B-A3B UD-IQ3_XXS (baseline) | 104.4 | 4,859 | 20 | no (part of 2 layers' experts on CPU) |
-| Qwen3.8-27B UD-Q3_K_XL | 12.1 | 18,199 | 20 | no (50/66 layers on GPU, 1,088 MiB KV on CPU) |
-| Gemma 4 26B-A4B UD-IQ4_XS | 93.4 | 4,534 | 20 | no (4 layers' experts partly on CPU) |
-| GLM-4.7-Flash UD-Q3_K_XL | 91.0 | 13,768 | 20 | no (12 layers' experts partly on CPU) |
-| gpt-oss-20b MXFP4 | 170.6 | 2,885 | 20 | yes (`--fit` made no change) |
+Warm-up fix and re-run: the first matrix's decode median included the cold first
+request (baseline runs 77.8, 105.9, 104.4 gave 104.4). `bench/run.ps1` now sends one
+decode request, discards it, and takes the median of 3; prefill is unchanged
+(`cache_prompt` false keeps every run cold by design). The whole matrix was re-run
+with the fixed script (baseline on the logon-task server first, then the four
+candidates), the first matrix's five JSONs were deleted, and a `-lv 4` start of the
+Qwen3.6 default backs its placement figures. Those numbers supersede every earlier
+P3 number (part A baseline, the first part-B table). Table, Qwen3.6 placement lines,
+deltas and observations: [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md).
 
 - Every model passed 20/20 tool calls; no wrong tool, no missing call, no empty
   argument, no HTTP error.
 - Qwen3.8-27B's `blk.64.nextn.*` (MTP) tensors load as unused (P6).
 - Template and tokenizer warnings per model are listed in the summary; no template
   was patched.
-- After the matrix: `Start-ScheduledTask LocalInferenceStudio-llama-server`,
-  `/health` ok after 25 s, `scripts/smoke.ps1` PASS (`get_weather {"city":"Mexico City"}`).
+- After the re-run: `Start-ScheduledTask LocalInferenceStudio-llama-server`,
+  `/health` ok after 9 s, `scripts/smoke.ps1` PASS (`get_weather {"city":"Mexico City"}`).
 - Pending operator item: the elevated `pktmon` egress capture from "Phase 3 part A"
   (Egress) is still open.

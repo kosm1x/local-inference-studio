@@ -3,7 +3,7 @@
 .SYNOPSIS
   Benchmark the RUNNING llama-server on 127.0.0.1:-Port and write one JSON result.
 .DESCRIPTION
-  Measures decode tok/s, 20K-token prefill (cold and prefix-cached), tool-call success
+  Measures decode tok/s (median of 3 after one discarded warm-up request), 20K-token prefill (cold and prefix-cached), tool-call success
   over -ToolTrials /v1/messages requests and peak VRAM, then writes
   -OutDir/<yyyyMMdd-HHmmss>-<Label>.json (schema in bench/README.md) and prints a
   one-line summary. It does not start or stop the server; -Label, -Quant, -Ctx, -Ngl
@@ -84,14 +84,17 @@ $vramJob = Start-ThreadJob -ScriptBlock {
     }
 }
 try {
-    # a. decode
+    # a. decode: one discarded warm-up request (the first request after a start is slow), then 3 measured.
+    $decodeBody = @{ prompt = $decodePrompt; n_predict = 256; cache_prompt = $false; ignore_eos = $true }
+    $t = (Invoke-Json '/completion' $decodeBody).timings
+    Write-Host ("decode warm-up (discarded): {0:N1} tok/s ({1} tokens)" -f $t.predicted_per_second, $t.predicted_n)
     $decodeRuns = foreach ($r in 1..3) {
-        $t = (Invoke-Json '/completion' @{ prompt = $decodePrompt; n_predict = 256; cache_prompt = $false; ignore_eos = $true }).timings
+        $t = (Invoke-Json '/completion' $decodeBody).timings
         Write-Host ("decode run {0}: {1:N1} tok/s ({2} tokens)" -f $r, $t.predicted_per_second, $t.predicted_n)
         [double]$t.predicted_per_second
     }
 
-    # b. prefill, cold then prefix-cached
+    # b. prefill, cold then prefix-cached. No warm-up: cache_prompt=false makes each run cold by design.
     $prefillRuns = foreach ($r in 1..3) {
         $t = (Invoke-Json '/completion' @{ prompt = $prefillPrompt; n_predict = 1; cache_prompt = $false }).timings
         Write-Host ("prefill run {0}: {1:N0} ms, {2:N0} tok/s ({3} tokens)" -f $r, $t.prompt_ms, $t.prompt_per_second, $t.prompt_n)

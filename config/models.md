@@ -6,7 +6,7 @@ in 16 GB VRAM; KV cache at the target context is not yet measured.
 
 | Model | HF repo | Quant | Size | Fits all-GPU? | Ctx target | Status |
 |---|---|---|---|---|---|---|
-| Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ3_XXS | 13.2 GB | yes | 131072 | candidate |
+| Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ3_XXS | 13.2 GB | no, measured: `--fit` keeps 41/41 layers on GPU but moves part of 2 layers' experts to CPU (~535 MiB) at 131072 ctx with `--no-mmproj` | 131072 | candidate |
 | Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ4_XS | 17.7 GB | no (partial offload) | 131072 | candidate |
 | Qwen3.8-27B dense | UNVERIFIED | 3-bit | 12-14 GB | yes (KV tight) | 131072 | candidate |
 | Gemma 4 26B-A4B | UNVERIFIED | IQ4_XS | 13.4 GB | yes | 131072 | candidate |

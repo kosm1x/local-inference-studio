@@ -31,10 +31,11 @@ only when its done-check passes on this machine.
 - Goal: Claude Code runs a real task end to end against the local server.
 - Steps:
   1. `scripts/claude-local.ps1` in a throwaway repo.
-  2. Verify that `ANTHROPIC_MODEL` / `config/claude-settings.json` override
-     `model: fable` from `~/.claude/settings.json`, and that subagents do not
-     request Opus (the user settings pin `CLAUDE_CODE_SUBAGENT_MODEL=opus` with
-     `_FORCE=1`). Check the llama-server log for the model names requested.
+  2. Verify that `ANTHROPIC_MODEL` / `config/claude-settings.json` override the
+     main-session `model` from `~/.claude/settings.json`, and that subagents do
+     not request a cloud model (the operator's global settings pin other model
+     names, including `CLAUDE_CODE_SUBAGENT_MODEL` with `_FORCE=1`). Check the
+     llama-server log for the model names requested.
   3. Give it a small multi-step task (edit code, run tests, fix).
 - Done-check: one multi-step edit + test loop completes without manual
   intervention.
@@ -71,7 +72,7 @@ only when its done-check passes on this machine.
 ## P6 — Speculative decoding / MTP
 
 - Goal: speed-up from MTP heads once Qwen MTP GGUFs load in stock llama.cpp.
-- Steps: `-ExtraArgs '--spec-type','draft-mtp','--spec-draft-n-max','2'`;
+- Steps: `-ExtraArgs '--spec-type draft-mtp --spec-draft-n-max 2'`;
   compare against P3 numbers.
 - Done-check: bench JSON with and without MTP on the same model.
 - Open rulings: none until the GGUFs exist upstream.
@@ -113,6 +114,22 @@ only when its done-check passes on this machine.
   minimum.
 - Not done: step 3 (NVIDIA control panel "Prefer No Sysmem Fallback") is a GUI
   setting for the operator.
-- Found: `pwsh -File scripts/serve.ps1 -ExtraArgs '-lv','4'` passes the single
-  string `-lv,4` (llama-server: invalid argument). `-ExtraArgs` works only from
-  inside pwsh (`& scripts/serve.ps1 -ExtraArgs ...`) or via `pwsh -Command`.
+- Found (FIXED): `pwsh -File scripts/serve.ps1 -ExtraArgs '-lv','4'` passes the
+  single string `-lv,4` (llama-server: invalid argument). `-ExtraArgs` worked only
+  from inside pwsh (`& scripts/serve.ps1 -ExtraArgs ...`) or via `pwsh -Command`.
+  `serve.ps1` now splits a single space-separated string, so
+  `pwsh -File scripts/serve.ps1 -ExtraArgs '-lv 4'` works (used for the re-run below).
+- 2026-10-24, re-run with `--no-mmproj` (now the `serve.ps1` default, plus
+  `--api-key local`):
+  - `--fit` still offloads: projected 14049 MiB against 15047 MiB free missed
+    the 1024 MiB target by 26 MiB, so 41/41 layers stay on GPU with part of the
+    MoE expert tensors of 2 layers on CPU (overflow type GATE; 6 layers with the
+    mmproj). Buffers: CUDA0 model 12054 MiB, CPU_Mapped 398 + 137 MiB, CUDA0
+    compute 436 MiB; KV and recurrent state unchanged (1360 + 62.81 MiB).
+  - VRAM: 15575 to 15598 MiB used after load (1617 to 1809 MiB before load).
+  - Smoke: PASS 3/3 at the new default `-MaxTokens 4096` (`get_weather
+    {"city":"Mexico City"}`, thinking 615 to 868 chars).
+  - Speed (305-306-token prompt): generation 137.2 to 137.9 tok/s (was 108 to
+    121); prompt processing 795 to 2083 tok/s.
+  - Auth: `x-api-key: local` and `Authorization: Bearer local` return 200; no key
+    or a wrong key returns 401.

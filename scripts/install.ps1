@@ -6,6 +6,8 @@
   Fetches the llama.cpp Windows x64 CUDA zip and its cudart companion zip from the
   ggml-org/llama.cpp GitHub release, verifies SHA256 against the digest the GitHub
   release API publishes, and extracts both into -BinDir. Never builds from source.
+  A failed API fetch or a missing digest stops the install; -SkipVerify extracts
+  without the check.
 
   Models are NOT downloaded here. `llama-server -hf <repo>:<quant>` (scripts/serve.ps1)
   fetches the GGUF on first run into its own cache. -ModelsDir is only created, for
@@ -18,7 +20,8 @@ param(
     [string]$LlamaRelease = 'b11868',
     [string]$Cuda = '13.4',
     [string]$BinDir = (Join-Path $PSScriptRoot '..\bin'),
-    [string]$ModelsDir = (Join-Path $PSScriptRoot '..\models')
+    [string]$ModelsDir = (Join-Path $PSScriptRoot '..\models'),
+    [switch]$SkipVerify
 )
 $ErrorActionPreference = 'Stop'
 
@@ -31,6 +34,19 @@ $assets = @(
     "cudart-llama-bin-win-cuda-$Cuda-x64.zip"
 )
 $downloadDir = Join-Path $BinDir '.download'
+
+# llama.cpp releases publish no .sha256 sidecars; the GitHub API exposes each
+# asset's digest ("sha256:<hex>") instead. Fetched once, before any download.
+$release = $null
+if (-not $SkipVerify) {
+    $api = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LlamaRelease"
+    try {
+        $release = Invoke-RestMethod -Uri $api
+    } catch {
+        throw "Could not fetch $api for SHA256 digests: $($_.Exception.Message) Re-run with -SkipVerify to install unverified."
+    }
+    Write-Host "Release JSON fetched: $($release.tag_name), $(@($release.assets).Count) assets"
+}
 
 foreach ($dir in $BinDir, $ModelsDir, $downloadDir) {
     if ($PSCmdlet.ShouldProcess($dir, 'Create directory')) {
@@ -46,16 +62,12 @@ foreach ($name in $assets) {
     Write-Host "Downloading $url"
     Invoke-WebRequest -Uri $url -OutFile $zip
 
-    # llama.cpp releases publish no .sha256 sidecars; the GitHub API exposes each
-    # asset's digest ("sha256:<hex>") instead.
-    $expected = $null
-    try {
-        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LlamaRelease"
+    if ($SkipVerify) {
+        Write-Warning "-SkipVerify: SHA256 of $name not verified."
+    } else {
         $digest = ($release.assets | Where-Object { $_.name -eq $name }).digest
-        if ($digest -like 'sha256:*') { $expected = $digest.Substring(7) }
-    } catch {}
-    if (-not $expected) { Write-Warning "No published SHA256 digest for $name (or fetch failed); SHA256 not verified." }
-    if ($expected) {
+        if ($digest -notlike 'sha256:*') { throw "No published SHA256 digest for $name in release $LlamaRelease. Re-run with -SkipVerify to install unverified." }
+        $expected = $digest.Substring(7)
         $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash
         if ($actual -ne $expected) { throw "SHA256 mismatch for ${name}: expected $expected, got $actual" }
         Write-Host "SHA256 OK: $name"

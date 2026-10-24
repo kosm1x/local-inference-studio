@@ -62,7 +62,7 @@ on first run into its own cache.
 - [docs/landscape-2026-10-24.md](docs/landscape-2026-10-24.md) — Claude Code wiring, backends, model candidates, gotchas
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phases P0-P6
 - [config/models.md](config/models.md) — tracked model candidates
-- [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`)
+- [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 131072)
 - [bench/README.md](bench/README.md) — P3 bench result schema
 
 ## Rules

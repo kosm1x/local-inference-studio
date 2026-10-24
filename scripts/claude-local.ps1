@@ -16,12 +16,23 @@
   - ANTHROPIC_MODEL must override `model: fable`.
   Both are UNVERIFIED: confirm in P2 from the model names in the llama-server log.
 
-  Do not add script parameters whose names prefix-match claude's short flags
-  (-p, -c, -r, ...): PowerShell would bind them here instead of passing them on.
+  There is deliberately no param() block. A declared parameter binds claude's
+  positional prompt (or any unmatched token such as --model) to itself and claims
+  prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
+  and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
+  -v/-d/-p. The one script option, -LisContextTokens N, is taken out of $args here.
 .EXAMPLE
   pwsh scripts/claude-local.ps1 -p "list the files in this repo"
+.EXAMPLE
+  pwsh scripts/claude-local.ps1 -LisContextTokens 65536 -p "list the files in this repo"
 #>
-param([int]$MaxContextTokens = 131072)
+$LisContextTokens = 131072
+$claudeArgs = [System.Collections.Generic.List[object]]$args
+$i = $claudeArgs.IndexOf('-LisContextTokens')
+if ($i -ge 0) {
+    $LisContextTokens = [int]$claudeArgs[$i + 1]
+    $claudeArgs.RemoveRange($i, 2)
+}
 
 $set = [ordered]@{
     ANTHROPIC_BASE_URL                       = 'http://127.0.0.1:8080'
@@ -30,7 +41,8 @@ $set = [ordered]@{
     ANTHROPIC_DEFAULT_OPUS_MODEL             = 'local'
     ANTHROPIC_DEFAULT_SONNET_MODEL           = 'local'
     ANTHROPIC_DEFAULT_HAIKU_MODEL            = 'local'
-    CLAUDE_CODE_MAX_CONTEXT_TOKENS           = "$MaxContextTokens"
+    CLAUDE_CODE_MAX_CONTEXT_TOKENS           = "$LisContextTokens"
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW          = "$LisContextTokens"
     CLAUDE_CODE_MAX_OUTPUT_TOKENS            = '16384'
     API_TIMEOUT_MS                           = '1800000'
     CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS   = '1'
@@ -44,15 +56,22 @@ $set = [ordered]@{
 $unset = 'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE', 'ANTHROPIC_API_KEY'
 $settings = Join-Path $PSScriptRoot '..\config\claude-settings.json'
 
+# Unset with Remove-Item: [Environment]::SetEnvironmentVariable($k, $null) leaves the
+# variable defined as "" in PowerShell 7.6 / .NET 10.
 $saved = @{}
-foreach ($k in @($set.Keys) + $unset) { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
+foreach ($k in @($set.Keys) + $unset) {
+    $saved[$k] = if (Test-Path "env:$k") { (Get-Item "env:$k").Value } else { $null }
+}
 $code = 1
 try {
-    foreach ($k in $set.Keys) { [Environment]::SetEnvironmentVariable($k, $set[$k]) }
-    foreach ($k in $unset) { [Environment]::SetEnvironmentVariable($k, $null) }
-    & claude --settings $settings @args
+    foreach ($k in $set.Keys) { Set-Item "env:$k" $set[$k] }
+    foreach ($k in $unset) { Remove-Item "env:$k" -ErrorAction Ignore }
+    & claude --settings $settings @claudeArgs
     $code = $LASTEXITCODE
 } finally {
-    foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
+    foreach ($k in $saved.Keys) {
+        if ($null -eq $saved[$k]) { Remove-Item "env:$k" -ErrorAction Ignore }
+        else { Set-Item "env:$k" $saved[$k] }
+    }
 }
 exit $code

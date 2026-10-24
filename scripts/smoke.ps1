@@ -3,17 +3,19 @@
 .SYNOPSIS
   Smoke-test a running llama-server: /health, /v1/messages tool_use, /v1/messages/count_tokens.
 .DESCRIPTION
-  PASS (exit 0) when the /v1/messages reply contains a tool_use block, else FAIL (exit 1).
+  PASS (exit 0) when /health reports status "ok" and the /v1/messages reply contains a
+  get_weather tool_use block with a non-empty input.city, else FAIL (exit 1).
   count_tokens is reported but does not fail the run (Claude Code falls back to an
   estimate without it).
-  Qwen3.6 thinks by default: 256 tokens ended in thinking only (2026-10-24), so the
-  default is 2048. If FAIL shows only thinking blocks, raise -MaxTokens.
+  Qwen3.6 thinks by default: 256 tokens ended in thinking only and one run reached
+  3841 thinking chars (2026-10-24), so the default is 4096. If FAIL shows only
+  thinking blocks, raise -MaxTokens.
 #>
 [CmdletBinding()]
 param(
     [int]$Port = 8080,
     [string]$Model = 'local',
-    [int]$MaxTokens = 2048
+    [int]$MaxTokens = 4096
 )
 $ErrorActionPreference = 'Stop'
 
@@ -25,6 +27,10 @@ try {
     Write-Host "health: $($health | ConvertTo-Json -Compress)"
 } catch {
     Write-Host "FAIL: /health unreachable at ${base}: $($_.Exception.Message)"
+    exit 1
+}
+if ($health.status -ne 'ok') {
+    Write-Host "FAIL: /health status is '$($health.status)', expected 'ok'"
     exit 1
 }
 
@@ -65,9 +71,12 @@ try {
     Write-Host "count_tokens: unavailable ($($_.Exception.Message))"
 }
 
-if (@($resp.content | Where-Object { $_.type -eq 'tool_use' }).Count -gt 0) {
-    Write-Host 'PASS: tool_use block returned'
+$call = @($resp.content | Where-Object {
+    $_.type -eq 'tool_use' -and $_.name -eq 'get_weather' -and -not [string]::IsNullOrWhiteSpace($_.input.city)
+}) | Select-Object -First 1
+if ($call) {
+    Write-Host "PASS: tool_use $($call.name) $($call.input | ConvertTo-Json -Compress)"
     exit 0
 }
-Write-Host 'FAIL: no tool_use block in /v1/messages reply'
+Write-Host 'FAIL: no get_weather tool_use block with a non-empty input.city in /v1/messages reply'
 exit 1

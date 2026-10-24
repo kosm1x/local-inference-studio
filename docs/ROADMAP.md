@@ -88,8 +88,9 @@ only when its done-check passes on this machine.
   `blk.64.nextn.*` layer of ISTA-DASLab `Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` on
   the first try. With and without MTP on that model: 48.8 -> 83.7 tok/s at 65536
   ctx (both all-GPU; draft acceptance 0.67 to 1.00 per request), but 26.4 -> 18.0
-  tok/s at 131072, where the draft KV and extra recurrent state (about 1.3 GB)
-  pushed `--fit` from 61 to 52 GPU layers. The done-check is met for that model;
+  tok/s at 131072, where the MTP layer weights, draft KV and extra recurrent state
+  (about 1.34 GB projected) plus 300 MiB less free memory at start pushed `--fit`
+  from 61 to 52 GPU layers. The done-check is met for that model;
   speed-up on real agent text is UNVERIFIED.
 - Open rulings: whether MTP is worth the context it costs on 16 GB (65536 with MTP
   vs 131072 without), tied to the P3 default-model ruling.

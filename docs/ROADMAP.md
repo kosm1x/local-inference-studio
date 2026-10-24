@@ -26,7 +26,7 @@ only when its done-check passes on this machine.
   `tool_use` block (`smoke.ps1` prints PASS).
 - Open rulings: CUDA 13.4 vs 12.4 build if 13.4 misbehaves.
 
-## P2 — Claude Code profile + first agentic task
+## P2 — Claude Code profile + first agentic task (DONE 2026-10-24)
 
 - Goal: Claude Code runs a real task end to end against the local server.
 - Steps:
@@ -133,3 +133,68 @@ only when its done-check passes on this machine.
     121); prompt processing 795 to 2083 tok/s.
   - Auth: `x-api-key: local` and `Authorization: Bearer local` return 200; no key
     or a wrong key returns 401.
+
+## Phase 2 run 2026-10-24
+
+Claude Code 2.1.310, PowerShell 7.6, server from the P1 re-run (PID 20548,
+`--api-key local`, alias `local`, ctx 131072). Sandbox: throwaway git repo in the
+session scratchpad, `src/slugify.js` (no lowercasing, one `-` per character, no
+trimming) plus `test/slugify.test.js` (4 `node:test` cases, 0/4 pass). No change
+to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
+
+- Run A (wiring): `pwsh -NoProfile -File scripts/claude-local.ps1 -p "Reply with
+  exactly: READY" --output-format json --max-turns 1 --debug-file <f>`. Result
+  `READY`, 1 turn, 7.2 s wall. One `/v1/messages` request; debug log
+  `dispatching to firstParty model=local`; `modelUsage` has only `local`
+  (contextWindow 131072). Server log: one task, prompt 21162 tokens, the same as
+  the client's `input_tokens` (prompt processing about 4000 tok/s).
+  `--max-turns` is not in `claude --help` but is accepted.
+- Run B (agentic loop): `pwsh -NoProfile -File scripts/claude-local.ps1 -p "Run
+  `node --test`, fix src/slugify.js so all tests pass without changing the tests,
+  run the tests again and confirm they pass." --permission-mode acceptEdits
+  --max-turns 25 --output-format json --debug-file <f>`. Finished without
+  intervention: `subtype success`, 22 turns, 17 API requests (all
+  `model=local`), 65.3 s wall (API 58.2 s), 6205 output tokens. Tool calls: 10
+  Bash, 4 Read, 3 Glob, 1 Edit dispatched (6 ended in error), plus 3 denied: two
+  Bash heredoc/printf writes and one Write, all using Git Bash `/tmp/...` paths
+  that the Write tool read as `\tmp\...` (outside the working dir). The model then
+  used Edit. `node --test` afterwards: 4/4 pass. Fix: `.toLowerCase()`,
+  `/[^a-z0-9]+/g` to `-`, strip a leading/trailing `-`; tests unchanged.
+  `--allowedTools` was not needed, but Bash `node --test` ran without a prompt
+  because the operator's `~/.claude/settings.json` allow list applied; on a
+  profile without those rules it may prompt (UNVERIFIED).
+- Run C (fork subagent): asked for a `general-purpose` subagent; the model
+  spawned a `fork` (inherits the main model). 11 dispatches, all `model=local`.
+  Sources: `sdk`, `agent:builtin:fork`, `side_query` (the side queries log no
+  model name in the debug log). TCP connections of the new `claude.exe`, sampled
+  every 150 ms for the whole run: only `127.0.0.1:8080`.
+- Run D (model names on the wire): a pass-through Node proxy on 127.0.0.1:8081
+  logged the request body of a scratch copy of the launcher that differs only in
+  `ANTHROPIC_BASE_URL` (and an absolute `--settings` path). Prompt: use the
+  built-in `Explore` subagent (Haiku tier by default). 11 requests, all
+  `"model":"local"`, all HTTP 200: main session (24 tools, `max_tokens` 16384),
+  Explore subagent (`agent:builtin:Explore`, 14 tools, 16384) and tool-less side
+  queries (`max_tokens` 2112 and 10240). Result correct, `by_type {"Explore":1}`.
+- Overlay vs pins: the debug log lists the settings env keys
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW, CLAUDE_CODE_SUBAGENT_MODEL,
+  CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, so `_FORCE=1` from the global settings is
+  still active. It forces the `CLAUDE_CODE_SUBAGENT_MODEL` value, which the
+  `--settings` overlay sets to `local`. Global `model: fable` was overridden:
+  no request named any model other than `local`.
+- Traffic: no request URL other than `/v1/messages?beta=true` was seen at the
+  proxy; no `count_tokens` call. Debug: `[Bootstrap] Skipped: Nonessential traffic
+  disabled`, telemetry off. The 150 ms TCP sampling can miss very short
+  connections, so "nothing went to api.anthropic.com" is UNVERIFIED beyond that.
+- Requests carry `thinking: {"type":"adaptive"}` and `?beta=true` even with
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`; llama-server accepted both (200),
+  and the client reported 0 thinking tokens. `CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384`
+  is honored on the wire; the `maxOutputTokens 32000` in `modelUsage` is client
+  metadata only. `total_cost_usd` is a list-price estimate, not a real cost.
+- Warnings (stderr): `[claude-code:unrecognized_model] {"model":"local"}`;
+  "claude.ai connectors are disabled because ... another auth source is set".
+  Debug: skill listing over budget (32 skills), TypeScript LSP plugin failed to
+  start (no `typescript` in the sandbox), `shell cwd read-back is not readable`.
+  No rejected `thinking` / `output_config` and no retries were logged.
+- Not `--bare`: the operator's global hooks (SessionStart orientation, PreToolUse
+  reminders), skills and CLAUDE.md loaded; that makes the 21162-token first
+  prompt. Input for the open `--bare` ruling.

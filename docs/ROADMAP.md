@@ -57,7 +57,8 @@ only when its done-check passes on this machine.
 - UNVERIFIED: prefill only at 20K tokens; the 20 tool prompts are synthetic (two
   tools, one turn); one run per model, no variance; every model ran with the
   Qwen-tuned `serve.ps1` sampling; decode text quality not inspected.
-- Open rulings: the default model (the numbers are in; the logon task still runs
+- Open rulings: the default model (the numbers are in, plus two Qwen3.8-27B
+  compressions from "Phase 3b"; the logon task still runs
   Qwen3.6-35B-A3B UD-IQ3_XXS); uploader per model (Unsloth vs Bartowski, given
   the tool-call gap reported for one quant).
 
@@ -82,7 +83,16 @@ only when its done-check passes on this machine.
 - Steps: `-ExtraArgLine '--spec-type draft-mtp --spec-draft-n-max 2'`;
   compare against P3 numbers.
 - Done-check: bench JSON with and without MTP on the same model.
-- Open rulings: none until the GGUFs exist upstream.
+- Status 2026-10-24 (Phase 3b): stock b11868 runs the Qwen MTP head, so P6 needs
+  no custom build or fork: `--spec-type draft-mtp --spec-draft-n-max 2` loaded the
+  `blk.64.nextn.*` layer of ISTA-DASLab `Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` on
+  the first try. With and without MTP on that model: 48.8 -> 83.7 tok/s at 65536
+  ctx (both all-GPU; draft acceptance 0.67 to 1.00 per request), but 26.4 -> 18.0
+  tok/s at 131072, where the draft KV and extra recurrent state (about 1.3 GB)
+  pushed `--fit` from 61 to 52 GPU layers. The done-check is met for that model;
+  speed-up on real agent text is UNVERIFIED.
+- Open rulings: whether MTP is worth the context it costs on 16 GB (65536 with MTP
+  vs 131072 without), tied to the P3 default-model ruling.
 
 ## Phase 1 run 2026-10-24
 
@@ -331,3 +341,17 @@ deltas and observations: [bench/summary-2026-10-24.md](../bench/summary-2026-10-
   `/health` ok after 9 s, `scripts/smoke.ps1` PASS (`get_weather {"city":"Mexico City"}`).
 - Pending operator item: the elevated `pktmon` egress capture from "Phase 3 part A"
   (Egress) is still open.
+
+## Phase 3b 2026-10-24
+
+Two Qwen3.8-27B compressions benched on :8080 with the part B procedure, placement
+read from the same `-lv 4` start as each bench: Saluki 27B 1.0 IQ2-mix (7.90 GB)
+fits all-GPU at 131072 with the full KV and decodes at 57.5 tok/s (dense
+UD-Q3_K_XL: 11.7); GSQ-RCO IQ3_XXS-mtp (10.44 GB) misses all-GPU at 131072 by 532
+MiB (26.4 tok/s), fits at 65536 (48.8, 83.7 with MTP). Every run passed 20/20 tool
+calls. Saluki's GGUF metadata is ISTA DASLab's; its derivative status is
+UNVERIFIED. Table, placement lines, MTP acceptance and observations:
+[bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 3b"). The
+default-model ruling (P3) stays open. After the runs: `Start-ScheduledTask
+LocalInferenceStudio-llama-server`, `/health` ok after 8 s, `scripts/smoke.ps1`
+PASS (`get_weather {"city":"Mexico City"}`).

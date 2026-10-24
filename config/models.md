@@ -4,7 +4,7 @@ Tracked list from `docs/landscape-2026-10-24.md`. Repo + filename + size were
 verified against the HF API (`/api/models/<repo>?blobs=true`, all ungated) on
 2026-10-24 for the rows with a Local file; downloaded byte counts match
 the API exactly. Repo names still marked UNVERIFIED have not been checked.
-"Fits all-GPU" is measured for the benched rows (P3 part B, 2026-10-24): whether
+"Fits all-GPU" is measured for the benched rows (P3 part B and Phase 3b, 2026-10-24): whether
 `--fit` kept every tensor on GPU at the target context with the `serve.ps1`
 defaults (q8_0 KV). "Decode tok/s" (median of 3 after one discarded warm-up) and
 "Prefill 20K ms" (cold, median of 3) are the P3 bench numbers; the full table is
@@ -16,6 +16,8 @@ defaults (q8_0 KV). "Decode tok/s" (median of 3 after one discarded warm-up) and
 | Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ3_XXS | 13.2 GB | no, measured: `--fit` keeps 41/41 layers on GPU but moves part of 2 layers' experts to CPU (~535 MiB) at 131072 ctx with `--no-mmproj` | 134.0 | 5,351 | 131072 | benched (default) | - |
 | Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ4_XS | 17.7 GB | no (partial offload) | - | - | 131072 | candidate | - |
 | Qwen3.8-27B dense | unsloth/Qwen3.8-27B-GGUF `Qwen3.8-27B-UD-Q3_K_XL.gguf` (lastModified 2026-08-20) | UD-Q3_K_XL | 13.15 GB (13146393504 B) | no, measured: `--fit` puts 50/66 layers on GPU, 2921 MiB CPU_Mapped, 1088 MiB of the 4352 MiB KV on CPU at 131072 ctx | 11.7 | 19,001 | 131072 | benched | `models\qwen3.8-27b\Qwen3.8-27B-UD-Q3_K_XL.gguf` |
+| Underdog Saluki 27B 1.0 (Qwen3.8-27B, see provenance note) | ConwayResearch/Underdog-Saluki-27B-1.0 `Underdog-Saluki-27B-1.0-IQ2-mix.gguf` (lastModified 2026-10-15) | IQ2-mix | 7.90 GB (7898369152 B) | yes, measured: `--fit` made no change at 131072 ctx (65/65 layers, full 4352 MiB KV on GPU, 2462 MiB left free; 265 MiB CPU_Mapped) | 57.5 (57.1 at 65536) | 12,335 | 131072 | benched | `models\saluki-27b\Underdog-Saluki-27B-1.0-IQ2-mix.gguf` |
+| Qwen3.8-27B GSQ-RCO (with MTP layer) | ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF `Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` (lastModified 2026-09-02) | IQ3_XXS | 10.44 GB (10442827840 B) | no at 131072, measured: 61/66 layers on GPU, 967 MiB CPU_Mapped, 272 MiB of the 4352 MiB KV on CPU (52/66 with MTP); yes at 65536 (66/66, with or without MTP) | 26.4 at 131072 (18.0 with MTP); 48.8 at 65536 (83.7 with MTP `draft-mtp`, n-max 2) | 17,021 (12,227 at 65536) | 131072 | benched | `models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` |
 | Gemma 4 26B-A4B | unsloth/gemma-4-26B-A4B-it-GGUF `gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` (lastModified 2026-07-17) | UD-IQ4_XS | 13.60 GB (13597177568 B) | no, measured: 31/31 layers on GPU, 4 layers overflowing (experts), 1964 MiB CPU_Mapped at 131072 ctx | 96.9 | 4,653 | 131072 | benched | `models\gemma-4-26b-a4b\gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` |
 | GLM-4.7-Flash | unsloth/GLM-4.7-Flash-GGUF `GLM-4.7-Flash-UD-Q3_K_XL.gguf` (lastModified 2026-02-12) | UD-Q3_K_XL (substitute; IQ4_XS 16.27 GB needs offload) | 13.78 GB (13782004064 B) | no, measured: 48/48 layers on GPU, 12 layers overflowing (experts), 3026 MiB CPU_Mapped at 131072 ctx | 89.9 | 13,755 | 131072 | benched | `models\glm-4.7-flash\GLM-4.7-Flash-UD-Q3_K_XL.gguf` |
 | Qwen3-Coder-Next 80B-A3B | UNVERIFIED | UD-IQ4_XS | 38.4 GB | no (`--n-cpu-moe`) | - | - | 131072 | candidate | - |
@@ -29,6 +31,8 @@ GGUF header (read locally from each downloaded file, GGUF v3):
 | Local file | general.architecture | general.name | block_count | context_length | expert_count / used |
 |---|---|---|---|---|---|
 | qwen3.8-27b | qwen35 | Qwen3.8-27B | 65 | 262144 | - (dense) |
+| saluki-27b | qwen35 | Qwen3.8-27B GSQ-RCO (sic, see provenance note) | 64 (no MTP layer) | 262144 | - (dense) |
+| qwen3.8-27b-gsq-rco | qwen35 | Qwen3.8-27B GSQ-RCO | 65 (incl. MTP, `nextn_predict_layers` 1) | 262144 | - (dense) |
 | gemma-4-26b-a4b | gemma4 | Gemma-4-26B-A4B-It | 30 | 262144 | 128 / 8 |
 | glm-4.7-flash | deepseek2 | Glm-4.7-Flash | 47 | 202752 | 64 / 4 |
 | gpt-oss-20b | gpt-oss | gpt-oss-20b | 24 | 131072 | 32 / 4 |
@@ -44,3 +48,13 @@ Selection notes:
   14.78 GB (less KV headroom); bartowski IQ3_M is 13.98 GB.
 - gpt-oss-20b: ggml-org ships the native MXFP4 file; unsloth has no MXFP4
   file (its `F16` is 13.79 GB).
+- Underdog Saluki 27B 1.0 provenance: its GGUF `general.*` metadata is ISTA
+  DASLab's (`general.name` "Qwen3.8-27B GSQ-RCO", `general.quantized_by` "ISTA
+  DASLab", `general.repo_url` ISTA-DASLab), not ConwayResearch's. Its size matches
+  none of the eight model files in ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF (smallest
+  IQ2_XS 8.42 GB). The card names that repo as a base model (`base_model_relation:
+  quantized`) and says the file is "tuned to keep tool calling intact"; derivative
+  status (re-quant, different mix, or tuned weights) is UNVERIFIED, as are the
+  card's benchmark claims. Details: `bench/summary-2026-10-24.md` (Phase 3b).
+- Qwen3.8-27B GSQ-RCO: took the IQ3_XXS `-mtp` file (10.44 GB) to test the MTP
+  head; the plain IQ3_XXS file is 10.09 GB.

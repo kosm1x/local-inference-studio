@@ -3,6 +3,21 @@
 Each phase lists its goal, steps, done-check and open rulings. A phase is done
 only when its done-check passes on this machine.
 
+## Status 2026-10-24 (end of day)
+
+- Default server (ruling 6): Orca Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV
+  q4_0, patched chat template; logon task Running (PID 25916), smoke PASS, one-turn
+  Claude Code call PASS. Tip `ef5e65c`.
+- P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
+  (KV capacity); P4 and P6 not started.
+- UNPROVEN until it happens: the revised `serve.ps1` (`ef5e65c`) has only been traced,
+  never run by the task; the first `Start-ScheduledTask` or logon proves it, together
+  with the logon start itself (`Get-ScheduledTaskInfo` LastRunTime + `/health`).
+- Open rulings: (9) Bonsai revisit (a dense 27B now IS the default and VRAM headroom
+  is 1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
+  multi-file loop fixture should settle the accuracy question that the 3-test
+  fixture could not (every contender passed it).
+
 ## P0 — Evaluation + scaffold (DONE 2026-10-24)
 
 - Goal: decide the backend and lay out the repo.
@@ -69,6 +84,8 @@ only when its done-check passes on this machine.
   sweep N; same bench as P3.
 - Done-check: bench JSON for at least two N values, compared with the P3 winner.
 - Open rulings: whether ~40 tok/s is acceptable for agentic use.
+- Status 2026-10-24: not started. Ruling 6 accepted 45 tok/s for accuracy, so the
+  bar for P4 is correctness on the loop fixture against the Orca default, not speed.
 
 ## P5 — SGLang / vLLM in WSL2 (optional)
 
@@ -286,6 +303,9 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   The install recipe in the Phase 5 section stays for a larger GPU.
 - (9) Bonsai 2 27B (PrismML fork): DEFERRED until after the loop comparison;
   revisit only if a dense 27B wins and VRAM headroom becomes the bottleneck.
+  2026-10-24 later: a dense 27B is now the default (ruling 6) with 1,630 MiB free,
+  so the condition is met; revisit is an OPEN ruling (fork = separate binary, no
+  `/v1/messages` guarantee; see `docs/evaluation-2026-10-24.md`).
 - (10) Egress proof: RUN 2026-10-24 19:03 by the operator, PASS after attribution
   (8 keepalive lines from the operator's own cloud session, 0 from the local run);
   details in "Phase 3 part A" (Egress). CLOSED.

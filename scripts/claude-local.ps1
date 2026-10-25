@@ -27,12 +27,19 @@
   section 5). Hooks stay on. -LisFull omits all three for a session that needs the full
   tool set or MCP; Agent and Workflow stay denied by config/claude-settings.json.
 
+  Permissions (ruling 15): the per-run settings carry rule set A from
+  config/claude-settings.json plus a PreToolUse Bash hook, scripts/hooks/lis-guard.py
+  (run as `python -I <repo path>`), added here so the committed JSON holds no absolute
+  path. The hook denies critical writes, also inside interpreter and ssh payloads,
+  and allows read-only commands and read-only scripts; see docs/SETUP.md step 8.
+  -LisNoGuard leaves the hook out (rules only, set A; used by bench/perm/run.ps1).
+
   There is deliberately no param() block. A declared parameter binds claude's
   positional prompt (or any unmatched token such as --model) to itself and claims
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
-  -v/-d/-p. The two script options, -LisContextTokens N and -LisFull, are taken out of
-  $args here. -LisContextTokens defaults to 131072, the default server ctx (ruling 14);
+  -v/-d/-p. The script options, -LisContextTokens N, -LisFull and -LisNoGuard, are taken
+  out of $args here. -LisContextTokens defaults to 131072, the default server ctx (ruling 14);
   keep it <= the server's -Ctx.
   A prompt that starts with `-` must be passed after a quoted `'--'` when calling in-process.
 .EXAMPLE
@@ -51,11 +58,13 @@ $ErrorActionPreference = 'Stop'
 # All checks run before any env change.
 $LisContextTokens = 131072
 $LisFull = $false
+$LisNoGuard = $false
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
 $seenFull = $false
 for ($j = 0; $j -lt $args.Count; $j++) {
     $a = $args[$j]
+    if ($a -is [string] -and $a -eq '-LisNoGuard') { $LisNoGuard = $true; continue }
     if ($a -is [string] -and $a -match '^-LisFull(:(.*))?$') {
         if ($seenFull) { throw "-LisFull was given more than once." }
         $seenFull = $true
@@ -138,6 +147,14 @@ try {
         if ($cfg.permissions -and $cfg.permissions[$kind]) {
             $cfg.permissions[$kind] = @($cfg.permissions[$kind] | ForEach-Object { $_.Replace('Edit(~/', "Edit($homeRule/") })
         }
+    }
+    if (-not $LisNoGuard) {
+        $guard = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'hooks\lis-guard.py')).Path.Replace('\', '/')
+        if (-not $cfg.hooks) { $cfg.hooks = [ordered]@{} }
+        $cfg.hooks['PreToolUse'] = @($cfg.hooks['PreToolUse'] | Where-Object { $_ }) + @([ordered]@{
+                matcher = 'Bash'
+                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$guard`""; timeout = 10 })
+            })
     }
     $cfg | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $settings -Encoding utf8NoBOM
     if (-not $LisFull) { Set-Content -LiteralPath $mcpConfig -Value '{"mcpServers":{}}' -Encoding utf8NoBOM }

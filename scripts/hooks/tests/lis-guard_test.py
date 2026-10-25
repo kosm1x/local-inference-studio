@@ -149,7 +149,10 @@ def main():
         write(t, 'probe.sh', '#!/usr/bin/env bash\nset -u\n'
               "wsl -d Ubuntu -- bash -c 'test -f \"$HOME/.ssh/k\" && echo key-present || echo key-missing'\n"
               + WSL_SSH.format('uptime; docker ps | wc -l') + ' 2>&1\n')
-        write(t, 'wipe.sh', '#!/bin/bash\necho start\nrm old.log\necho done\n')
+        write(t, 'wipe.sh', '#!/bin/bash\necho start\nrm -rf old\necho done\n')
+        write(t, 'rm1.sh', '#!/bin/bash\nrm old.log\n')
+        write(t, 'crit.ps1', 'Get-Date\nRemove-Item C:/tmp/x -Recurse\n')
+        write(t, 'evil.py', 'import os\nos.system("rm -rf /tmp/x")\n')
         write(t, 'push.sh', '#!/bin/bash\ngit status\ngit push --force\n')
         write(t, 'mk.sh', '#!/bin/bash\nmkdir -p out\n')
         write(t, 'q.ps1', 'Get-CimInstance Win32_OperatingSystem | Select-Object Caption\nGet-Date\n')
@@ -157,9 +160,10 @@ def main():
         write(t, 'tool.py', 'import os\nprint(os.getcwd())\n')
         scripts = [
             ('bash hello.sh', 'allow'), ('bash ./sweep.sh 2>&1', 'allow'), ('sh probe.sh', 'allow'),
-            ('bash wipe.sh', 'deny'), ('bash push.sh', 'deny'), ('bash mk.sh', 'deny'),
-            ('pwsh -NoProfile -File q.ps1', 'allow'), ('powershell -NoProfile -File w.ps1', 'deny'),
-            ('python tool.py', 'deny'), ('bash missing.sh', 'deny'),
+            ('bash wipe.sh', 'deny'), ('bash push.sh', 'deny'), ('bash mk.sh', None), ('bash rm1.sh', None),
+            ('pwsh -NoProfile -File q.ps1', 'allow'), ('powershell -NoProfile -File w.ps1', None),
+            ('pwsh -File crit.ps1', 'deny'), ('python evil.py', 'deny'),
+            ('python tool.py', None), ('bash missing.sh', None),
             ('echo start; bash hello.sh', 'allow'), ('bash hello.sh; npm install', None),
         ]
         for cmd, want in scripts:
@@ -171,7 +175,8 @@ def main():
                 print(f'FAIL want={want} got={got}: {cmd}\n     reason={d[1] if d else ""}')
         d = g.decide('bash wipe.sh', t)
         n += 1
-        if not (d and "'rm old.log'" in d[1] and 'line 3' in d[1] and 'echo done' not in d[1]):
+        if not (d and "'rm -rf old'" in d[1] and 'line 3' in d[1] and 'echo done' not in d[1]
+                and 'not retryable' in d[1]):
             fails += 1
             print(f'FAIL script reason must quote only the first offending line: {d}')
         # end to end through stdin/stdout, as Claude Code calls it

@@ -4,9 +4,14 @@ Decision order for one Bash command:
   (a) a critical write or delete anywhere in it, including inside powershell/pwsh
       -Command, bash/sh -c, wsl ... -- and ssh payloads            -> deny
   (b) a script run (bash|sh <file>, powershell|pwsh -File <file>, python|py|node
-      <file>): every line of the file passes the read-only grammar -> allow, else deny
+      <file>): a critical write on any line -> deny quoting that line; every line
+      read-only -> allow; unreadable, or a line that is neither -> no decision
   (c) every segment passes the read-only grammar                   -> allow
   (d) anything else: no output, exit 0, so the rules and the classifier decide.
+
+This scanner is the judge of record for script execution and interpreter payloads
+(operator ruling, 2026-10-25): the auto-mode classifier never sees a script's content
+or a tool's output, so it cannot review them.
 
 Static text analysis only: it never runs the command or the script. Stdlib only;
 run with `python -I`. Over-matching is deliberate: a critical verb inside a quoted
@@ -235,12 +240,12 @@ def critical_verb(cmd):
     return None
 
 
-def critical(cmd):
+def critical(cmd, ctx0='local'):
     """Name of the critical write/delete in cmd, or None."""
     hit = critical_verb(cmd)
     if hit:
         return hit
-    for ctx, seg in walk(cmd):
+    for ctx, seg in walk(cmd, ctx0):
         if ctx == 'remote':
             w = remote_write(seg)
             if w:
@@ -463,21 +468,28 @@ def resolve(path, cwd):
 
 
 def check_script(path, kind, cwd):
-    """None when every line is read-only, else the deny reason."""
+    """'allow' when every line is read-only, ('deny', reason) for the first critical
+    line, None (no decision) when the file is unreadable or a line is neither."""
     try:
         with open(resolve(path, cwd), encoding='utf-8', errors='replace') as f:
             text = f.read(200_000)
-    except OSError as e:
-        return f'lis-guard: cannot read script {path} ({e.__class__.__name__}); inline the read-only commands instead or report it to the operator. Not retryable.'
+    except OSError:
+        return None
     lines = re.sub(r'\\\r?\n', ' ', text).splitlines()
+    all_readonly = True
     for n, raw in enumerate(lines, 1):
         line = raw.strip()
         if not line or line.startswith('#'):
             continue
-        if not script_line_ok(line, kind):
-            return (f'lis-guard: script {path} line {n} is not read-only: {line[:160]!r}. '
-                    'Inline the read-only commands instead or report it to the operator. Not retryable.')
-    return None
+        if kind in ('sh', 'ps'):
+            hit = critical(line, 'ps' if kind == 'ps' else 'local')
+        else:
+            hit = critical_verb(line)
+        if hit:
+            return 'deny', f'lis-guard: script {path} line {n} is a critical write ({hit}): {line[:160]!r}; {NOT_RETRYABLE}.'
+        if all_readonly and not script_line_ok(line, kind):
+            all_readonly = False
+    return 'allow' if all_readonly else None
 
 
 def decide(cmd, cwd=None):
@@ -493,11 +505,13 @@ def decide(cmd, cwd=None):
         toks = strip_env(toks) if toks else toks
         st = script_target(toks) if toks else None
         (scripts if st else others).append(st or seg)
+    scripts_ok = True
     for path, kind in scripts:
-        why = check_script(path, kind, cwd)
-        if why:
-            return 'deny', why
-    if all(seg_readonly(s, 'local', 0) for s in others):
+        r = check_script(path, kind, cwd)
+        if isinstance(r, tuple):
+            return r
+        scripts_ok = scripts_ok and r == 'allow'
+    if scripts_ok and all(seg_readonly(s, 'local', 0) for s in others):
         return 'allow', 'lis-guard: read-only command'
     return None
 

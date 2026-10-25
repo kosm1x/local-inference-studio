@@ -235,11 +235,17 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   classifier (about 60 s per decision on the local model). `ask`: `Edit(...)` rules for
   the critical paths (`~/.claude`, `~/.ssh`, Windows, Program Files, ProgramData, `.env*`,
   `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs Write; the wrapper
-  rewrites `Edit(~/...)` to the `//c/Users/<name>/...` form at run time) and Bash shapes
-  for history rewrite (`git push --force`, `reset --hard`, `clean`, `rebase`,
-  `branch -D`), disks, registry, services, scheduled tasks, `wsl --unregister|--import`
-  and Docker deletes, plus `Bash(powershell *Remove-Item*)`-style rules that see inside a
-  payload. `deny`: WebSearch, WebFetch, Agent, Workflow.
+  rewrites `Edit(~/...)` to the `//c/Users/<name>/...` form at run time; UNVERIFIED: a
+  user name containing a space is not quoted in that rewrite, so such a path may not
+  match and was not tested on this machine) and Bash shapes for history rewrite
+  (`git push --force`, `reset --hard`, `clean`, `rebase`, `branch -D`), disks, registry,
+  services, scheduled tasks, `wsl --unregister|--import` and Docker deletes, plus
+  `Bash(powershell *Remove-Item*)`-style rules (with `powershell.exe`/`pwsh.exe`
+  variants) that see inside a payload. `git branch` is allowed only by its read-only
+  forms (`-a`, `--list`, `--show-current`, `-vv`, bare); the `curl` allow rules are
+  anchored to `http://127.0.0.1:8080/` and `http://localhost:8080/`; `wmic` has no allow
+  rule (the hook allows `wmic <alias> get|list` and gives no decision on the rest).
+  `deny`: WebSearch, WebFetch, Agent, Workflow.
 - The hook, `scripts/hooks/lis-guard.py` (Python 3, stdlib, `python -I`), which the
   wrapper adds to the per-run settings as a PreToolUse `Bash` hook. It denies a critical
   write or delete anywhere in the command, including inside `powershell -Command "..."`,
@@ -250,8 +256,17 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `pwsh -File`, `python file`, `node file`) and interpreter payloads it is the judge of
   record (operator ruling, 2026-10-25): a critical write on any line is denied quoting
   that line, a file whose every line is read-only is allowed, and a file it cannot read
-  or parse gets no decision. Everything without a decision goes to the classifier. Its denials say "not retryable; report it to the operator",
-  which stops the retry loop. `-LisNoGuard` leaves the hook out. Tests:
+  or parse gets no decision. "No decision" does not mean "straight to the classifier":
+  the call falls back to Claude Code's own permission rules (deny > ask > allow), and
+  only a call no rule decides reaches the classifier. Its denials say "not retryable; report it to the operator",
+  which stops the retry loop. The read-only grammar is a per-verb allow-list of argument
+  shapes (a verb runs only with options from its own safe set; an unknown option gives no
+  decision), so a write/exec option on an otherwise read-only verb (`uniq <out>`,
+  `sort -o`, `find -fprint`, `nvidia-smi -f`, `wmic ... delete`, `curl -o`,
+  `ssh -o ProxyCommand`) is never allowed. The wrapper registers the hook with
+  `timeout: 10` and `onFailure: block` (Claude Code 2.1.295+, so a hook crash or timeout
+  blocks the call rather than letting it through), and inputs over 32 KB get no decision.
+  `-LisNoGuard` leaves the hook out. Tests:
   `python -I scripts\hooks\tests\lis-guard_test.py`.
 - What asks: the `ask` rules above. Interactively you get a prompt. In `-p` mode an ask
   is a hard denial with no classifier, and the model retries the same call until

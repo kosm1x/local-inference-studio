@@ -19,7 +19,9 @@ only when its done-check passes on this machine.
   lean: PASS 3/3, 6 turns, 40.7 s, 0 tool errors (one rep, variance UNVERIFIED).
 - Permissions (ruling 15): rule set A plus the lis-guard hook in every local session
   (`-LisNoGuard` leaves the hook out); on the 24-command bench the hook cut classifier
-  requests from 41 to 11 and wall time from 1,868.7 to 803.8 s. Graded re-run pending.
+  requests from 41 to 11 and wall time from 1,868.7 to 803.8 s. Graded re-run (RUN 4):
+  0 classifier requests, 0 timeouts, 162.1 s wall against RUN 3's 341.7 s, but the
+  report scored 7 of 14 with 2 false statements, so (15) stays OPEN.
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -41,7 +43,8 @@ only when its done-check passes on this machine.
   45,417 peak. Real-text and deep-context speed-up UNVERIFIED. Table and placement:
   [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 3e").
 - Open rulings: (14) OPEN after the re-run (no compaction, report incomplete on disks
-  and GPU); (15) OPEN until the graded recon re-run (RUN 4); (9) Bonsai revisit (a dense 27B now IS
+  and GPU); (15) OPEN after RUN 4 (permission targets met; report 7 of 14, 2 false
+  statements); (9) Bonsai revisit (a dense 27B now IS
   the default and VRAM headroom is 1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
   multi-file loop fixture should settle the accuracy question that the 3-test
   fixture could not (every contender passed it).
@@ -473,8 +476,8 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   checklist.
 
 - (15) Permissions, only writes and deletes of critical files block or ask: RULED
-  2026-10-25 by the operator, built the same day, OPEN until the graded recon re-run
-  (RUN 4, plan section 6). Plan and measurements:
+  2026-10-25 by the operator, built the same day, OPEN after the graded recon re-run
+  (RUN 4, plan section 6; result at the end of this entry). Plan and measurements:
   [docs/permissions-assessment-plan-2026-10-25.md](permissions-assessment-plan-2026-10-25.md)
   (sections 0a and 5a). Built: rule set A in `config/claude-settings.json` (read-only
   allow prefixes, critical-write ask rules; `Bash(*)` cannot be used, auto mode strips it)
@@ -493,6 +496,18 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   rule or the hook: `python -c` pipes, `for` loops, `wsl --default`, quoted program paths,
   and ssh by rule (a trailing `*` spans the remote command, so ssh is the hook's job).
   Reads of any file stay unguarded (ruling 15).
+  RUN 4 (2026-10-25, one rep, `-p` auto mode, RUN 3's prompt and cwd, wrapper defaults):
+  the permission targets are met, the report targets are not. 16 Bash calls: 15 hook
+  allow, 1 rule allow, 0 classifier requests (RUN 3: 7), 0 timeouts (RUN 3: 1), 0
+  denials; hook 91 to 119 ms per call. Wall 162.1 s (RUN 3: 341.7 s), api 132.6 s, 17
+  turns, no compaction, peak context 21,880, decode 38.5 to 41.4 tok/s. Checklist 7 of
+  14 (RUN 3: 8): volumes D to K, the J/K nearly-full flag, the GPU and llama-server
+  missing. Two false statements: "Docker Desktop is not installed" (it is installed, the
+  daemon is stopped; a script RUN 2 left in the cwd tests a path that does not exist and
+  printed `False`) and 46 repos against the sweep's own 47. Stays OPEN: the remaining
+  gaps are recon coverage and an unchecked probe, not permissions; the next lever is the
+  recon checklist named under (14). Table: [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md)
+  ("Recon task, 4 runs").
 
 ## Phase 3 part A 2026-10-24
 

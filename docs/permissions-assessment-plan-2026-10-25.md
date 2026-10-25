@@ -225,15 +225,22 @@ GPU named, CPU, RAM, OS build, toolchain, Docker/WSL state, repo sweep, VPS link
 
 Targets:
 
-| Metric | RUN 3 (no rules) | Target |
-|---|---|---|
-| Classifier requests | 7 | 0 (set B) or only the unlisted remainder (set A) |
-| Timeouts on R1–R5 commands | 1 | 0 |
-| Wall time | 5.7 min | under 3 min |
-| Checklist items present | 8 of 14 | 14 of 14 |
-| False statements | 0 | 0 |
+| Metric | RUN 3 (no rules) | Target | RUN 4 (set A + lis-guard) |
+|---|---|---|---|
+| Classifier requests | 7 | 0 (set B) or only the unlisted remainder (set A) | 0 (met; 15 hook allow, 1 rule allow) |
+| Timeouts on R1–R5 commands | 1 | 0 | 0 (met) |
+| Wall time | 5.7 min | under 3 min | 2.7 min, 162.1 s (met) |
+| Checklist items present | 8 of 14 | 14 of 14 | 7 of 14 (missed: volumes D to K, J/K flag, GPU, llama-server, Docker state, repo count) |
+| False statements | 0 | 0 | 2 (missed: Docker Desktop "not installed"; 46 repos against 47) |
 
 One rep is a measurement, three reps is a result; the ROADMAP records which.
+
+RUN 4 (2026-10-25, one rep): the permission targets are met and the report targets are
+not. Hook decisions took 91 to 119 ms each (`permissionDecisionMs` 3 to 97 ms); no
+classifier request reached the server. The remaining gaps are recon coverage (no
+per-volume, GPU or llama-server query) and a leftover RUN 2 script whose Docker check
+tests a path that does not exist; neither is a permissions defect. Detail:
+`bench/summary-2026-10-24.md` "Recon task, 4 runs".
 
 ## 7. What this does not fix
 

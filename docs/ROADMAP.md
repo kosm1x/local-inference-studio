@@ -257,8 +257,9 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   The install recipe in the Phase 5 section stays for a larger GPU.
 - (9) Bonsai 2 27B (PrismML fork): DEFERRED until after the loop comparison;
   revisit only if a dense 27B wins and VRAM headroom becomes the bottleneck.
-- (10) Egress proof: the operator runs the elevated `pktmon` one-liner from
-  "Phase 3 part A" (Egress) now; result recorded there when it comes back.
+- (10) Egress proof: RUN 2026-10-24 19:03 by the operator, PASS after attribution
+  (8 keepalive lines from the operator's own cloud session, 0 from the local run);
+  details in "Phase 3 part A" (Egress). CLOSED.
 
 ## Phase 3 part A 2026-10-24
 
@@ -312,7 +313,16 @@ UNVERIFIED. Operator, from an elevated PowerShell 7 (one line):
 $d="$env:TEMP\p3-egress"; New-Item -ItemType Directory -Force $d | Out-Null; git -C $d init -q; (Resolve-DnsName api.anthropic.com -Type A).IPAddress | Set-Content "$d\anthropic-ips.txt"; pktmon start --capture --comp nics --pkt-size 0 -f "$d\p3.etl"; Push-Location $d; pwsh -NoProfile -File Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -p "Reply with exactly: READY" --max-turns 1; Pop-Location; pktmon stop; pktmon etl2txt "$d\p3.etl" -o "$d\p3.txt"; Select-String -Path "$d\p3.txt" -Pattern (Get-Content "$d\anthropic-ips.txt") -SimpleMatch | Measure-Object | % Count
 ```
 
-Expected: `0` (no packet to an api.anthropic.com address). Loopback traffic
+RESULT 2026-10-24 19:03 (operator, elevated): count `8`, PASS after attribution.
+`etl2txt` wrote UTF-16; converted, the 8 lines are 4 packets each logged by two
+components (15 and 124) on two connections that already existed before the capture
+(no SYN): port 54981 sent one 1-byte segment and received a SACK (a TCP keepalive
+probe); port 59452 received a 39-byte TLS record and sent a bare ACK (an idle-
+connection ping). `Get-NetTCPConnection -RemoteAddress 160.79.104.10` mapped both
+ports to PID 20916, the operator's own cloud Claude Code session that was open on
+the machine, not to the local run. No new connection and no outbound payload to
+an Anthropic address during the 8-second window; the local run's traffic stayed on
+loopback. Expected without a cloud session open: `0`. Loopback traffic
 (`127.0.0.1:8080`) does not cross a NIC, so `--comp nics` cannot show it; pktmon
 does not attribute packets to a PID (UNVERIFIED for this build), so other traffic on
 the machine in the same window (for example model downloads) also appears in `p3.txt`.
@@ -362,8 +372,8 @@ deltas and observations: [bench/summary-2026-10-24.md](../bench/summary-2026-10-
   was patched.
 - After the re-run: `Start-ScheduledTask LocalInferenceStudio-llama-server`,
   `/health` ok after 9 s, `scripts/smoke.ps1` PASS (`get_weather {"city":"Mexico City"}`).
-- Pending operator item: the elevated `pktmon` egress capture from "Phase 3 part A"
-  (Egress) is still open.
+- The elevated `pktmon` egress capture from "Phase 3 part A" (Egress) was run
+  2026-10-24 19:03: PASS after attribution (see there).
 
 ## Phase 3b 2026-10-24
 

@@ -58,8 +58,10 @@ only when its done-check passes on this machine.
   tools, one turn); one run per model, no variance; every model ran with the
   Qwen-tuned `serve.ps1` sampling; decode text quality not inspected.
 - Open rulings: the default model (the numbers are in, plus two Qwen3.8-27B
-  compressions from "Phase 3b"; the logon task still runs
-  Qwen3.6-35B-A3B UD-IQ3_XXS); uploader per model (Unsloth vs Bartowski, given
+  compressions from "Phase 3b" and two abliterated Qwen3.8-27B-Uncensored quants
+  from "Phase 3c": IQ2_XXS fits all-GPU at 131072 at 55.0 tok/s, IQ3_XXS fits only
+  at 65536 at 44.6, all 20/20 tool calls, quality UNVERIFIED; the logon task still
+  runs Qwen3.6-35B-A3B UD-IQ3_XXS); uploader per model (Unsloth vs Bartowski, given
   the tool-call gap reported for one quant).
 
 ## P4 — MoE CPU offload
@@ -360,6 +362,23 @@ UNVERIFIED. Table, placement lines, MTP acceptance and observations:
 [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 3b"). The
 default-model ruling (P3) stays open. After the runs: `Start-ScheduledTask
 LocalInferenceStudio-llama-server`, `/health` ok after 8 s, `scripts/smoke.ps1`
+PASS (`get_weather {"city":"Mexico City"}`).
+
+## Phase 3c 2026-10-24
+
+Two quants of the gated `orcarouter/Qwen3.8-27B-Uncensored-GGUF` (abliterated
+Qwen3.8-27B, GGUF `general.finetune` "abliterated", MTP layer included) benched on
+:8080 with the Phase 3b procedure, after an 11-minute wait for the GPU held by the
+Phase 5 vLLM spike. IQ2_XXS (8.88 GB) fits all-GPU at 131072 with the full KV and
+decodes at 55.0 tok/s (Saluki IQ2-mix: 57.5; dense UD-Q3_K_XL: 11.7); IQ3_XXS
+(11.64 GB) misses all-GPU at 131072 by 1,441 MiB (58/66 layers, 20.2 tok/s) and
+fits at 65536 (44.6 tok/s; GSQ-RCO IQ3_XXS at 65536: 48.8, 83.7 with MTP). Every
+run passed 20/20 tool calls. The card's refusal and retention figures are vendor
+claims for the FP8 build; quality and refusal removal at these bit widths are
+UNVERIFIED, and MTP was not tried on these files. Table, placement lines, header and
+card details: [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase
+3c"). The default-model ruling (P3) stays open. After the runs: `Start-ScheduledTask
+LocalInferenceStudio-llama-server`, `/health` ok after 11 s, `scripts/smoke.ps1`
 PASS (`get_weather {"city":"Mexico City"}`).
 
 ## Phase 5 spike 2026-10-24

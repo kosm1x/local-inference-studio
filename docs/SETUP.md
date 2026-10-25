@@ -101,6 +101,13 @@ pwsh scripts\serve.ps1 -Model 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS'
 
 ## 5. First manual start (`scripts\serve.ps1`)
 
+Skip this step if the server is already running (after step 7 it starts at every
+logon). Check first; `ok` means go straight to step 8:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8080/health -Headers @{Authorization='Bearer local'}
+```
+
 With no parameters it serves the default file on `127.0.0.1:8080` at ctx 131072, q4_0
 KV, flash attention on, one slot, `--api-key local`, model alias `local`, and (for files
 under `models\qwen3.8-27b-uncensored`) `--chat-template-file config\chat-templates\qwen3.8-27b.jinja`.
@@ -118,7 +125,9 @@ load from disk is UNVERIFIED. Leave the window open and check from a second one:
 Invoke-RestMethod http://127.0.0.1:8080/health -Headers @{Authorization='Bearer local'}
 ```
 
-Success: `status` is `ok`. `Port 8080 is already in use`: see Troubleshooting.
+Success: `status` is `ok`. `Port 8080 is already in use` usually means the task's own
+server is up (`Get-NetTCPConnection -LocalPort 8080 -State Listen` shows a
+`llama-server` PID); use it and go to step 8. Otherwise see Troubleshooting.
 `Model file not found`: step 4 is not done. Stop with Ctrl+C or `pwsh scripts\stop.ps1`.
 
 ## 6. Smoke test (`scripts\smoke.ps1`)

@@ -6,23 +6,33 @@ only when its done-check passes on this machine.
 ## Status 2026-10-24 (end of day)
 
 - Default server (ruling 6): Orca Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV
-  q4_0, patched chat template; logon task Running (PID 25916), smoke PASS, one-turn
+  q4_0, patched chat template; logon task Running (PID 27540, restarted 22:37 after
+  Phase 3e), smoke PASS, one-turn
   Claude Code call PASS. Tip `ef5e65c`.
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
-  (KV capacity); P4 and P6 not started.
-- UNPROVEN until it happens: the revised `serve.ps1` (`ef5e65c`) has only been traced,
-  never run by the task; the first `Start-ScheduledTask` or logon proves it, together
-  with the logon start itself (`Get-ScheduledTaskInfo` LastRunTime + `/health`).
+  (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
+  Phase 3e).
+- The revised `serve.ps1` (`ef5e65c`) run by the task: proven 22:37 by the
+  `Start-ScheduledTask` after Phase 3e (default command line in `logs/llama-server.log`,
+  `/health` ok after 4 s, smoke PASS). UNPROVEN until it happens: the logon start itself
+  (`Get-ScheduledTaskInfo` LastRunTime + `/health` after a logon).
 - Live session 2026-10-24 22:00-23:00 (operator's first real Claude Code session on the
   default, read from `logs/llama-server.log`): 32 turns, 0 errors, 0 truncations, max
   context 45,417. Decode 654 s for 24,320 tokens (37.2 tok/s avg, 45 -> 35 across the
   context range); prefill 76 s, of which 60 s were 3 full re-reads (prefix cache hit on
   29/32 turns). 13/32 answers exceeded 1,000 tokens. Lesson: in real use decode time,
-  not prefill, is the cost of the dense 27B; verbosity is the lever. Candidate (UNVERIFIED):
-  Orca + MTP at ctx 65536 (KV shrinks ~1.1 GB, close to the MTP head's cost; sessions
-  peaked at 45K) could lift decode as it did for GSQ-RCO (1.72x).
-- Open rulings: (9) Bonsai revisit (a dense 27B now IS the default and VRAM headroom
-  is 1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
+  not prefill, is the cost of the dense 27B; verbosity is the lever. Phase 3e (measured):
+  Orca + MTP (`--spec-type draft-mtp --spec-draft-n-max 2`) at ctx 65536 with q4_0 KV
+  FITS all-GPU (66/66 layers, 1,684 MiB left free; the 131072 default leaves 1,630) and
+  decodes at 81.6 tok/s against 45.4 without MTP at 65536 and 45.3 for the 131072
+  default (1.80x); prefill 20K 11,876 vs 11,387 ms (+4 %), tool calls 20/20, p50 788 vs
+  1,366 ms, cumulative draft acceptance 0.81. The cost is context: 65536 against the
+  45,417 peak. Real-text and deep-context speed-up UNVERIFIED. Table and placement:
+  [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 3e").
+- Open rulings: adopt Orca + MTP at 65536 (q4_0 KV, `claude-local.ps1
+  -LisContextTokens 65536`) as the default (Phase 3e; recommended on the numbers,
+  `serve.ps1` defaults unchanged); (9) Bonsai revisit (a dense 27B now IS the default
+  and VRAM headroom is 1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
   multi-file loop fixture should settle the accuracy question that the 3-test
   fixture could not (every contender passed it).
 
@@ -129,8 +139,15 @@ only when its done-check passes on this machine.
   1.2 GB smaller weights already missed all-GPU there by 124 MiB, so the default
   would lose GPU layers with MTP on (estimate, UNVERIFIED). P6 does not apply to the
   default as served.
-- Open rulings: none for the default; whether MTP is worth the context it costs on
-  16 GB (65536 with MTP vs 131072 without) stays open for other models only.
+- Status 2026-10-24 (Phase 3e): measured on the default's file at 65536 with q4_0 KV.
+  With MTP: 66/66 layers, 1,684 MiB left free, 81.55 tok/s, prefill 20K 11,876 ms,
+  20/20 tools (p50 788 ms), 1,302 / 1,611 drafted tokens accepted (mean acc len 2.62);
+  without: 66/66, 3,102 MiB free, 45.37 tok/s, 11,410 ms, 20/20 (p50 1,362 ms). MTP
+  costs 1,118 MiB projected at 65536. Done-check met for this model too. Speed-up on
+  real agent text, at deep context and at 131072 UNVERIFIED.
+- Open rulings: for the default, whether to serve 65536 + MTP (81.6 tok/s) instead of
+  131072 without (45.3 tok/s) (operator; Phase 3e recommends it on the numbers); for
+  other models the same context-for-MTP trade stays open.
 
 ## Phase 1 run 2026-10-24
 

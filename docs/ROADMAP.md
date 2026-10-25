@@ -75,7 +75,12 @@ only when its done-check passes on this machine.
 - Goal: only if a safetensors-only model justifies it.
 - Steps: run the backend in WSL2/Docker with its Anthropic endpoint; same bench.
 - Done-check: `smoke.ps1` PASS against the WSL2 endpoint, plus bench JSON.
-- Open rulings: whether any candidate needs it at all on 16 GB.
+- Status 2026-10-24 (spike, see "Phase 5 spike 2026-10-24"): OrcaSAQ-2-27B is
+  BLOCKED on this box. vLLM 0.30.0 runs the EXL3 checkpoint on sm_89 in WSL2, but after
+  11.26 GiB of weights its KV pool is 0.33 to 0.49 GiB, and 32768 ctx needs 1.29 GiB.
+  Done-check not met (no server came up, so no smoke and no bench JSON).
+- Open rulings: whether any candidate needs it at all on 16 GB; for OrcaSAQ-2-27B,
+  accept "blocked" or authorize one of the untried levers listed in the spike section.
 
 ## P6 — Speculative decoding / MTP
 
@@ -356,3 +361,95 @@ UNVERIFIED. Table, placement lines, MTP acceptance and observations:
 default-model ruling (P3) stays open. After the runs: `Start-ScheduledTask
 LocalInferenceStudio-llama-server`, `/health` ok after 8 s, `scripts/smoke.ps1`
 PASS (`get_weather {"city":"Mexico City"}`).
+
+## Phase 5 spike 2026-10-24
+
+Goal: an apples-to-apples bench row for `orcarouter/OrcaSAQ-2-27B`. Outcome: blocked
+(no row); numbers and log lines in
+[bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 5 spike").
+
+Model card (HF raw README, read in full): no vLLM version pinned (`pip install -U
+vllm`), kernel line `pip install git+https://github.com/Continuum-AI-Corp/OrcaSAQ2-kernel`
+(no tag), no GPU architecture list, card serve command `--max-model-len 262144
+--reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_xml
+--speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'`, "about
+32K interactive context" suggested for a 16 GB GPU, sampling temperature 1.0 / top-p
+0.95 / top-k 20; it documents only the OpenAI API, no Anthropic `/v1/messages`. Its
+download line names `orcarouter/OrcaSAQ2-27B`, not the repo's `OrcaSAQ-2-27B`. The
+kernel repo (commit `7ddffb12c00c24b8bc6b1164723c04ac490a91bc`, 2026-09-28, no tags or
+releases, no license file although `pyproject.toml` says Apache-2.0) is a pure-Python
+vLLM plugin; the CUDA kernels come from the exllamav3 wheel. Its Docker image pins
+`vllm/vllm-openai:v0.30.0` and exllamav3 1.5.1, so those were the pins used. The
+plugin declares `get_min_capability() = 80` (Ampere and newer, so sm_89 passes vLLM's
+check).
+
+Installed, all inside WSL2 Ubuntu 24.04 (user `fmoctezuma`, no root used; sudo needs a
+password, and there is no system gcc or nvcc):
+
+- `~/.local/bin/uv` 0.13.5, from the GitHub release tarball checked against its
+  `.sha256` (no installer script).
+- `~/lis-vllm`: uv-managed CPython 3.12.15 venv, 9.9 GB. `vllm==0.30.0` (binary
+  wheels only) with torch 2.13.0 (CUDA 13.0; arch list sm_75/80/86/90/100/120, so
+  sm_89 runs sm_86 code), transformers 5.20.2, triton 3.7.1, flashinfer-python
+  0.6.18.post1; `exllamav3-1.5.1+cu132.torch2.13.0-cp312` from the GitHub release
+  (sha256 `9e66609144ad7103d2abbd6f55957d925b8911e06a65a35a82c0b3cd10fffa8b` equal to
+  the API digest; cached in `~/lis-vllm-dl`, 402 MB); `orcasaq2-kernel` 0.1.0 from git
+  at the commit above (`--no-deps`); `ziglang==0.17.0` plus a 2-line wrapper
+  `~/lis-vllm/bin/zigcc` (`exec python -m ziglang cc "$@"`), because Triton refused to
+  JIT without a C compiler (`Failed to find C compiler`) and vLLM runs the Qwen3.5
+  Gated-DeltaNet layers on Triton/FLA kernels. Also `~/.cache/vllm` (1.1 GB, compile
+  cache).
+- Checkpoint: `models/orcasaq-2-27b/` (Windows, gitignored; seen by WSL as
+  `/mnt/z/...`, 9P), all 19 files equal to the HF API byte sizes, the 6 LFS files'
+  sha256 equal to the API. vLLM reads it over 9P in about 52 to 59 s.
+- Kernel and arch, measured: the exllamav3 extension imports and its `had_r_128`
+  kernel returns finite output on the 4070 Ti SUPER (cap 8.9); the plugin logs
+  `orcasaq2 armed: quant_method 'exl3' is now loadable`; vLLM loads the weights
+  (11.26 GiB), compiles the graph and captures CUDA graphs. No architecture warning.
+  The default FlashInfer attention backend needs nvcc (JIT for fp8 KV on sm89), so the
+  runs use `--attention-backend TRITON_ATTN`.
+
+Reproduce (llama-server stopped first with `pwsh -NoProfile -File scripts/stop.ps1`;
+`CC` is required, see above):
+
+```bash
+CC=$HOME/lis-vllm/bin/zigcc VLLM_USE_FLASHINFER_SAMPLER=0 $HOME/lis-vllm/bin/vllm serve \
+  /mnt/z/repos/kosm1x/local-inference-studio/models/orcasaq-2-27b \
+  --served-model-name local --host 127.0.0.1 --port 8081 --api-key local \
+  --max-model-len 32768 --gpu-memory-utilization 0.91 --kv-cache-dtype fp8 \
+  --max-num-seqs 1 --max-num-batched-tokens 2048 --block-size 32 \
+  --enable-prefix-caching --enable-prompt-tokens-details \
+  --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_xml \
+  --attention-backend TRITON_ATTN
+```
+
+It exits after about 2.5 min with the KV-capacity error. `scripts/serve-vllm.sh` was
+not added (serving never worked).
+
+`/v1/messages`: vLLM 0.30.0 registers `/v1/messages` and `/v1/messages/count_tokens`
+(`vllm/entrypoints/anthropic/api_router.py`), so vLLM could serve Claude Code without a
+proxy in principle; not exercised live (no server came up), so UNVERIFIED end to end.
+Two incompatibilities with `scripts/smoke.ps1` as written, read from the source: the
+API-key middleware checks only `Authorization: Bearer` (smoke sends `x-api-key`), and
+`/health` returns an empty 200 (smoke requires `{"status":"ok"}`). So smoke would FAIL
+against vLLM even on a working server unless vLLM runs without `--api-key` and smoke
+accepts an empty 200; whether Claude Code would authenticate depends on whether it
+sends a Bearer token (`ANTHROPIC_AUTH_TOKEN`) or `x-api-key` (UNVERIFIED).
+
+After the spike: no vLLM process left in WSL; `Start-ScheduledTask
+LocalInferenceStudio-llama-server`, `/health` ok after 32 s (PID 7988),
+`scripts/smoke.ps1` PASS (`get_weather {"city":"Mexico City"}`). `bench/run.ps1` gained
+`-Backend vllm` (method in `bench/README.md`); its llama path was re-run unchanged
+(decode 138.1 tok/s, prefill 4,257 ms, 2/2 tools, throwaway result), its vLLM path has
+never run (UNVERIFIED).
+
+Ruling opened: accept OrcaSAQ-2-27B as blocked on this box, or authorize one lever at a
+time (each is a new attempt, not done here under the 3-strike rule): (a)
+`--no-enable-prefix-caching`, which drops the Mamba `align` cache mode and its 1,568-token
+blocks; (b) a smaller `--max-num-batched-tokens`; (c) drive the display from another GPU
+to free the desktop's 1.3 to 2.0 GiB; (d) `--cpu-offload-gb` (vendor: about +40 ms per
+token per GB); (e) gcc/nvcc in WSL via operator sudo, to test whether the FlashInfer
+backend leaves more KV (UNVERIFIED); (f) the vendor Docker image or native Linux, which
+avoid the WSL pinned-memory fallback (UNVERIFIED). To remove the spike install:
+`wsl -d Ubuntu -- rm -rf ~/lis-vllm ~/lis-vllm-dl ~/.cache/vllm` and delete
+`models/orcasaq-2-27b/`.

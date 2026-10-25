@@ -39,6 +39,31 @@ Method:
 - VRAM: `nvidia-smi` `memory.used` every 500 ms for the whole run; the maximum is
   whole-GPU usage, so other GPU processes count too.
 
+`-Backend vllm` (default `llama`) measures a running vLLM OpenAI server, for example
+vLLM in WSL2 on :8081 (`docs/ROADMAP.md` P5). Same prompts, token counts, trials and
+VRAM sampler. Status 2026-10-24: the script parses and its llama path was re-run
+unchanged, but the vLLM path has never run against a live server (the P5 spike
+could not start one), so it is UNVERIFIED. What differs:
+
+- Server info: `/health` must answer HTTP 200 (vLLM returns an empty body);
+  `server_build` is `vllm <version>` from `/version`; `flags` is `-ServerFlags` as
+  given (the Windows listener is a WSL relay, not the vLLM process).
+- Tokens: vLLM `/tokenize` (`add_special_tokens` false).
+- Decode: streamed `/v1/completions` with the 200-token array, `max_tokens` 256,
+  `ignore_eos`, temperature 0.6 / top-p 0.95 / top-k 20 (the `serve.ps1` sampling);
+  tok/s = `usage.completion_tokens` / (time of the last streamed chunk - time of the
+  first), timed client-side. One warm-up discarded, median of 3.
+- Prefill: time to the first streamed chunk with `max_tokens` 1, client-side (it
+  includes HTTP and scheduling; llama.cpp's `prompt_ms` is server-side). The server
+  runs with prefix caching on, so each of the 3 cold runs replaces token 0 with a
+  different token id, which changes every block hash; `prefill_tokens` is
+  `prompt_tokens - cached_tokens` from the usage block (needs
+  `--enable-prompt-tokens-details`), so a cache hit would show. Cached: the
+  unmodified prompt twice, the second recorded.
+- Tool calls: `/v1/chat/completions` with the same two tools in OpenAI form and the
+  same sampling; pass = a `tool_calls` entry with the expected function name whose
+  JSON `arguments` has a non-empty required field.
+
 ## Result schema
 
 | Field | Meaning |

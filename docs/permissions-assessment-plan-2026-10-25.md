@@ -48,6 +48,7 @@ about 13,000).
 | V12 | PASS: a hook `allow` skips the classifier | see §0 |
 | V13 | PASS: a hook `deny` saying "not retryable; report it to the operator" stops after one attempt | see §0 |
 | V14 | PASS: a mid-pattern glob in an `ask` rule sees inside the quoted payload | `Bash(powershell *Remove-Item*)` ask over the `\"Get-*` allow: 3 denials, file kept |
+| V15 | DOC-ONLY, **LIVE-UNVERIFIED** (R1 remediation): a hook `deny` ends the call before the prompt, and the deny-first precedence holds, so `lis-guard`'s deny on a payload-hidden write and `kill-guard`'s deny on a kill shape compose and are not undone by the `Bash(powershell ... \"Get-*)` allow. Docs (code.claude.com, 2026-10-25): permissions.md "Rules are evaluated in order: deny, then ask, then allow. The first match in that order determines the outcome"; hooks.md "When multiple PreToolUse hooks return different decisions, precedence is `deny` > `defer` > `ask` > `allow`" and `"deny"` "prevents the tool call". DOC-GAP: no docs line states outright that a hook `deny` overrides a matching *allow rule* (permissions.md only states deny/ask *rules* are evaluated regardless of a hook's return), so proof is pending on a live container run (the kill-guard case is proven at V8). | docs citations above; live container proof pending |
 
 Auto mode strips these allow rules at startup ("Ignoring dangerous permission ...
 (bypasses classifier)"): `Bash`, `Bash(*)`, `Bash(bash *)`, `Bash(sh *)`, `Bash(ssh *)`,
@@ -204,7 +205,7 @@ by bucket; path from the per-run debug log. AH = set A rules + lis-guard (hook a
 |---|---|---|
 | Classifier requests | 41 (14 failed: timeout or cancelled behind another on the one slot) | 11 (3 failed) |
 | Permission denials | 12 | 3 |
-| Wall, sum / median per run | 1,868.7 s / 49.0 s | 803.8 s / 15.9 s |
+| Wall, sum / median per run | 1,868.7 s / 49.0 s | 803.8 s / 16.0 s |
 | Runs ending `error_max_turns` or timed out | 7 (6 blocked, 1 three-command R1) | 2 (1 blocked, the same R1) |
 | Classifier decision when it ran | 12 to 55 s | 36 to 49 s |
 | Hook decision | n/a | 5 to 46 ms |

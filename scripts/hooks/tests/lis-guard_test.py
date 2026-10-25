@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 
+sys.dont_write_bytecode = True  # no __pycache__ next to the hook
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOOK = os.path.join(HERE, '..', 'lis-guard.py')
 spec = importlib.util.spec_from_file_location('lis_guard', HOOK)

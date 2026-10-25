@@ -108,9 +108,11 @@ logon). Check first; `ok` means go straight to step 8:
 Invoke-RestMethod http://127.0.0.1:8080/health -Headers @{Authorization='Bearer local'}
 ```
 
-With no parameters it serves the default file on `127.0.0.1:8080` at ctx 131072, q4_0
+With no parameters it serves the default file on `127.0.0.1:8080` at ctx 65536, q4_0
 KV, flash attention on, one slot, `--api-key local`, model alias `local`, and (for files
-under `models\qwen3.8-27b-uncensored`) `--chat-template-file config\chat-templates\qwen3.8-27b.jinja`.
+under `models\qwen3.8-27b-uncensored`) `--chat-template-file config\chat-templates\qwen3.8-27b.jinja`;
+for the default file only, MTP (`--spec-type draft-mtp --spec-draft-n-max 2`; `-NoMtp`
+turns it off, and a larger `-Ctx` needs `-NoMtp` to stay all-GPU).
 
 ```powershell
 pwsh scripts\serve.ps1
@@ -184,12 +186,12 @@ For this process only, it sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`,
 default aliases to `local`. It unsets `ANTHROPIC_API_KEY` (a real key would be sent to
 the local server) and the `CLAUDE_CODE_SUBAGENT_MODEL*` variables, and passes
 `--settings config\claude-settings.json` (model and subagent model `local`,
-auto-compact at 131072, WebSearch and WebFetch denied). Why: a global
+auto-compact at 65536, WebSearch and WebFetch denied). Why: a global
 `~\.claude\settings.json` that pins cloud models or a subagent model would otherwise
 win, and those models do not exist locally. Your environment is restored on exit.
 
 All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The one
-wrapper option is `-LisContextTokens N` (default 131072, minimum 1024); set it to the
+wrapper option is `-LisContextTokens N` (default 65536, minimum 1024); set it to the
 server's `-Ctx` when that is smaller. Success: Claude Code answers and the server log
 shows the requests. A `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
 

@@ -22,18 +22,19 @@
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The one script option, -LisContextTokens N, is taken out of $args here.
+  It defaults to 65536, the default server ctx (ruling 12); keep it <= the server's -Ctx.
   A prompt that starts with `-` must be passed after a quoted `'--'` when calling in-process.
 .EXAMPLE
   pwsh scripts/claude-local.ps1 -p "list the files in this repo"
 .EXAMPLE
-  pwsh scripts/claude-local.ps1 -LisContextTokens 65536 -p "list the files in this repo"
+  pwsh scripts/claude-local.ps1 -LisContextTokens 32768 -p "list the files in this repo"
 #>
 $ErrorActionPreference = 'Stop'
 
 # -LisContextTokens N, -LisContextTokens:N (any case). In-process, PowerShell hands
 # -LisContextTokens:N over as '-LisContextTokens:' followed by N, so an empty inline
 # value takes the next token. All checks run before any env change.
-$LisContextTokens = 131072
+$LisContextTokens = 65536
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
 for ($j = 0; $j -lt $args.Count; $j++) {

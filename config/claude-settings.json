@@ -2,7 +2,7 @@
   "model": "local",
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "local",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "131072"
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "65536"
   },
   "permissions": {
     "deny": ["WebSearch", "WebFetch"]

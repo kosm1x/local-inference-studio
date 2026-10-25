@@ -12,14 +12,19 @@ defaults of the time (q8_0 KV, still the default for every model except the ruli
 `bench/summary-2026-10-24.md`. Unbenched rows are the weights-only estimate.
 "lastModified" is the repo's, not the file's.
 
-Default (ruling 6, 2026-10-24; the `scripts/serve.ps1` defaults and the logon task):
-Qwen3.8-27B-Uncensored IQ3_XXS, local file
-`models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`, ctx 131072, KV
+Default (rulings 6 and 12, 2026-10-24; the `scripts/serve.ps1` defaults and the logon
+task): Qwen3.8-27B-Uncensored IQ3_XXS, local file
+`models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`, ctx 65536, KV
 q4_0, chat template `config/chat-templates/qwen3.8-27b.jinja` REQUIRED (`serve.ps1`
-adds it for this folder); measured 45.3 tok/s decode, 66/66 layers on GPU with 1,630
-MiB left free, Phase 3d loop 3/3 with 0 tool errors at a median 127.7 s wall (~128 s).
-MTP not used (the GGUF has the head; P6 n/a for the default, see `docs/ROADMAP.md`).
-Quality and refusal removal UNVERIFIED. KV rule: `serve.ps1` uses q4_0 only for this
+adds it for this folder), MTP ON (`--spec-type draft-mtp --spec-draft-n-max 2`);
+measured 81.6 tok/s decode, 66/66 layers on GPU with 1,684 MiB left free (Phase 3e).
+The Phase 3d loop (3/3, 0 tool errors, median 127.7 s wall) ran this file at 131072
+without MTP; a loop on the 65536 + MTP configuration is not measured (UNVERIFIED).
+Quality and refusal removal UNVERIFIED. MTP rule: `serve.ps1` adds the two MTP flags
+only for this default file and only without `-NoMtp`; every other `-Model` runs without
+MTP. At `-Ctx` above 65536 pass `-NoMtp` (MTP costs about 1.1 GB, so `--fit` would move
+layers to CPU; estimate, UNVERIFIED at 131072). `scripts/claude-local.ps1` and
+`config/claude-settings.json` default to a 65536 context window to match. KV rule: `serve.ps1` uses q4_0 only for this
 default file and q8_0 for any other `-Model` (the KV those rows were benched with)
 unless `-KvType` is passed.
 

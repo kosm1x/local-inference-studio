@@ -3,9 +3,10 @@
 .SYNOPSIS
   Run llama-server (Anthropic /v1/messages on 127.0.0.1) from bin/.
 .DESCRIPTION
-  Default command line (ruling 6 in docs/ROADMAP.md, 2026-10-24): the local orcarouter
-  Qwen3.8-27B-Uncensored IQ3_XXS at -c 131072 with q4_0 KV and
-  --chat-template-file config/chat-templates/qwen3.8-27b.jinja, plus -fa on, -np 1,
+  Default command line (rulings 6 and 12 in docs/ROADMAP.md, 2026-10-24): the local
+  orcarouter Qwen3.8-27B-Uncensored IQ3_XXS at -c 65536 with q4_0 KV,
+  --chat-template-file config/chat-templates/qwen3.8-27b.jinja and MTP
+  (--spec-type draft-mtp --spec-draft-n-max 2), plus -fa on, -np 1,
   Qwen sampling, --host/--port, --reasoning-format auto, --api-key local and
   --no-mmproj (the vision projector is skipped unless -WithMmproj). -Model is a
   Hugging Face "repo:quant" (passed as -hf, downloaded on first run) or a local .gguf
@@ -16,6 +17,9 @@
   defaults to config/chat-templates/qwen3.8-27b.jinja when the model is under
   models/qwen3.8-27b-uncensored (that GGUF's embedded template rejects Claude Code's
   second system message with HTTP 500).
+  MTP (--spec-type draft-mtp --spec-draft-n-max 2) is added for the default model file
+  only, unless -NoMtp; any other -Model runs without it. It fits all-GPU at 65536 with
+  q4_0 KV (Phase 3e); at a larger -Ctx pass -NoMtp, or --fit moves layers to CPU.
   -ExtraArgs (string[]) is passed through verbatim, one element per argument, so a
   value with spaces stays whole; use it from inside pwsh. `pwsh -File` hands
   -ExtraArgs 'a','b' over as the single string "a,b", so from `pwsh -File` use
@@ -35,13 +39,14 @@
 [CmdletBinding()]
 param(
     [string]$Model = 'models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf',
-    [int]$Ctx = 131072,
+    [int]$Ctx = 65536,
     [int]$Port = 8080,
     [int]$NCpuMoe = 0,
     [string]$KvType = 'q4_0',
     [string]$Alias = 'local',
     [string]$ChatTemplateFile = '',
     [switch]$WithMmproj,
+    [switch]$NoMtp,
     [string[]]$ExtraArgs = @(),
     [string]$ExtraArgLine = '',
     [string]$LogFile = ''
@@ -92,6 +97,7 @@ $cmdArgs = @(
 if (-not $WithMmproj) { $cmdArgs += '--no-mmproj' }
 if ($NCpuMoe -gt 0) { $cmdArgs += '--n-cpu-moe', "$NCpuMoe" }
 if ($ChatTemplateFile) { $cmdArgs += '--chat-template-file', $ChatTemplateFile }
+if ($Model -eq $defaultModel -and -not $NoMtp) { $cmdArgs += '--spec-type', 'draft-mtp', '--spec-draft-n-max', '2' }
 $cmdArgs += $ExtraArgs
 $cmdArgs += $ExtraArgLine -split '\s+' | Where-Object { $_ }
 

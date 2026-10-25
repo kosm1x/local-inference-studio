@@ -130,6 +130,15 @@ try {
     $cfg = Get-Content -LiteralPath $settingsSrc -Raw | ConvertFrom-Json -AsHashtable
     if (-not $cfg.env) { $cfg.env = [ordered]@{} }
     $cfg.env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] = "$LisContextTokens"
+    # Path rules written as Edit(~/...) become Edit(//c/Users/<name>/...), the form
+    # verified on this machine; the committed JSON carries no user name.
+    $h = $HOME.Replace('\', '/')
+    $homeRule = '//' + $h.Substring(0, 1).ToLower() + $h.Substring(2)
+    foreach ($kind in 'allow', 'ask', 'deny') {
+        if ($cfg.permissions -and $cfg.permissions[$kind]) {
+            $cfg.permissions[$kind] = @($cfg.permissions[$kind] | ForEach-Object { $_.Replace('Edit(~/', "Edit($homeRule/") })
+        }
+    }
     $cfg | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $settings -Encoding utf8NoBOM
     if (-not $LisFull) { Set-Content -LiteralPath $mcpConfig -Value '{"mcpServers":{}}' -Encoding utf8NoBOM }
     foreach ($k in $set.Keys) { Set-Item "env:$k" $set[$k] }

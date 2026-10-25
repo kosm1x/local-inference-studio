@@ -3,7 +3,7 @@
 Each phase lists its goal, steps, done-check and open rulings. A phase is done
 only when its done-check passes on this machine.
 
-## Status 2026-10-24 (end of day)
+## Status 2026-10-25
 
 - Default server (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12): Orca
   Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV q4_0, patched chat template, no MTP;
@@ -159,7 +159,8 @@ only when its done-check passes on this machine.
   prompt (one short answer, not a decode benchmark).
 - Status 2026-10-25 (ruling 14): the default no longer uses MTP (131072, no MTP flags);
   `serve.ps1 -Ctx 65536` still adds them for the default file. MTP is not blamed for the
-  wrong recon report (the 65536 window's early compaction is); see ruling (14).
+  wrong recon report (the 65536 window's early compaction is; one rep per arm; cwd, tool
+  set and interactivity also differed between RUN 1 and RUN 2); see ruling (14).
 - Open rulings: for other models the same context-for-MTP trade stays open.
 
 ## Phase 1 run 2026-10-24
@@ -355,8 +356,9 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   type is the lever (q8_0 KV = 4.35 GB at 131072 on a dense 27B; q4_0 about half).
 - (12) Default context and MTP (after Phase 3e): RULED 2026-10-24 by the operator,
   ADOPT, CLOSED; REVERTED 2026-10-25 by ruling (14) (report accuracy: on the 65536
-  window Claude Code auto-compacted at about 36K and the model's own summary rewrote the
-  disk facts it had read; MTP exonerated, the 65536 window is the problem). The record
+  window Claude Code auto-compacted at 39,098 tokens and the model's own summary rewrote
+  the disk facts it had read; MTP exonerated, the 65536 window is the problem (one rep
+  per arm; cwd, tool set and interactivity also differed between RUN 1 and RUN 2)). The record
   below is kept as history. The default became Orca IQ3_XXS at ctx 65536, q4_0 KV, patched chat
   template (unchanged) and MTP ON (`--spec-type draft-mtp --spec-draft-n-max 2`), on
   the Phase 3e numbers (66/66 layers, 1,684 MiB left free, 81.6 tok/s against 45.3).
@@ -419,13 +421,17 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   after the re-run (RUN 3, below: no compaction, but the report misses 6 of 8 volumes,
   J and K included, and the GPU). Reason: report accuracy. The operator's "Make a recon of
   this PC" session on 65536 + MTP + lean set, auto permission mode (RUN 2), produced a
-  wrong report: Claude Code auto-compacted at about 36K tokens, the local model's own
+  wrong report: Claude Code auto-compacted at 39,098 tokens, the local model's own
   summary turned the disk tool output (J: 135 of 4,657 GiB free, K: 328 of 14,902) into
   "mostly free", and the final report was written from that summary, wrong on J and K
   and silent on the GPU. The earlier run of the same request on 131072, no MTP, full tool
   set (RUN 1) was correct. MTP is exonerated (speculative decoding keeps the target
   model's output distribution; nothing in the transcript points to it); the 65536 window
-  is the problem. Kept: the lean set (ruling 13), auto permission mode and hooks on.
+  is the problem (one rep per arm; cwd, tool set and interactivity also differed between
+  RUN 1 and RUN 2). Invocations: RUN 1 was an interactive session in this repo ("Recon
+  this PC" after an "Introduce yourself" turn); RUN 2 an interactive session in
+  `Z:\repos\kosm1x\PC` ("Make a recon of this PC", with operator `/permissions` grants
+  mid-session); the invocation differences are a confound. Kept: the lean set (ruling 13), auto permission mode and hooks on.
   `serve.ps1`: `-Ctx` defaults to 131072; MTP stays available for the default file at
   `-Ctx` 65536 or below unless `-NoMtp` (the default start adds no MTP flags and no
   warning; an explicit `-Ctx` above 65536 still warns). `claude-local.ps1
@@ -437,23 +443,31 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   carries `-c 131072`, `-ctk q4_0 -ctv q4_0`, `--chat-template-file
   ...\qwen3.8-27b.jinja` and no `--spec-type` (no "MTP draft context" line); `/slots`
   reports `n_ctx` 131072 and `speculative` false; `smoke.ps1` PASS (`get_weather
-  {"city":"Mexico City"}`). Re-run (RUN 3) 2026-10-25 06:38 to 06:44 UTC, the same
-  command as RUN 2 (`claude-local.ps1 -p "Make a recon of this PC" --output-format json
-  --permission-mode auto --max-turns 60`) from the same cwd: `is_error` false, 10 turns,
-  341.7 s wall, 9 Bash calls, 3 tool errors (1 classifier timeout, 0 denials, 2 real),
+  {"city":"Mexico City"}`). Re-run (RUN 3) 2026-10-25 06:38 to 06:44 UTC, the only
+  non-interactive run (`claude-local.ps1 -p "Make a recon of this PC" --output-format
+  json --permission-mode auto --max-turns 60`) from the same cwd as RUN 2: `is_error`
+  false, 10 turns, 341.7 s wall, 9 Bash calls, 3 tool errors (1 classifier timeout, 0
+  classifier denials (the result JSON's `permission_denials` lists the one timed-out
+  call), 2 real; the timeout was a queueing effect: two parallel tool calls produced two
+  classifier requests on the single slot (`-np 1`), and the client cancelled the second
+  after 1 s of waiting behind a 59 s decode),
   no compaction, main-loop peak 18,048 tokens (classifier requests 36K to 38K), decode
   35.5 to 40.5 tok/s. Grade against the machine: OS, CPU, RAM, C and Z, toolchain,
   Docker (daemon down), WSL and repo counts CORRECT; D, E, F, G, J and K OMITTED, so J
   (135 of 4,657 GiB free) and K (328 of 14,902) are not flagged; GPU OMITTED (the
   report says it was not checked); one minor WRONG (the cwd called a repo). No false
-  disk or GPU claim, so the compaction defect is gone; the new gap is tool use: two
-  drive queries ran as `powershell -Command "... $_ ..."` through Git Bash, bash
-  expanded `$_`, `2>/dev/null` hid the errors, and the fallback `df -BG /c /z` named
-  only C and Z. One rep, variance UNVERIFIED. Numbers: bench/summary-2026-10-24.md
+  disk or GPU claim, so the compaction defect is gone; the new gap is tool use, with three causes
+  across the three drive queries: (a) one never executed (the single classifier
+  timeout); (b) one ran as `powershell -Command "... $_ ..."` through Git Bash with `$_`
+  unescaped, and bash expanded it; (c) one used an escaped `\$_` and failed inside
+  PowerShell on operator precedence (`-f $_.Size/1GB, $_.FreeSpace/1GB`: the comma binds
+  tighter than `/`, "Index (zero based) must be greater than or equal to zero..."),
+  hidden by `2>/dev/null`. The fallback `df -BG /c /z` named only C and Z. One rep, variance UNVERIFIED. Numbers: bench/summary-2026-10-24.md
   ("Recon task, 3 runs"). Stays OPEN: the closing condition (correct on disks and GPU
   with no compaction) is not met. Next levers are for the operator to rule on: the
-  `$_`-through-bash trap (policy text, or a PowerShell tool for the local session) and
-  a recon checklist.
+  `$_`-through-bash trap (policy text, or a PowerShell tool for the local session),
+  which covers only (b); silenced stderr (`2>/dev/null`), which hid (c); and a recon
+  checklist.
 
 ## Phase 3 part A 2026-10-24
 

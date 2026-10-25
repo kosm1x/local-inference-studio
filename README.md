@@ -58,9 +58,10 @@ ruled (below).
 Chosen for accuracy over speed (ruling 6: the only 131072 row with 0 tool errors). At
 131072 all 66 layers and the 2,304 MiB q4_0 KV sit on the GPU with 1,630 MiB left free
 (measured, `-lv 4`). Ruling 12 traded context for MTP (65536, 1.80x bench decode);
-ruling 14 reverted it after a real report-producing session auto-compacted at about 36K
-on the 65536 window and the model's summary rewrote the facts it had read
-(docs/ROADMAP.md, ruling 14). `serve.ps1` applies the template automatically for files
+ruling 14 reverted it after a real report-producing session auto-compacted at 39,098
+tokens on the 65536 window and the model's summary rewrote the facts it had read; MTP is
+not blamed, the 65536 window is (one rep per arm; cwd, tool set and interactivity also
+differed between RUN 1 and RUN 2) (docs/ROADMAP.md, ruling 14). `serve.ps1` applies the template automatically for files
 under `models/qwen3.8-27b-uncensored`; MTP is added for the default file only at `-Ctx`
 65536 or below (`-NoMtp` turns it off); without the template Claude Code
 gets HTTP 500 ("System message must be at the beginning."). `claude-local.ps1` sets

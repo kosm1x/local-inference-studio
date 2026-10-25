@@ -61,3 +61,19 @@
 - **Mistake:** repeated the logged heredoc trap: a Python heredoc wrote `Z:\\repos` into a doc, the Bash tool collapsed it to `Z:\repos`, Python read `\r` as a carriage return, and `git ls-files --eol` flagged the file `w/-text`. → Doc text with backslashes goes through the Edit tool; after any scripted edit run `git ls-files --eol <files>` and a control-character grep on the diff.
 - **Better:** the brief expected `-LisFull` to restore the old 25.6K prompt; it measured 21,908 because the settings deny of Agent and Workflow stays on, which also turned the audit's "deny removes the schema" observation into a VERIFIED pair (run (b) 21,911). Predict a switch's result from every layer it leaves in place, not only the flags it drops.
 - **Better:** Claude Code's session transcript carries a `prompt_snapshot` attachment with the full system prompt; it proves an `--append-system-prompt` reached the request builder when the server log runs below prompt verbosity.
+
+## 2026-10-25 — First real session on 65K+MTP+lean (PC recon, two runs compared)
+
+- **Mistake:** declared the lean run healthy from server stats (0 server errors, all cache hits); the report it produced was wrong on two disks and silent on the GPU. -> Judge a run by its artefact against ground truth, not by the serving log.
+- **Avoid:** auto permission mode on the local model: the classifier call (own system prompt + whole transcript, ~36K tokens) consumed 2x the GPU time of the work, timed out 9 times, denied 2 calls, and the detours inflated the context to the compaction threshold.
+- **Avoid:** letting auto-compact fire mid-task on a 65,536 window: it triggered at ~36K; the model's own summary turned "J 135/4657, K 328/14902" into "mostly free" and the final report was written from the summary.
+- **Better:** report-producing tasks write facts to a file as they go; the raw tool output is the only thing compaction cannot be trusted to keep.
+- **Better:** llama-server's prompt cache restores interleaved conversations without re-prefill; one slot is not one conversation. Two full re-reads in 20 turns, both after long classifier generations.
+
+## 2026-10-25 — Ruling 14: revert to 131K, RUN 3 of the PC recon
+
+- **Mistake:** the RUN 2 verdict named compaction as the whole cause and auto mode as the fix; RUN 3 (131K, no compaction, one classifier timeout) was still incomplete: 6 of 8 volumes missing, GPU "not checked". -> Grade every run against a fixed checklist of the facts the task must contain (every volume, GPU, CPU, RAM, OS, toolchain, services) before naming a cause.
+- **Mistake:** RUN 3 lost all three drive queries for three different reasons: one classifier timeout, one bash expansion of an unescaped `$_` inside `powershell -Command "..."`, one PowerShell precedence error (`-f $_.Size/1GB, ...`) hidden by `2>/dev/null`; the model fell back to `df` on C and Z. The first write-up blamed `$_` for both executed failures (audit catch). -> Read each failed call's result separately before naming one cause; a policy fix for `$_` covers one of the two.
+- **Mistake:** wrote "compacted at about 36K" from the monitor's last n_tokens; the transcript's `compact_boundary.preTokens` says 39,098. -> Compaction size comes from the transcript metadata, not from the last server line before it.
+- **Avoid:** judging a run by server health (no compaction, no truncation, no denials): RUN 3 was clean on every server metric and still omitted the two nearly-full disks.
+- **Better:** the classifier cost is structural, not a RUN 2 accident: 7 classifier requests took about 240 s of RUN 3's 330 s of GPU time (2.7x the work). Auto mode on the local model is a cost figure the operator rules on, not a bug to fix.

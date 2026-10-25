@@ -8,7 +8,7 @@ only when its done-check passes on this machine.
 - Default server (ruling 6): Orca Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV
   q4_0, patched chat template; logon task Running (PID 27540, restarted 22:37 after
   Phase 3e), smoke PASS, one-turn
-  Claude Code call PASS. Tip `ef5e65c`.
+  Claude Code call PASS. Scripts tip `ef5e65c` (docs continue after it).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e).

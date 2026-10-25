@@ -31,6 +31,13 @@ import shlex
 import sys
 
 NOT_RETRYABLE = 'critical write; not retryable; report it to the operator instead'
+REWRITE_HIT = 'unexpanded shell metacharacter in a curl file argument'
+REWRITE_SUFFIX = ('shell or curl would rewrite this argument, so it is not judged; use a plain '
+                  'literal path; not retryable; report it to the operator instead')
+
+
+def deny_reason(hit):
+    return f'lis-guard: {hit}; {REWRITE_SUFFIX}.' if hit == REWRITE_HIT else f'lis-guard: {hit} matched; {NOT_RETRYABLE}.'
 MAX_INPUT = 32_768          # inputs above this get no decision (ReDoS guard, W1)
 SCRIPT_CAP = 200_000        # scripts above this get no decision, never allow (C5)
 _SPAN = r'[^;|\n]{0,400}'   # bounded span, replaces unbounded [^;|]* (W1)
@@ -68,7 +75,7 @@ CRITICAL_VERBS = [
 CRITICAL_VERBS = [(re.compile(p), n) for p, n in CRITICAL_VERBS]
 
 # A path that must not be written: user .claude/.ssh, Windows, Program Files*,
-# ProgramData, WSL-side /mnt/c mirrors of those, .env*, *.pem, *.key, token, .git.
+# ProgramData, WSL-side /mnt/c mirrors of those, .env*, *.pem, *.key, token, .git, .curlrc/_curlrc.
 _ANCH = r"(?:^|[\s'\"=:])"
 CRITICAL_PATH = re.compile(
     r'(?i)(?:\.claude\b|\.ssh\b'
@@ -76,7 +83,8 @@ CRITICAL_PATH = re.compile(
     r'|' + _ANCH + r'(?:[a-z]:[\\/]|/[a-z]/|/mnt/[a-z]/)?program ?files'
     r'|programdata'
     r'|/mnt/[a-z]/users/[^/]+/\.(?:claude|ssh)\b'
-    r'|\.env\b|\.pem\b|\.key\b|[\\/]token\b|^token\b|\.git(?:[\\/]|$|[\s\'"]))')
+    r'|\.env\b|\.pem\b|\.key\b|[\\/]token\b|^token\b|\.git(?:[\\/]|$|[\s\'"])'
+    r'|[._]curlrc\b)')  # curl's default config file (~/.curlrc, %APPDATA%\_curlrc)
 
 WRITE_VERBS = {'tee', 'mv', 'cp', 'chmod', 'chown', 'ln', 'install', 'truncate', 'touch'}
 PS_WRITE = re.compile(r'(?i)\b(?:Set-Content|Out-File|Add-Content|New-Item|Copy-Item|Move-Item|Rename-Item|Set-Acl'
@@ -101,12 +109,25 @@ REMOTE_READ = {'uptime', 'df', 'free', 'cat', 'tail', 'head', 'ls', 'docker', 's
 # Generic read verbs: safe whatever their flags/positionals; a write can only come from a
 # redirection (handled separately) or from a verb that has its own stricter handler below.
 READ_VERBS = {'ls', 'cat', 'head', 'tail', 'grep', 'wc', 'df', 'du', 'uptime', 'echo', 'printf',
-              'which', 'type', 'file', 'stat', 'uname', 'free', 'systeminfo', 'whoami', 'id', 'pwd',
-              'tr', 'cut', 'test', '[', '[[', 'true', 'false', 'netstat', 'tasklist', 'nproc',
+              'which', 'type', 'stat', 'uname', 'free', 'systeminfo', 'whoami', 'id', 'pwd',
+              'tr', 'cut', 'true', 'false', 'netstat', 'tasklist', 'nproc',
               'continue', 'break', ':', 'cd', 'jq', 'column', 'basename', 'dirname', 'realpath',
               'readlink', 'sha256sum', 'md5sum', 'diff', 'cmp'}
 # Verbs whose dangerous options (output/exec file) force a per-verb allow-list (C1):
 #   uniq, sort, tree, find, nvidia-smi, rg, wmic, date -- handled in seg_readonly().
+# file/find/tree/rg: every flag must be listed here; anything else (-exec, -delete, -fprint,
+# --pre, -o FILE, file -C/-m, a bundle) gets no decision.
+FIND_VALUED = {'-name', '-iname', '-path', '-ipath', '-type', '-maxdepth', '-mindepth',
+               '-mtime', '-newer', '-size', '-regex', '-iregex'}
+FIND_BARE = {'-empty', '-print', '-print0', '-prune', '-not', '-o', '-a', '!', '(', ')',
+             '-readable'}
+FILE_FLAGS = {'-b', '-i', '-L', '-h', '-z', '-s', '-k', '--mime', '--mime-type', '--brief'}
+TREE_VALUED = {'-L', '-I', '-P'}
+TREE_FLAGS = TREE_VALUED | {'-a', '-d', '-f', '-i', '-h', '-s', '-D', '--noreport', '--dirsfirst'}
+RG_VALUED = {'-e', '-g', '-t', '-T', '--glob', '--type', '-m', '--max-count', '-A', '-B', '-C',
+             '--color'}
+RG_FLAGS = RG_VALUED | {'-n', '-i', '-l', '-c', '-w', '-F', '-S', '--no-heading', '-o', '--json',
+                        '--hidden', '-u'}
 PS_METHODS_OK = {'tostring', 'trim', 'split', 'contains', 'startswith', 'endswith',
                  'toupper', 'tolower', 'replace', 'substring'}
 VERSION_ONLY = {'node', 'npm', 'pnpm', 'python', 'py', 'uv', 'claude', 'pip'}
@@ -116,10 +137,13 @@ PS_OK_EXACT = {'measure-object', 'select-object', 'where-object', 'sort-object',
                'convertto-json', 'foreach-object', 'test-path', 'resolve-path', 'get-content'}
 PS_ALIASES = {'select', 'where', 'sort', 'ft', 'fl', 'measure', 'foreach', 'if', 'else', 'elseif', 'in'}
 SSH_O_KEYS_OK = {'batchmode', 'connecttimeout', 'stricthostkeychecking'}
-# Env assignments that change code resolution get no decision; a plain FOO=bar is fine (C6).
-ENV_DANGEROUS = {'PATH', 'BASH_ENV', 'ENV', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'PSMODULEPATH',
-                 'PYTHONPATH', 'NODE_OPTIONS', 'PROMPT_COMMAND', 'IFS'}
-ENV_PREFIX_OK = {'MSYS_NO_PATHCONV'}
+# Env assignments: only these names (exact case) may lead a command or stand alone; any
+# other NAME=VALUE gets no decision (C6, R9: a deny-list missed GIT_EXTERNAL_DIFF,
+# GIT_CONFIG_*, PAGER, GIT_DIR, ...). WSLENV is left out: it forwards variables into WSL.
+ENV_SAFE = {'MSYS_NO_PATHCONV', 'MSYS2_ARG_CONV_EXCL', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM',
+            'COLUMNS', 'LINES', 'NO_COLOR', 'FORCE_COLOR', 'CLICOLOR', 'GIT_TERMINAL_PROMPT',
+            'GIT_OPTIONAL_LOCKS', 'PYTHONIOENCODING', 'PYTHONUTF8', 'PYTHONDONTWRITEBYTECODE',
+            'DOCKER_CLI_HINTS', 'WSL_UTF8'}
 MAX_DEPTH = 6
 
 
@@ -169,11 +193,16 @@ def exe(tok):
     return t[:-4] if t.endswith('.exe') else t
 
 
-def strip_env(toks):
-    """Drop leading NAME=VALUE assignments. A dangerous env name -> None (no decision)."""
+def env_safe(tok):
+    name, val = tok.split('=', 1)
+    return name in ENV_SAFE and '\n' not in val and '\r' not in val
+
+
+def strip_env(toks, safe_only=True):
+    """Drop leading NAME=VALUE assignments. With safe_only, a name outside ENV_SAFE (or a
+    value holding a newline) -> None (no decision); deny scans pass safe_only=False."""
     while toks and re.match(r'^[A-Za-z_]\w*=', toks[0]) and len(toks) > 1:
-        name = toks[0].split('=', 1)[0]
-        if name.upper() in ENV_DANGEROUS and name not in ENV_PREFIX_OK:
+        if safe_only and not env_safe(toks[0]):
             return None
         toks = toks[1:]
     return toks
@@ -262,7 +291,7 @@ def walk(cmd, ctx='local', depth=0):
         if ctx == 'ps':
             continue
         toks = tokens(seg)
-        toks = strip_env(toks) if toks else toks
+        toks = strip_env(toks, False) if toks else toks
         if not toks:
             continue
         v = exe(toks[0])
@@ -342,19 +371,44 @@ def critical_verb(cmd):
 
 _CURL_BOOL = set('0123469#aBfgGIijJklLMnNOpqRsSvVZ')  # curl short options that take no value
 _CURL_FILE = set('odTDcKFbE')                         # curl short options whose value is a file
+_CURL_META_FILE = set('ocDKTbE')                      # file-valued letters vetted for _SHELL_META
+_SHELL_META = re.compile(r'[?*\[{}$`#]')  # shell glob/brace/$/backtick; curl's #N from URL globs
+_CURL_REMOTE = ('--remote-name', '--remote-name-all', '--remote-header-name')
+
+
+def _bundle_has_remote(t):
+    """True when a short bundle such as -sSO or -OJ holds O or J before its first value letter."""
+    for ch in t[1:]:
+        if ch in 'OJ':
+            return True
+        if ch not in _CURL_BOOL:
+            return False
+    return False
 
 
 def _curl_target_critical(a):
-    """A curl option that writes to / reads a file names a critical path (C2/C7b).
-    Long names match exactly; a short bundle (-sfo PATH, -soPATH, -sd@PATH) is read
-    letter by letter, and the first letter that takes a value owns the rest (W1)."""
+    """Deny reason when a curl option that writes to / reads a file names a critical path
+    (C2/C7b), or when a file argument or -w value holds a shell metacharacter: the shell
+    rewrites it after the hook reads it (glob, brace, $var, backtick), so it is refused,
+    not judged. Long names match exactly; a short bundle (-sfo PATH, -soPATH, -sd@PATH)
+    is read letter by letter, and the first letter that takes a value owns the rest (W1)."""
     long_file = ('--output', '--dump-header', '--cookie-jar', '--trace', '--trace-ascii',
                  '--config', '--upload-file', '--cookie', '--key', '--cert', '--output-dir',
                  '--stderr', '--libcurl', '--etag-save', '--hsts', '--alt-svc')
     long_data = ('--data', '--form', '--json')
+    # -O/-J name the output after the URL (or the server): a URL glob ({..} or [..]) makes
+    # several names, and a last path segment such as .env or .curlrc is a critical file
+    remote = any(t in _CURL_REMOTE or (re.match(r'-[^-]', t) and _bundle_has_remote(t)) for t in a)
+    for t in a if remote else ():
+        if t.startswith('-'):
+            continue
+        if '{' in t or '[' in t:
+            return REWRITE_HIT
+        if CRITICAL_PATH.search(re.split(r'[?#]', t, maxsplit=1)[0].rsplit('/', 1)[-1]):
+            return 'curl -O/-J naming a critical file'
     for j, t in enumerate(a):
         nxt = a[j + 1] if j + 1 < len(a) else None
-        val = letter = None
+        val = letter = wout = None
         if t.startswith('--'):
             name = t.split('=', 1)[0]
             v = t.split('=', 1)[1] if '=' in t else nxt
@@ -362,19 +416,28 @@ def _curl_target_critical(a):
                 val = v
             elif name.startswith(long_data):
                 letter, val = 'd', v
+            elif name == '--write-out':
+                wout = v
         elif t.startswith('-') and len(t) > 1:
             for k, ch in enumerate(t[1:], 2):
                 if ch in _CURL_BOOL:
                     continue
                 if ch in _CURL_FILE:
                     letter, val = ch, (t[k:] or nxt)
+                elif ch == 'w':
+                    wout = t[k:] or nxt
                 break
+        # -w '%output{[>>]FILE}' writes FILE (curl 8.3+), and every -w variable is %{...}:
+        # any -w value with a brace (or other metacharacter) is refused below.
+        farg = wout or (val if letter in _CURL_META_FILE or (letter is None and val) else None)
+        if farg and _SHELL_META.search(farg):
+            return REWRITE_HIT
         if val and letter in ('d', 'F'):  # data/form read a file only after @ or <
             m = re.search(r'[@<](.*)$', val)
             val = m.group(1) if m else None
         if val and CRITICAL_PATH.search(val):
-            return True
-    return False
+            return 'curl writing/reading a critical path'
+    return None
 
 
 def procsubst(s):
@@ -455,7 +518,7 @@ def critical(cmd, ctx0='local'):
         toks = tokens(seg)
         if not toks:
             continue
-        toks = strip_env(toks) or toks
+        toks = strip_env(toks, False) or toks
         v = exe(toks[0])
         args = toks[1:]
         nonflag = [t for t in args if not t.startswith('-')]
@@ -465,8 +528,8 @@ def critical(cmd, ctx0='local'):
             targets = nonflag if v in ('tee', 'chmod', 'chown', 'touch', 'truncate') else nonflag[-1:]
             if any(CRITICAL_PATH.search(t) for t in targets):
                 return f'{v} into a critical path'
-        if v == 'curl' and _curl_target_critical(args):
-            return 'curl writing/reading a critical path'
+        if v == 'curl' and (why := _curl_target_critical(args)):
+            return why
         if v == 'nvidia-smi' and any((f in ('-f', '--filename') and j + 1 < len(args) and CRITICAL_PATH.search(args[j + 1]))
                                      or (f.startswith('--filename=') and CRITICAL_PATH.search(f))
                                      for j, f in enumerate(args)):
@@ -544,7 +607,9 @@ def _url_host(u):
 
 
 def curl_ok(args):
-    """Allow only safe options and a URL whose host is exactly 127.0.0.1/localhost (C2)."""
+    """Allow only safe options and a URL whose host is exactly 127.0.0.1/localhost (C2).
+    -w / --write-out in any form is never allowed: its format can write a file
+    (%output{FILE}), and bash can build that format after the hook reads it."""
     skip = expect_get = False
     url_seen = False
     for t in args:
@@ -562,10 +627,10 @@ def curl_ok(args):
             continue
         if t in ('-X', '--request'):
             skip = expect_get = True; continue
-        if t in ('-H', '--header', '-m', '--max-time', '--connect-timeout', '-w', '--write-out',
+        if t in ('-H', '--header', '-m', '--max-time', '--connect-timeout',
                  '-A', '--user-agent'):
             skip = True; continue
-        if t.startswith(('--max-time=', '--connect-timeout=', '--header=', '--write-out=', '--user-agent=')):
+        if t.startswith(('--max-time=', '--connect-timeout=', '--header=', '--user-agent=')):
             continue
         if t.startswith('-X'):
             if t[2:].upper() != 'GET':
@@ -579,26 +644,91 @@ def curl_ok(args):
     return url_seen
 
 
+def flags_ok(a, flags, valued):
+    """Every dash token is a listed flag (a valued long flag may use --flag=value); the
+    token after a valued flag is its value; other tokens are positionals (pattern, paths)."""
+    i = 0
+    while i < len(a):
+        t = a[i]
+        if t.startswith('-') and t != '-':
+            name = t.split('=', 1)[0] if t.startswith('--') else t
+            if name not in flags or ('=' in t and name not in valued):
+                return False
+            if name in valued and '=' not in t:
+                i += 1
+                if i >= len(a):
+                    return False
+        i += 1
+    return True
+
+
+def find_ok(a):
+    """find PATH... EXPR with EXPR built only from FIND_VALUED/FIND_BARE."""
+    i = 0
+    while i < len(a) and not (a[i].startswith('-') or a[i] in ('!', '(', ')')):
+        i += 1
+    while i < len(a):
+        t = a[i]
+        if t in FIND_VALUED:
+            i += 1
+            if i >= len(a):
+                return False
+        elif t not in FIND_BARE:
+            return False
+        i += 1
+    return True
+
+
+def shell_expands(s):
+    """True when bash would expand something in s before the command sees it: a $ or
+    backtick outside single quotes, or an unquoted { } * ? [ ] (brace expansion, globs), or
+    an unquoted ~ at word start or after = or :. Single-quoted spans and backslash-escaped
+    characters are literal; inside double quotes only $ and backtick expand."""
+    q, i = None, 0
+    while i < len(s):
+        c = s[i]
+        if q == "'":
+            q = None if c == "'" else q
+        elif c == '\\':
+            i += 1
+        elif c in '$`':
+            return True
+        elif c == '"':
+            q = None if q == '"' else '"'
+        elif q is None:
+            if c == "'":
+                q = "'"
+            elif c in '{}*?[]' or (c == '~' and (i == 0 or s[i - 1] in ' \t\n=:')):
+                return True
+        i += 1
+    return False
+
+
 def seg_readonly(seg, ctx, depth):
     if ctx == 'ps':
         return ps_readonly(seg)
+    # Any shell expansion means the shell rewrites the segment after the hook reads it: a
+    # word-split $(...), a "$X" that is a flag, ${Y@P} running a command, -{delete,delete}
+    # or a glob that becomes a flag, ~user. No grammar over expansions survived audit
+    # (5 rounds), so no decision (critical() has already scanned the raw text for denies).
+    # A $ or backtick anywhere means no decision; a PowerShell payload may keep $_ only
+    # where bash leaves it (single quotes, \$).
+    if shell_expands(seg):
+        return False
+    lead = tokens(seg)
+    if not (lead and exe(lead[0]) in PS_EXES) and ('$' in seg or '`' in seg):
+        return False
     bare = strip_quoted(seg)
-    if '`' in bare or '<(' in bare:
+    if '<(' in bare:
         return False
     bare = re.sub(r'\d?>&\d|&>\s*/dev/null|\d?>\s*/dev/null', '', bare)
     if '>' in bare or '<' in bare:
         return False
-    for inner in subst(seg):
-        if not readonly(inner, ctx, depth + 1):
-            return False
-    masked = seg
-    for inner in subst(seg):  # already checked above; mask so shlex sees one word
-        masked = masked.replace('$(' + inner + ')', 'SUBST', 1)
-    toks = tokens(re.sub(r'\s\d?>&\d|\s&>\s*/dev/null|\s\d?>\s*/dev/null', ' ', masked))
+    toks = tokens(re.sub(r'\s\d?>&\d|\s&>\s*/dev/null|\s\d?>\s*/dev/null', ' ', seg))
     if not toks:
         return False
     if all(re.match(r'^[A-Za-z_]\w*=', t) for t in toks):
-        return all(t.split('=', 1)[0].upper() not in ENV_DANGEROUS for t in toks)
+        return all(env_safe(t) for t in toks)
     toks = strip_env(toks)
     if not toks:
         return False
@@ -609,20 +739,21 @@ def seg_readonly(seg, ctx, depth):
         return True
     if v == 'date':
         return not date_sets(a)
+    if v == 'file':
+        return flags_ok(a, FILE_FLAGS, set())
     if v == 'uniq':
         return len([t for t in a if not t.startswith('-')]) <= 1
     if v == 'sort':
         return not (any('o' in f[1:] and not f.startswith('--') for f in a if f.startswith('-'))
                     or any(f.startswith('--output') or f == '-o' for f in a))
     if v == 'tree':
-        return not any(f == '-o' or f.startswith('--output') for f in a)
+        return flags_ok(a, TREE_FLAGS, TREE_VALUED)
     if v == 'find':
-        return not any(x in ('-delete', '-exec', '-execdir', '-ok', '-okdir', '-fls', '-fprint',
-                             '-fprint0', '-fprintf') or x.startswith(('-exec', '-ok', '-fprint')) for x in a)
+        return find_ok(a)
     if v == 'nvidia-smi':
         return all(x.startswith('--query') or x.startswith('--format') or x in ('-L', '-q', '--list-gpus', '--help', '-h') for x in a)
     if v == 'rg':
-        return not any(x == '--pre' or x == '--pre-glob' or x.startswith('--pre=') or x.startswith('--pre-glob=') for x in a)
+        return flags_ok(a, RG_FLAGS, RG_VALUED)
     if v == 'wmic':
         return len(a) >= 2 and a[1].lower() in ('get', 'list')
     if v == 'hostname':
@@ -776,7 +907,8 @@ def check_script(path, kind, cwd):
         else:
             hit = critical_verb(line)
         if hit:
-            return 'deny', f'lis-guard: script {path} line {n} is a critical write ({hit}): {line[:160]!r}; {NOT_RETRYABLE}.'
+            what, tail = ('refused', REWRITE_SUFFIX) if hit == REWRITE_HIT else ('a critical write', NOT_RETRYABLE)
+            return 'deny', f'lis-guard: script {path} line {n} is {what} ({hit}): {line[:160]!r}; {tail}.'
         if all_readonly and not script_line_ok(line, kind):
             all_readonly = False
     return 'allow' if all_readonly else None
@@ -788,14 +920,16 @@ def decide(cmd, cwd=None):
         return None
     hit = critical(cmd)
     if hit:
-        return 'deny', f'lis-guard: {hit} matched; {NOT_RETRYABLE}.'
+        return 'deny', deny_reason(hit)
     scripts, others = [], []
+    scripts_ok = True
     for seg in split_segments(cmd):
         toks = tokens(seg)
-        toks = strip_env(toks) if toks else toks
+        if toks and strip_env(toks) is None:  # unsafe env prefix: still deny-scan a script
+            scripts_ok = False
+        toks = strip_env(toks, False) if toks else toks
         st = script_target(toks) if toks else None
         (scripts if st else others).append(st or seg)
-    scripts_ok = True
     for path, kind in scripts:
         r = check_script(path, kind, cwd)
         if isinstance(r, tuple):
@@ -829,7 +963,7 @@ def main():
         d = decide(cmd, cwd)
     except Exception:  # an analysis bug must not block the session; the rules still judge
         hit = critical_verb(cmd)
-        d = ('deny', f'lis-guard: {hit} matched; {NOT_RETRYABLE}.') if hit else None
+        d = ('deny', deny_reason(hit)) if hit else None
     if d:
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
                                                  'permissionDecision': d[0],

@@ -24,8 +24,9 @@
   --tools Bash,Read,Edit,Write,Glob,Grep,Skill, --strict-mcp-config --mcp-config with a
   per-run empty {"mcpServers":{}} file ($env:TEMP\lis-mcp-<pid>.json, deleted on exit),
   and --append-system-prompt with the one-model policy (docs/context-audit-2026-10-24.md
-  section 5). Hooks stay on. -LisFull omits all three for a session that needs the full
-  tool set or MCP; Agent and Workflow stay denied by config/claude-settings.json.
+  section 5) plus an evidence and machine-survey block. Hooks stay on. -LisFull omits
+  all three for a session that needs the full tool set or MCP; Agent and Workflow stay
+  denied by config/claude-settings.json.
 
   Permissions (ruling 15): the per-run settings carry rule set A from
   config/claude-settings.json plus a PreToolUse Bash hook, scripts/hooks/lis-guard.py
@@ -123,6 +124,8 @@ $mcpConfig = Join-Path $env:TEMP "lis-mcp-$PID.json"
 # servers, and the one-model policy. -LisFull omits all three. --tools and --mcp-config
 # take several values, so each is followed by another option, never by $claudeArgs.
 $policy = 'This session runs on one local model served by llama-server on this machine. You are the only agent: do all work directly with your own tools and never spawn subagents, agent teams or workflows. Ignore every instruction about Fable, Opus, Sonnet or other model roles, orchestrator and subagent splits, or delegating implementation, tests or audits to a subagent; those rules apply to cloud sessions only. Sessions here may run long and unsupervised, so before any destructive or irreversible action (deleting files, git reset or force-push, stopping processes, editing config outside the working repo) verify the exact target first and prefer the reversible option. Keep answers short: the context window is 131,072 tokens.'
+# Evidence rules and survey checklist: the gaps of the graded recon runs (ROADMAP ruling 15).
+$policy += ' Evidence: copy every number in a report from a tool output; get counts with wc -l or Measure-Object, never by counting a listing yourself. Read a script before citing its output, and prefer a direct check over a helper script. Never append 2>/dev/null or 2>$null to a probe: a hidden error becomes a false claim. In the Bash tool, put a PowerShell payload in single quotes and use double quotes for strings inside it (powershell -NoProfile -Command ''Get-Volume | Select-Object DriveLetter,FileSystemLabel,Size,SizeRemaining'') so bash cannot expand $_, and quote ~ in a wsl or ssh command so it resolves on the far side. Mark anything you did not verify as UNVERIFIED. A machine survey covers: every mounted volume with letter, label, size and free space (df -h with no path, whose / row is C:, plus Get-Volume for labels), flagging any under 5 % free; the GPU (nvidia-smi --query-gpu=name,memory.total,memory.used --format=csv); CPU, RAM and OS; toolchain versions; Docker (docker version) and WSL (wsl -l -v) state; the llama-server process (tasklist //FI "IMAGENAME eq llama-server.exe") and its loaded model (curl -sS http://127.0.0.1:8080/props -H ''Authorization: Bearer local'' | grep -o ''"model_path":"[^"]*"''; every endpoint except /health needs that header); and VPS reachability (wsl -d Ubuntu -- ssh -o BatchMode=yes -o ConnectTimeout=10 -i ''~/.ssh/vps-backup'' root@<ip> uptime, with the VPS IP address given in CLAUDE.md, not the mail alias).'
 $leanArgs = if ($LisFull) { @() } else {
     @('--tools', 'Bash,Read,Edit,Write,Glob,Grep,Skill', '--strict-mcp-config',
       '--mcp-config', $mcpConfig, '--append-system-prompt', $policy)

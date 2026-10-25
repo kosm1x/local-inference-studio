@@ -202,14 +202,19 @@ MCP servers) and `--append-system-prompt` with a one-model policy (one local mod
 subagents, ignore cloud model-role rules, verify before destructive actions, keep
 answers short; text in `docs/context-audit-2026-10-24.md` section 5, which still names
 the 65,536 window of the time; the wrapper's copy names a 131,072-token window whatever
-`-LisContextTokens` says). Hooks stay on.
-Measured fresh-session prompt: 12,347 tokens from a dir outside `Z:\repos`, 12,775
-from this repo (was 25,578 and 26,224 to 32,988). `-LisFull` (also `-LisFull:true` /
+`-LisContextTokens` says), followed by an evidence and machine-survey block (numbers come
+from tool output, read a script before citing it, no silenced stderr, single-quoted
+PowerShell payloads in Bash, a survey checklist; 540 tokens in all, was 152, +388 on the
+prompt; the text is `$policy` in the wrapper). Hooks stay on.
+Fresh-session prompt: about 12,735 tokens from a dir outside `Z:\repos` and about 13,163
+from this repo (measured 12,347 and 12,775 before the 2026-10-25 policy block, plus 388;
+was 25,578 and 26,224 to 32,988). `-LisFull` (also `-LisFull:true` /
 `-LisFull:false`) omits the three additions for a session that needs the full tool set
 or MCP (measured 21,908 tokens from the scratch dir; Agent and Workflow stay denied by
 the settings file). Absolute sizes vary by a few hundred tokens with the cwd path and
-environment text; the reproducible figure is the lean saving, about 9,560 tokens against
-`-LisFull` in the same cwd (about 13,200 against the pre-ruling full set).
+environment text; the reproducible figure is the lean saving, about 9,172 tokens against
+`-LisFull` in the same cwd and about 12,812 against the pre-ruling full set (9,560 and
+13,200 before the 2026-10-25 policy block).
 
 What a lean session cannot do (`-LisFull` restores these tools and MCP, nothing else):
 
@@ -228,23 +233,23 @@ Permissions (ruling 15: only writes and deletes of critical files block or ask; 
 runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
 
 - Rule set A, in `config/claude-settings.json` `permissions`. `allow`: read-only prefixes
-  for host inspection, versions, service state, repo reads and localhost `curl`, e.g.
+  for host inspection, versions, service state and repo reads, e.g.
   `Bash(powershell -NoProfile -Command \"Get-*)`. The matcher sees the raw command string,
   so a PowerShell rule carries the opening quote of the `-Command` payload, and every
   `;` / `&&` / `|` segment of a command must match. An allowed command skips the auto-mode
   classifier (about 60 s per decision on the local model). `ask`: `Edit(...)` rules for
-  the critical paths (`~/.claude`, `~/.ssh`, Windows, Program Files, ProgramData, `.env*`,
-  `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs Write; the wrapper
-  rewrites `Edit(~/...)` to the `//c/Users/<name>/...` form at run time; UNVERIFIED: a
-  user name containing a space is not quoted in that rewrite, so such a path may not
-  match and was not tested on this machine) and Bash shapes for history rewrite
-  (`git push --force`, `reset --hard`, `clean`, `rebase`, `branch -D`), disks, registry,
-  services, scheduled tasks, `wsl --unregister|--import` and Docker deletes, plus
-  `Bash(powershell *Remove-Item*)`-style rules (with `powershell.exe`/`pwsh.exe`
+  the critical paths (`~/.claude`, `~/.ssh`, `.curlrc`/`_curlrc`, Windows, Program Files,
+  ProgramData, `.env*`, `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs
+  Write; the wrapper rewrites `Edit(~/...)` to the `//c/Users/<name>/...` form at run
+  time; UNVERIFIED: a user name containing a space is not quoted in that rewrite, so such
+  a path may not match and was not tested on this machine) and Bash shapes for history
+  rewrite (`git push --force`, `reset --hard`, `clean`, `rebase`, `branch -D`), disks,
+  registry, services, scheduled tasks, `wsl --unregister|--import` and Docker deletes,
+  plus `Bash(powershell *Remove-Item*)`-style rules (with `powershell.exe`/`pwsh.exe`
   variants) that see inside a payload. `git branch` is allowed only by its read-only
-  forms (`-a`, `--list`, `--show-current`, `-vv`, bare); the `curl` allow rules are
-  anchored to `http://127.0.0.1:8080/` and `http://localhost:8080/`; `wmic` has no allow
-  rule (the hook allows `wmic <alias> get|list` and gives no decision on the rest).
+  forms (`-a`, `--list`, `--show-current`, `-vv`, bare); `curl` and `wmic` have no
+  allow rule (the hook allows a read-only `curl` to the local server and `wmic <alias>
+  get|list`, and gives no decision on the rest).
   `date`, `nvidia-smi` and `hostname` are allowed only as `date`, `date +*`,
   `nvidia-smi`, `nvidia-smi --query-*`, `nvidia-smi -L*`, `nvidia-smi -q*` and a bare
   `hostname`, so `date -s`, `nvidia-smi -pl` and `hostname <name>` match no allow rule.
@@ -252,6 +257,54 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `Bash(nvidia-smi * -l*)`, `Bash(nvidia-smi *--loop*)` and `Bash(date +* -*)` cover the
   `-f`/`-l` flags and post-format `date` flags those allow prefixes would otherwise
   admit; in `-p` they are denials (LIVE-UNVERIFIED, V14-class).
+  Curl has no allow rule: a read-only curl to the local server runs on the hook's allow
+  alone, and with `-LisNoGuard` every curl that no rule decides goes to the classifier.
+  A user-level allow such as `Bash(curl:*)` in `~/.claude/settings.json` still applies,
+  because the wrapper loads user settings: on a machine that has one, any curl that no
+  ask rule matches runs with or without the hook (VERIFIED 2026-10-25: with the hook on,
+  `curl -sS .../health -so out.txt` ran through that rule). Curl file-writing and config
+  flags ask: `Bash(curl * -o*)`, `* -O*`, `*--output*`, `*--remote-name*`, `* -D*`,
+  `*--dump-header*`, `*--cookie-jar*`, `*--trace*`, `*%output*`, `*--stderr*`,
+  `*--libcurl*`, `* -K*`, `*--config*`, `*--etag-save*`, `*--hsts*`, `*--alt-svc*`,
+  `*@*` (a second URL with `user@`, `-d @file`, `-F f=@file`, `-w @-`), `* -T*`,
+  `*--upload-file*`, `* -c*` (also `-cj`), `* -w*`, `*--write-out*`, `* -X*`, `* -d*`,
+  `*--data*`, `*--json*`; `curl -sS .../health -o /dev/null` is a `-p` denial. Rules
+  match per pipeline segment and case-sensitively (VERIFIED live 2026-10-25: `-d '...'`
+  does not trip `-D*`), and the policy command `curl -sS .../props ... | grep -o ...`
+  runs with no denial and no classifier call on the hook's allow. An ask rule wins over
+  a hook allow (VERIFIED: `curl -sS .../health -X GET` is a `-p` denial although
+  lis-guard allows it), so `-X GET` asks, and `--trace*` asks for the harmless
+  `--trace-time`. No `-w`/`--write-out` is auto-allowed. The hook denies a curl file
+  argument (`-o`, `-c`, `-D`, `-K`, `-T`, `-b`, `-E`, bundled or long form) or `-w`
+  value holding `? * [ { } $ #` or a backtick, critical target or not, because the shell
+  (or curl, which replaces `#N` in an output name with a URL-glob match) rewrites it
+  after the hook reads it; that deny beats a user-level allow and covers every `-w
+  '%{...}'` format (VERIFIED live 2026-10-25: `-so <dir>/.cl?ude/x` denied, nothing
+  written). With `-O`/`--remote-name[-all]` or `-J`/`--remote-header-name` (bundled
+  `-sSO`, `-OJ` included) it denies a URL holding `{` or `[` and a URL whose last path
+  segment is a critical name (`.env`, `.curlrc`, `token`, `*.pem`; VERIFIED live: `-sSO
+  .../.env` denied, no file); any other `-O` gets no decision, so a bundled `-sO` to a
+  plain name runs under a user-level `Bash(curl:*)`, the ruling-15 non-critical residual
+  (UNVERIFIED live for `-sO`; the `-so` case above is VERIFIED). Any shell expansion in a
+  Bash segment gets no hook allow, and the rules or the classifier decide (critical denies
+  still fire first). That covers a `$` or backtick anywhere, quoted or not and assignments
+  included, plus an unquoted `{`, `}`, `*`, `?`, `[`, `]`, and an unquoted `~` at word
+  start or after `=` or `:` (single-quoted or backslash-escaped characters are literal;
+  inside double quotes only `$` and backtick expand). The shell rewrites such a segment
+  after the hook reads it: `curl URL/$(printf 'a %so F' -)` word-splits into `-o F`,
+  `find D "$(printf -- -delete)"` and `find D -{delete,delete}` pass a flag, `find X *`
+  passes any file named `-delete`, `X=${Y@P}` runs a command, and `` echo "`touch F`" ``
+  runs one inside double quotes (VERIFIED live 2026-10-25 for the `curl`, both `find` and
+  the backtick shapes: hook no decision, Claude Code did not rule-allow them even under a
+  user-level `Bash(find:*)`, the classifier timed out and denied, nothing written or
+  deleted). Quote a glob or a `~` path (`'*.md'`, `'~/.ssh/vps-backup'`) to keep a hook
+  allow. A `powershell`/`pwsh` payload may hold `$_` only
+  where bash leaves it alone, in single quotes or as `\$`: in a double-quoted payload bash
+  substitutes its own `$_` (the last argument of the previous command), so `echo 'Name;
+  ri -r -fo DIR'; powershell -NoProfile -Command "Get-Date | Select-Object $_"` deletes
+  DIR (VERIFIED under bash on a scratch dir; HEAD allowed it). `[[`, `[` and `test` are
+  not read-only verbs: `[[ Z -eq 1 ]]` and `[ -v 'a[Z]' ]` evaluate `Z` as arithmetic,
+  which can run a `$(...)` held in it.
   `deny`: WebSearch, WebFetch, Agent, Workflow.
 - The hook, `scripts/hooks/lis-guard.py` (Python 3, stdlib, `python -I`), which the
   wrapper adds to the per-run settings as a PreToolUse `Bash` hook. It denies a critical
@@ -270,7 +323,24 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   shapes (a verb runs only with options from its own safe set; an unknown option gives no
   decision), so a write/exec option on an otherwise read-only verb (`uniq <out>`,
   `sort -o`, `find -fprint`, `nvidia-smi -f`, `wmic ... delete`, `curl -o`,
-  `ssh -o ProxyCommand`) is never allowed. The wrapper registers the hook with
+  `ssh -o ProxyCommand`) is never allowed. `find`, `tree` and `rg` were deny-lists until
+  2026-10-25 and are now allow-lists too: `find` takes paths then only `-name -iname
+  -path -ipath -type -maxdepth -mindepth -mtime -newer -size -regex -iregex` (each with
+  its value), `-empty -print -print0 -prune -not -o -a -readable ! ( )`; `tree` only `-a
+  -d -L -I -P -f -i -h -s -D --noreport --dirsfirst`; `rg` only `-n -i -l -c -w -F -e -g
+  -t -T --glob --type -m --max-count -A -B -C -S --no-heading --color -o --json --hidden
+  -u` (no bundles such as `-in`); `file` only `-b -i -L -h -z -s -k --mime --mime-type
+  --brief` (`-C`, `-m`, `--compile` get no decision). Env prefixes are an allow-list too: a leading or
+  standalone `NAME=VALUE` keeps a hook allow only for `MSYS_NO_PATHCONV`,
+  `MSYS2_ARG_CONV_EXCL`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TZ`, `TERM`, `COLUMNS`, `LINES`,
+  `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `GIT_TERMINAL_PROMPT`, `GIT_OPTIONAL_LOCKS`,
+  `PYTHONIOENCODING`, `PYTHONUTF8`, `PYTHONDONTWRITEBYTECODE`, `DOCKER_CLI_HINTS` and
+  `WSL_UTF8` (exact case, no newline in the value). Any other name gives no decision, so
+  the rules or the classifier decide: `GIT_EXTERNAL_DIFF`, `GIT_CONFIG_*`, `GIT_PAGER`,
+  `PAGER`, `GIT_DIR`, `RIPGREP_CONFIG_PATH` and the like make a read-only verb run a
+  program (VERIFIED live 2026-10-25: `GIT_EXTERNAL_DIFF=<script> git diff --ext-diff`
+  got no hook decision, the classifier timed out and denied, the script did not run).
+  `WSLENV` is left out because it forwards variables into WSL. The wrapper registers the hook with
   `timeout: 10` and `onFailure: block` (Claude Code 2.1.295+, so a hook crash or timeout
   blocks the call rather than letting it through), and inputs over 32 KB get no decision.
   `-LisNoGuard` leaves the hook out. Tests:

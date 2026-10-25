@@ -30,8 +30,9 @@ at 131072). `scripts/claude-local.ps1` and `config/claude-settings.json` default
 131072 context window to match; the wrapper passes a per-run copy of the
 settings file with `CLAUDE_CODE_AUTO_COMPACT_WINDOW` rewritten to `-LisContextTokens`
 and, unless `-LisFull`, the lean set (7 tools, no MCP, one-model policy; ruling 13; it
-saves about 9,560 prompt tokens against `-LisFull` in the same cwd, while absolute sizes
-vary by a few hundred tokens with the cwd path). KV rule: `serve.ps1` uses q4_0 only for this
+saves about 9,172 prompt tokens against `-LisFull` in the same cwd, 9,560 before the
+2026-10-25 policy block, while absolute sizes vary by a few hundred tokens with the cwd
+path). KV rule: `serve.ps1` uses q4_0 only for this
 default file and q8_0 for any other `-Model` (the KV those rows were benched with)
 unless `-KvType` is passed.
 

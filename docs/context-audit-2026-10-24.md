@@ -183,6 +183,11 @@ Draft text:
 > repo) verify the exact target first and prefer the reversible option. Keep answers
 > short: the context window is 65,536 tokens.
 
+Since 2026-10-25 the wrapper appends a second block after this paragraph (evidence rules
+and a machine-survey checklist, ROADMAP ruling 15 follow-up); the whole policy is 540
+tokens on the server tokenizer (152 before; +388 on the prompt). Text: `$policy` in
+`scripts/claude-local.ps1`.
+
 Candidate lean sets for the operator (all from section 3):
 
 | Set | Flags | Prompt tokens (R, MCP connected baseline 32,988) | Keeps |

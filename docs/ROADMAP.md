@@ -13,10 +13,12 @@ only when its done-check passes on this machine.
 - Local sessions use the lean set (ruling 13): 7 tools, no MCP, the one-model policy
   appended, hooks on; `-LisFull` restores the full tool set and MCP. Fresh-session prompt
   12,347 tokens from a scratch dir (was 25,578) and 12,775 from the repo root (was 26,224
-  to 32,988); absolute sizes vary by a few hundred tokens with the cwd path, the
-  reproducible figure is the saving (about 9,560 against `-LisFull` in the same cwd,
-  about 13,200 against the pre-ruling full set). First agentic loop on 65536 + MTP +
-  lean: PASS 3/3, 6 turns, 40.7 s, 0 tool errors (one rep, variance UNVERIFIED).
+  to 32,988), both before the 2026-10-25 policy block (+388: about 12,735 and 13,163);
+  absolute sizes vary by a few hundred tokens with the cwd path, the reproducible figure
+  is the saving (about 9,172 against `-LisFull` in the same cwd, about 12,812 against
+  the pre-ruling full set; 9,560 and 13,200 before the policy block). First agentic
+  loop on 65536 + MTP + lean: PASS 3/3, 6 turns, 40.7 s, 0 tool errors (one rep,
+  variance UNVERIFIED).
 - Permissions (ruling 15): rule set A plus the lis-guard hook in every local session
   (`-LisNoGuard` leaves the hook out); on the 24-command bench the hook cut classifier
   requests from 41 to 11 and wall time from 1,868.7 to 803.8 s. Graded re-run (RUN 4):
@@ -509,6 +511,14 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   recon checklist named under (14). Table: [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md)
   ("Recon task, 4 runs"). Live C (interactive, one rep): 0 classifier requests, checklist
   9 of 14, 1 false statement (repo counts); stays OPEN.
+  Policy-text levers (2026-10-25, the follow-up named under (14) and above): the wrapper's
+  appended policy gains an evidence block (numbers copied from tool output, counts via
+  `wc -l` / `Measure-Object`, read a script before citing it, no `2>/dev/null` on probes,
+  single-quoted PowerShell payloads in Bash, UNVERIFIED marks) and a machine-survey
+  checklist (every volume with free space, GPU, llama-server process and model via
+  `/props` `model_path`, VPS reachability by IP); policy 152 -> 540 tokens on the server
+  tokenizer, and the fresh-session prompt from one scratch cwd 12,634 -> 13,022 (+388,
+  same `-p` call, one rep). Effect on the report UNVERIFIED until RUN 5.
 
 ## Phase 3 part A 2026-10-24
 

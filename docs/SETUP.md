@@ -248,6 +248,10 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `date`, `nvidia-smi` and `hostname` are allowed only as `date`, `date +*`,
   `nvidia-smi`, `nvidia-smi --query-*`, `nvidia-smi -L*`, `nvidia-smi -q*` and a bare
   `hostname`, so `date -s`, `nvidia-smi -pl` and `hostname <name>` match no allow rule.
+  The ask rules `Bash(nvidia-smi * -f*)`, `Bash(nvidia-smi *--filename*)`,
+  `Bash(nvidia-smi * -l*)`, `Bash(nvidia-smi *--loop*)` and `Bash(date +* -*)` cover the
+  `-f`/`-l` flags and post-format `date` flags those allow prefixes would otherwise
+  admit; in `-p` they are denials (LIVE-UNVERIFIED, V14-class).
   `deny`: WebSearch, WebFetch, Agent, Workflow.
 - The hook, `scripts/hooks/lis-guard.py` (Python 3, stdlib, `python -I`), which the
   wrapper adds to the per-run settings as a PreToolUse `Bash` hook. It denies a critical

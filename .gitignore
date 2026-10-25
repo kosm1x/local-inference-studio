@@ -9,3 +9,4 @@ logs/*
 !logs/.gitkeep
 bench/results/*.log
 bench/results/latest
+__pycache__/

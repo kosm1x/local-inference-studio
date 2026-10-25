@@ -205,7 +205,22 @@ Measured fresh-session prompt: 12,347 tokens from a dir outside `Z:\repos`, 12,7
 from this repo (was 25,578 and 26,224 to 32,988). `-LisFull` (also `-LisFull:true` /
 `-LisFull:false`) omits the three additions for a session that needs the full tool set
 or MCP (measured 21,908 tokens from the scratch dir; Agent and Workflow stay denied by
-the settings file).
+the settings file). Absolute sizes vary by a few hundred tokens with the cwd path and
+environment text; the reproducible figure is the lean saving, about 9,560 tokens against
+`-LisFull` in the same cwd (about 13,200 against the pre-ruling full set).
+
+What a lean session cannot do (`-LisFull` restores these tools and MCP, nothing else):
+
+- task tracking (TodoWrite / Task* tools), NotebookEdit, LSP, Monitor, reading the output
+  of a background Bash command, AskUserQuestion, ToolSearch;
+- plan mode (EnterPlanMode / ExitPlanMode; interactive behaviour UNVERIFIED);
+- WebFetch and WebSearch (denied by the settings file in every local session).
+
+Agent and Workflow are denied in EVERY local session, `-LisFull` included, so skills that
+delegate to subagents (`/ship-it`, multi-round-audit, code-review, the `/diagnose` ->
+`/sweep` fan-out) cannot run as written locally. A `--tools` or `--append-system-prompt`
+you pass yourself lands after the wrapper's; which one wins is UNVERIFIED, so pass
+`-LisFull` instead of overriding `--tools`.
 
 All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The two
 wrapper options are `-LisContextTokens N` (default 65536, minimum 1024; set it to the

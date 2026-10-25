@@ -212,6 +212,14 @@ flags. Measured on the live server (same one-turn call, prompt = `usage.input_to
 | repo root | 26,224 (MCP connecting) / 32,988 (connected) | 12,775 | "Lean with hooks" estimate was about 12,700 |
 | scratch dir, `-LisFull` | 25,578 | 21,908 | settings deny alone; = run (b) 21,911, so the deny does remove the Agent and Workflow schemas and the agent listing (item 2 now VERIFIED by this pair) |
 
+Absolute sizes depend on the cwd path and environment text: the qa-auditor's re-run
+from a longer scratch path measured 12,644 (lean) and 22,205 (`-LisFull`), +297 in
+both. The reproducible figure is the lean saving, 9,561 tokens against `-LisFull` in the
+same cwd (about 13,200 against the pre-ruling full set). Always sum `input_tokens` and
+`cache_read_input_tokens`: with `DISABLE_PROMPT_CACHING=1` (the wrapper's setting) a
+cold prompt lands whole in `input_tokens`, while a llama-server prefix-cache hit moves
+the reused part into `cache_read_input_tokens`.
+
 All runs `is_error` false, `modelUsage` `local` only. First agentic loop on 65536 + MTP +
 lean (`bench/loop/run.ps1 -Reps 1`): PASS 3/3, 6 turns, 40.7 s wall, 0 tool errors, first
 request 12,587 tokens; one rep, variance UNVERIFIED. The policy text appears in the

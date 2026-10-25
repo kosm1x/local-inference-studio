@@ -13,8 +13,10 @@ only when its done-check passes on this machine.
 - Local sessions use the lean set (ruling 13): 7 tools, no MCP, the one-model policy
   appended, hooks on; `-LisFull` restores the full tool set and MCP. Fresh-session prompt
   12,347 tokens from a scratch dir (was 25,578) and 12,775 from the repo root (was 26,224
-  to 32,988); first agentic loop on 65536 + MTP + lean: PASS 3/3, 6 turns, 40.7 s, 0 tool
-  errors (one rep, variance UNVERIFIED).
+  to 32,988); absolute sizes vary by a few hundred tokens with the cwd path, the
+  reproducible figure is the saving (about 9,560 against `-LisFull` in the same cwd,
+  about 13,200 against the pre-ruling full set). First agentic loop on 65536 + MTP +
+  lean: PASS 3/3, 6 turns, 40.7 s, 0 tool errors (one rep, variance UNVERIFIED).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e) and in use for the default (ruling 12).
@@ -387,7 +389,10 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   scratch dir outside `Z:\repos` 25,578 -> 12,347 (-13,231); repo root 26,224 (MCP
   connecting) / 32,988 (MCP connected) -> 12,775; `-LisFull` from the scratch dir 21,908
   (not the old 25,578: the settings deny removes the Agent and Workflow schemas and the
-  agent listing, matching audit run (b) 21,911). Every run `is_error` false, result "ok",
+  agent listing, matching audit run (b) 21,911). Absolute sizes depend on the cwd path and
+  environment text: the qa-auditor's re-run from a longer scratch path measured 12,644
+  and 22,205 (+297 in both). The reproducible figure is the lean saving, 9,561 against
+  `-LisFull` in the same cwd (about 13,200 against the pre-ruling full set). Every run `is_error` false, result "ok",
   `modelUsage` `local` only. First agentic loop on 65536 + MTP + lean
   (`bench/loop/run.ps1 -Reps 1`, fresh fixture copy under `%LOCALAPPDATA%\lis-loop`):
   PASS, tests 3/3 (`node --test` re-run in the copy: 3 pass, 0 fail), 6 turns, wall

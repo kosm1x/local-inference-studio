@@ -28,7 +28,9 @@ silences it): MTP costs about 1.1 GB, so `--fit` would move layers to CPU (estim
 UNVERIFIED at 131072). `scripts/claude-local.ps1` and `config/claude-settings.json`
 default to a 65536 context window to match; the wrapper passes a per-run copy of the
 settings file with `CLAUDE_CODE_AUTO_COMPACT_WINDOW` rewritten to `-LisContextTokens`
-and, unless `-LisFull`, the lean set (7 tools, no MCP, one-model policy; ruling 13). KV rule: `serve.ps1` uses q4_0 only for this
+and, unless `-LisFull`, the lean set (7 tools, no MCP, one-model policy; ruling 13; it
+saves about 9,560 prompt tokens against `-LisFull` in the same cwd, while absolute sizes
+vary by a few hundred tokens with the cwd path). KV rule: `serve.ps1` uses q4_0 only for this
 default file and q8_0 for any other `-Model` (the KV those rows were benched with)
 unless `-KvType` is passed.
 

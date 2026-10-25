@@ -66,7 +66,9 @@ Claude Code's context window to 65536 to match, and (ruling 13) starts every ses
 with the lean set: `--tools Bash,Read,Edit,Write,Glob,Grep,Skill`, no MCP servers and a
 one-model policy appended to the system prompt, hooks on; a fresh session's first prompt
 is 12,347 tokens from a dir outside `Z:\repos` (was 25,578). `-LisFull` drops the three
-additions. Quality and refusal
+additions. Absolute sizes vary by a few hundred tokens with the cwd path; the
+reproducible figure is the saving, about 9,560 tokens against `-LisFull` in the same cwd
+(about 13,200 against the pre-ruling full set). Quality and refusal
 removal of the abliterated build are UNVERIFIED. Numbers: [config/models.md](config/models.md),
 [bench/summary-2026-10-24.md](bench/summary-2026-10-24.md).
 

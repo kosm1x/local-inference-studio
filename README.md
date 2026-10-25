@@ -49,20 +49,22 @@ installed, Qwen3.6-35B-A3B UD-IQ3_XXS serves `/v1/messages` with tool_use
 (bench matrix and agentic-loop comparison) done 2026-10-24; the default model is
 ruled (below).
 
-## Default model (rulings 6 and 12, 2026-10-24)
+## Default model (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12)
 
 | Model | Local file | Ctx | KV | Chat template | MTP | Decode tok/s | Loop (Phase 3d) |
 |---|---|---|---|---|---|---|---|
-| Orca Qwen3.8-27B-Uncensored IQ3_XXS (abliterated, 11.64 GB) | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` | 65536 | q4_0 | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED | ON (`--spec-type draft-mtp --spec-draft-n-max 2`) | 81.6 (measured, Phase 3e; 45.3 without MTP) | 3/3, 0 tool errors, median 8 turns, ~128 s wall (measured at 131072 without MTP); on 65536 + MTP + lean set (ruling 13): 1/1 PASS, 6 turns, 40.7 s, 0 tool errors (one rep, variance UNVERIFIED) |
+| Orca Qwen3.8-27B-Uncensored IQ3_XXS (abliterated, 11.64 GB) | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` | 131072 | q4_0 | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED | off (ruling 14) | 45.3 (measured, Phase 3d; 81.6 with MTP at 65536, Phase 3e) | 3/3, 0 tool errors, median 8 turns, ~128 s wall (measured at 131072 without MTP, full tool set) |
 
-Chosen for accuracy over speed (ruling 6: the only 131072 row with 0 tool errors);
-ruling 12 then traded context for MTP: at 65536 all 66 layers, the 1,152 MiB KV and the
-MTP draft context sit on the GPU with 1,684 MiB left free (measured, `-lv 4`), and
-bench decode is 1.80x. `serve.ps1` applies the template automatically for files under
-`models/qwen3.8-27b-uncensored` and the MTP flags for the default file only (`-NoMtp`
-turns them off; above `-Ctx` 65536 they are skipped with a warning); without the template Claude Code
+Chosen for accuracy over speed (ruling 6: the only 131072 row with 0 tool errors). At
+131072 all 66 layers and the 2,304 MiB q4_0 KV sit on the GPU with 1,630 MiB left free
+(measured, `-lv 4`). Ruling 12 traded context for MTP (65536, 1.80x bench decode);
+ruling 14 reverted it after a real report-producing session auto-compacted at about 36K
+on the 65536 window and the model's summary rewrote the facts it had read
+(docs/ROADMAP.md, ruling 14). `serve.ps1` applies the template automatically for files
+under `models/qwen3.8-27b-uncensored`; MTP is added for the default file only at `-Ctx`
+65536 or below (`-NoMtp` turns it off); without the template Claude Code
 gets HTTP 500 ("System message must be at the beginning."). `claude-local.ps1` sets
-Claude Code's context window to 65536 to match, and (ruling 13) starts every session
+Claude Code's context window to 131072 to match, and (ruling 13) starts every session
 with the lean set: `--tools Bash,Read,Edit,Write,Glob,Grep,Skill`, no MCP servers and a
 one-model policy appended to the system prompt, hooks on; a fresh session's first prompt
 is 12,347 tokens from a dir outside `Z:\repos` (was 25,578). `-LisFull` drops the three
@@ -102,7 +104,7 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - [docs/landscape-2026-10-24.md](docs/landscape-2026-10-24.md) — Claude Code wiring, backends, model candidates, gotchas
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phases P0-P6
 - [config/models.md](config/models.md) — tracked model candidates
-- [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 65536, WebSearch, WebFetch, Agent and Workflow denied)
+- [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 131072, WebSearch, WebFetch, Agent and Workflow denied)
 - [bench/README.md](bench/README.md) — P3 bench result schema
 
 ## Rules

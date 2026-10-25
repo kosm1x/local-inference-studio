@@ -12,21 +12,22 @@ defaults of the time (q8_0 KV, still the default for every model except the ruli
 `bench/summary-2026-10-24.md`. Unbenched rows are the weights-only estimate.
 "lastModified" is the repo's, not the file's.
 
-Default (rulings 6 and 12, 2026-10-24; the `scripts/serve.ps1` defaults and the logon
-task): Qwen3.8-27B-Uncensored IQ3_XXS, local file
-`models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`, ctx 65536, KV
-q4_0, chat template `config/chat-templates/qwen3.8-27b.jinja` REQUIRED (`serve.ps1`
-adds it for this folder), MTP ON (`--spec-type draft-mtp --spec-draft-n-max 2`);
-measured 81.6 tok/s decode, 66/66 layers on GPU with 1,684 MiB left free (Phase 3e).
-The Phase 3d loop (3/3, 0 tool errors, median 127.7 s wall) ran this file at 131072
-without MTP; on the 65536 + MTP configuration with the wrapper's lean set (ruling 13)
-one rep passed 3/3 in 6 turns, 40.7 s wall, 0 tool errors (variance UNVERIFIED).
+Default (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12's 65536 + MTP;
+the `scripts/serve.ps1` defaults and the logon task): Qwen3.8-27B-Uncensored IQ3_XXS,
+local file `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`, ctx
+131072, KV q4_0, chat template `config/chat-templates/qwen3.8-27b.jinja` REQUIRED
+(`serve.ps1` adds it for this folder), no MTP; measured 45.3 tok/s decode, 66/66 layers
+on GPU with 1,630 MiB left free (Phase 3d). History: at 65536 + MTP (ruling 12) it
+measured 81.6 tok/s with 1,684 MiB free (Phase 3e), and one lean-set loop rep passed 3/3
+in 6 turns, 40.7 s wall, 0 tool errors (variance UNVERIFIED). The Phase 3d loop (3/3,
+0 tool errors, median 127.7 s wall) ran this file at 131072 without MTP.
 Quality and refusal removal UNVERIFIED. MTP rule: `serve.ps1` adds the two MTP flags
-only for this default file and only without `-NoMtp`; every other `-Model` runs without
-MTP. At `-Ctx` above 65536 `serve.ps1` skips the MTP flags with a warning (`-NoMtp`
-silences it): MTP costs about 1.1 GB, so `--fit` would move layers to CPU (estimate,
-UNVERIFIED at 131072). `scripts/claude-local.ps1` and `config/claude-settings.json`
-default to a 65536 context window to match; the wrapper passes a per-run copy of the
+only for this default file, only at `-Ctx` 65536 or below and only without `-NoMtp`;
+every other `-Model` runs without MTP. The default start (131072) adds none and warns
+nothing; an explicit `-Ctx` above 65536 skips them with a warning (`-NoMtp` silences
+it): MTP costs about 1.1 GB, so `--fit` would move layers to CPU (estimate, UNVERIFIED
+at 131072). `scripts/claude-local.ps1` and `config/claude-settings.json` default to a
+131072 context window to match; the wrapper passes a per-run copy of the
 settings file with `CLAUDE_CODE_AUTO_COMPACT_WINDOW` rewritten to `-LisContextTokens`
 and, unless `-LisFull`, the lean set (7 tools, no MCP, one-model policy; ruling 13; it
 saves about 9,560 prompt tokens against `-LisFull` in the same cwd, while absolute sizes

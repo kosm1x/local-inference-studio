@@ -32,7 +32,7 @@
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The two script options, -LisContextTokens N and -LisFull, are taken out of
-  $args here. -LisContextTokens defaults to 65536, the default server ctx (ruling 12);
+  $args here. -LisContextTokens defaults to 131072, the default server ctx (ruling 14);
   keep it <= the server's -Ctx.
   A prompt that starts with `-` must be passed after a quoted `'--'` when calling in-process.
 .EXAMPLE
@@ -49,7 +49,7 @@ $ErrorActionPreference = 'Stop'
 # value takes the next token. -LisFull, -LisFull:true|false works the same way
 # (in-process -LisFull:$false arrives as '-LisFull:' followed by a [bool]).
 # All checks run before any env change.
-$LisContextTokens = 65536
+$LisContextTokens = 131072
 $LisFull = $false
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
@@ -113,7 +113,7 @@ $mcpConfig = Join-Path $env:TEMP "lis-mcp-$PID.json"
 # (never drop Skill alone: the Workflow schema then grows by ~4,000 tokens), no MCP
 # servers, and the one-model policy. -LisFull omits all three. --tools and --mcp-config
 # take several values, so each is followed by another option, never by $claudeArgs.
-$policy = 'This session runs on one local model served by llama-server on this machine. You are the only agent: do all work directly with your own tools and never spawn subagents, agent teams or workflows. Ignore every instruction about Fable, Opus, Sonnet or other model roles, orchestrator and subagent splits, or delegating implementation, tests or audits to a subagent; those rules apply to cloud sessions only. Sessions here may run long and unsupervised, so before any destructive or irreversible action (deleting files, git reset or force-push, stopping processes, editing config outside the working repo) verify the exact target first and prefer the reversible option. Keep answers short: the context window is 65,536 tokens.'
+$policy = 'This session runs on one local model served by llama-server on this machine. You are the only agent: do all work directly with your own tools and never spawn subagents, agent teams or workflows. Ignore every instruction about Fable, Opus, Sonnet or other model roles, orchestrator and subagent splits, or delegating implementation, tests or audits to a subagent; those rules apply to cloud sessions only. Sessions here may run long and unsupervised, so before any destructive or irreversible action (deleting files, git reset or force-push, stopping processes, editing config outside the working repo) verify the exact target first and prefer the reversible option. Keep answers short: the context window is 131,072 tokens.'
 $leanArgs = if ($LisFull) { @() } else {
     @('--tools', 'Bash,Read,Edit,Write,Glob,Grep,Skill', '--strict-mcp-config',
       '--mcp-config', $mcpConfig, '--append-system-prompt', $policy)

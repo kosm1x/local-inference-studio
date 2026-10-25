@@ -108,12 +108,13 @@ logon). Check first; `ok` means go straight to step 8:
 Invoke-RestMethod http://127.0.0.1:8080/health -Headers @{Authorization='Bearer local'}
 ```
 
-With no parameters it serves the default file on `127.0.0.1:8080` at ctx 65536, q4_0
+With no parameters it serves the default file on `127.0.0.1:8080` at ctx 131072, q4_0
 KV, flash attention on, one slot, `--api-key local`, model alias `local`, and (for files
 under `models\qwen3.8-27b-uncensored`) `--chat-template-file config\chat-templates\qwen3.8-27b.jinja`;
-for the default file only, MTP (`--spec-type draft-mtp --spec-draft-n-max 2`; `-NoMtp`
-turns it off; with `-Ctx` above 65536 the flags are skipped with a warning so the model
-stays all-GPU, and `-NoMtp` silences the warning).
+no MTP (ruling 14). MTP (`--spec-type draft-mtp --spec-draft-n-max 2`) is added for the
+default file only at `-Ctx 65536` or below (`-NoMtp` turns it off); an explicit `-Ctx`
+above 65536 skips the flags with a warning so the model stays all-GPU, and `-NoMtp`
+silences the warning.
 
 ```powershell
 pwsh scripts\serve.ps1
@@ -179,7 +180,7 @@ Change to the project you want to work in, then call the wrapper by its full pat
 Set-Location <your project>
 pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1
 pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -p "list the files in this repo"
-pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -LisContextTokens 65536
+pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -LisContextTokens 65536   # only with serve.ps1 -Ctx 65536
 pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -LisFull
 ```
 
@@ -188,7 +189,7 @@ For this process only, it sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`,
 default aliases to `local`. It unsets `ANTHROPIC_API_KEY` (a real key would be sent to
 the local server) and the `CLAUDE_CODE_SUBAGENT_MODEL*` variables, and passes
 `--settings config\claude-settings.json` (model and subagent model `local`,
-auto-compact at 65536, WebSearch, WebFetch, Agent and Workflow denied; the wrapper
+auto-compact at 131072, WebSearch, WebFetch, Agent and Workflow denied; the wrapper
 passes a per-run copy in `%TEMP%` with the auto-compact value rewritten to
 `-LisContextTokens`). Why: a global `~\.claude\settings.json` that pins cloud models or
 a subagent model would otherwise win, and those models do not exist locally. Your
@@ -199,8 +200,9 @@ Lean set (ruling 13): before your arguments the wrapper adds
 `--strict-mcp-config --mcp-config <per-run empty {"mcpServers":{}} file in %TEMP%>` (no
 MCP servers) and `--append-system-prompt` with a one-model policy (one local model, no
 subagents, ignore cloud model-role rules, verify before destructive actions, keep
-answers short; text in `docs/context-audit-2026-10-24.md` section 5; it names a
-65,536-token window whatever `-LisContextTokens` says). Hooks stay on.
+answers short; text in `docs/context-audit-2026-10-24.md` section 5, which still names
+the 65,536 window of the time; the wrapper's copy names a 131,072-token window whatever
+`-LisContextTokens` says). Hooks stay on.
 Measured fresh-session prompt: 12,347 tokens from a dir outside `Z:\repos`, 12,775
 from this repo (was 25,578 and 26,224 to 32,988). `-LisFull` (also `-LisFull:true` /
 `-LisFull:false`) omits the three additions for a session that needs the full tool set
@@ -223,7 +225,7 @@ you pass yourself lands after the wrapper's; which one wins is UNVERIFIED, so pa
 `-LisFull` instead of overriding `--tools`.
 
 All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The two
-wrapper options are `-LisContextTokens N` (default 65536, minimum 1024; set it to the
+wrapper options are `-LisContextTokens N` (default 131072, minimum 1024; set it to the
 server's `-Ctx` when that is smaller) and `-LisFull`. Success: Claude Code answers and the server log
 shows the requests. A `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
 

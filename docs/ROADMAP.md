@@ -5,11 +5,11 @@ only when its done-check passes on this machine.
 
 ## Status 2026-10-24 (end of day)
 
-- Default server (rulings 6 and 12): Orca Qwen3.8-27B-Uncensored IQ3_XXS, ctx 65536,
-  KV q4_0, patched chat template, MTP ON (`--spec-type draft-mtp --spec-draft-n-max 2`);
-  logon task Running (PID 15328, restarted 22:52 for the ruling 12 cutover), smoke PASS,
-  one-turn Claude Code call PASS (`contextWindow` 65536). Scripts tip: the ruling 13
-  commit (`git log -1 -- scripts/claude-local.ps1`; `serve.ps1` unchanged since ruling 12).
+- Default server (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12): Orca
+  Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV q4_0, patched chat template, no MTP;
+  `claude-local.ps1` and `config/claude-settings.json` default to a 131072 window.
+  Cutover and the re-run grade: ruling (14). Scripts tip: the ruling 14 commit
+  (`git log -1 -- scripts/serve.ps1`).
 - Local sessions use the lean set (ruling 13): 7 tools, no MCP, the one-model policy
   appended, hooks on; `-LisFull` restores the full tool set and MCP. Fresh-session prompt
   12,347 tokens from a scratch dir (was 25,578) and 12,775 from the repo root (was 26,224
@@ -19,10 +19,10 @@ only when its done-check passes on this machine.
   lean: PASS 3/3, 6 turns, 40.7 s, 0 tool errors (one rep, variance UNVERIFIED).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
-  Phase 3e) and in use for the default (ruling 12).
-- The revised `serve.ps1` run by the task: proven 22:52 by the `Start-ScheduledTask` of
-  the ruling 12 cutover (default command line in `logs/llama-server.log`, `/health` ok
-  after 6 s, smoke PASS). UNPROVEN until it happens: the logon start itself
+  Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
+- The revised `serve.ps1` run by the task: proven 2026-10-25 06:37 UTC by the
+  `Start-ScheduledTask` of the ruling 14 cutover (default command line in
+  `logs/llama-server.log`, `/health` ok after 6 s, smoke PASS). UNPROVEN until it happens: the logon start itself
   (`Get-ScheduledTaskInfo` LastRunTime + `/health` after a logon).
 - Live session 2026-10-24 22:00-23:00 (operator's first real Claude Code session on the
   default, read from `logs/llama-server.log`): 32 turns, 0 errors, 0 truncations, max
@@ -37,8 +37,8 @@ only when its done-check passes on this machine.
   1,366 ms, cumulative draft acceptance 0.81. The cost is context: 65536 against the
   45,417 peak. Real-text and deep-context speed-up UNVERIFIED. Table and placement:
   [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 3e").
-- Open rulings: (9) Bonsai revisit (a dense 27B now IS the default and VRAM headroom
-  is 1,684 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
+- Open rulings: (14) pending the re-run grade; (9) Bonsai revisit (a dense 27B now IS
+  the default and VRAM headroom is 1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
   multi-file loop fixture should settle the accuracy question that the 3-test
   fixture could not (every contender passed it).
 
@@ -98,7 +98,7 @@ only when its done-check passes on this machine.
   Qwen-tuned `serve.ps1` sampling; decode text quality not inspected.
 - Default model: RULED 2026-10-24 (ruling 6), Orca Qwen3.8-27B-Uncensored IQ3_XXS at
   131072 with q4_0 KV and the patched chat template; ruling 12 moved it to 65536 with
-  MTP on; the logon task serves that.
+  MTP on, ruling 14 moved it back to 131072 without MTP; the logon task serves that.
 - Open rulings: uploader per model (Unsloth vs Bartowski, given the tool-call gap
   reported for one quant).
 
@@ -156,6 +156,9 @@ only when its done-check passes on this machine.
   the two flags for the default file unless `-NoMtp`). First live request after the
   cutover: 73 tokens at 64.6 tok/s, draft acceptance 0.74 (43 / 58) on a 25,578-token
   prompt (one short answer, not a decode benchmark).
+- Status 2026-10-25 (ruling 14): the default no longer uses MTP (131072, no MTP flags);
+  `serve.ps1 -Ctx 65536` still adds them for the default file. MTP is not blamed for the
+  wrong recon report (the 65536 window's early compaction is); see ruling (14).
 - Open rulings: for other models the same context-for-MTP trade stays open.
 
 ## Phase 1 run 2026-10-24
@@ -350,7 +353,10 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   move to it and the desktop's VRAM is mostly application rendering. The KV cache
   type is the lever (q8_0 KV = 4.35 GB at 131072 on a dense 27B; q4_0 about half).
 - (12) Default context and MTP (after Phase 3e): RULED 2026-10-24 by the operator,
-  ADOPT, CLOSED. The default becomes Orca IQ3_XXS at ctx 65536, q4_0 KV, patched chat
+  ADOPT, CLOSED; REVERTED 2026-10-25 by ruling (14) (report accuracy: on the 65536
+  window Claude Code auto-compacted at about 36K and the model's own summary rewrote the
+  disk facts it had read; MTP exonerated, the 65536 window is the problem). The record
+  below is kept as history. The default became Orca IQ3_XXS at ctx 65536, q4_0 KV, patched chat
   template (unchanged) and MTP ON (`--spec-type draft-mtp --spec-draft-n-max 2`), on
   the Phase 3e numbers (66/66 layers, 1,684 MiB left free, 81.6 tok/s against 45.3).
   `serve.ps1`: `-Ctx` defaults to 65536 and the MTP flags are added for the default
@@ -405,6 +411,31 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   prompt text, so server-side receipt rests on the token delta (scratch 12,347 against
   the audit's 12,193 for `--tools` alone plus its measured 148 for the append).
   Interactive sessions on the lean set and harder tasks are UNVERIFIED.
+
+### Rulings 2026-10-25
+
+- (14) Default context back to 131072, no MTP: RULED 2026-10-25 by the operator, OPEN
+  pending the re-run grade. Reason: report accuracy. The operator's "Make a recon of
+  this PC" session on 65536 + MTP + lean set, auto permission mode (RUN 2), produced a
+  wrong report: Claude Code auto-compacted at about 36K tokens, the local model's own
+  summary turned the disk tool output (J: 135 of 4,657 GiB free, K: 328 of 14,902) into
+  "mostly free", and the final report was written from that summary, wrong on J and K
+  and silent on the GPU. The earlier run of the same request on 131072, no MTP, full tool
+  set (RUN 1) was correct. MTP is exonerated (speculative decoding keeps the target
+  model's output distribution; nothing in the transcript points to it); the 65536 window
+  is the problem. Kept: the lean set (ruling 13), auto permission mode and hooks on.
+  `serve.ps1`: `-Ctx` defaults to 131072; MTP stays available for the default file at
+  `-Ctx` 65536 or below unless `-NoMtp` (the default start adds no MTP flags and no
+  warning; an explicit `-Ctx` above 65536 still warns). `claude-local.ps1
+  -LisContextTokens` and `config/claude-settings.json` `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
+  default to 131072; the lean policy text now names a 131,072-token window. The Phase 3e
+  numbers above stay as history. Cutover 2026-10-25 06:37 UTC: slot idle, only the
+  task's llama-server PID 15328 on the GPU, :8081 free; `stop.ps1`,
+  `Start-ScheduledTask`, `/health` ok after 6 s, PID 20400; the task log's command line
+  carries `-c 131072`, `-ctk q4_0 -ctv q4_0`, `--chat-template-file
+  ...\qwen3.8-27b.jinja` and no `--spec-type` (no "MTP draft context" line); `/slots`
+  reports `n_ctx` 131072 and `speculative` false; `smoke.ps1` PASS (`get_weather
+  {"city":"Mexico City"}`).
 
 ## Phase 3 part A 2026-10-24
 

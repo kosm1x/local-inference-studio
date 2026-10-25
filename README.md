@@ -3,6 +3,8 @@
 The most potent possible local LLM inference on this Windows 11 workstation,
 consumed by the Claude Code CLI harness. No LM Studio, no Ollama.
 
+Setup: see [docs/SETUP.md](docs/SETUP.md).
+
 Backend of record: llama.cpp `llama-server` run natively on Windows. Since
 PR #17570 (HF blog 2026-01-19) it serves the Anthropic Messages API itself
 (`/v1/messages`, `/count_tokens`, tool_use/tool_result, thinking, streaming),

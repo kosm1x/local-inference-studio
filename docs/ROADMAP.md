@@ -245,6 +245,21 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   (after a stop it did not come back within 85 s). It runs on battery too.
   Re-run `register-task.ps1` after moving the repo (paths are absolute).
 
+### Rulings 2026-10-24, second batch (after Phases 3b, 3c and the P5 spike)
+
+- (6) Default model: decided by a real agentic-loop comparison (Phase 3d), not by
+  tok/s. Contenders: Qwen3.6-35B-A3B (current default), gpt-oss-20b, Saluki 27B,
+  GSQ-RCO IQ3_XXS with MTP at 65536. Qwen3.6 keeps serving until then.
+- (7) Phase 6 (MTP): folded into that comparison as the fourth contender; no
+  separate MTP decision.
+- (8) vLLM/WSL2 stack from the P5 spike: REMOVED 2026-10-24 (`~/lis-vllm` 9.9 GB,
+  `~/lis-vllm-dl` 402 MB, `~/.cache/vllm` 1.1 GB, `models/orcasaq-2-27b` 12 GB).
+  The install recipe in the Phase 5 section stays for a larger GPU.
+- (9) Bonsai 2 27B (PrismML fork): DEFERRED until after the loop comparison;
+  revisit only if a dense 27B wins and VRAM headroom becomes the bottleneck.
+- (10) Egress proof: the operator runs the elevated `pktmon` one-liner from
+  "Phase 3 part A" (Egress) now; result recorded there when it comes back.
+
 ## Phase 3 part A 2026-10-24
 
 Baseline bench, the WebSearch/WebFetch deny overlay, an egress check and the

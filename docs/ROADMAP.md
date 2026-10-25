@@ -260,6 +260,12 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
 - (10) Egress proof: RUN 2026-10-24 19:03 by the operator, PASS after attribution
   (8 keepalive lines from the operator's own cloud session, 0 from the local run);
   details in "Phase 3 part A" (Egress). CLOSED.
+- (11) Phase 3d scope widened during the run: Orca Qwen3.8-27B-Uncensored IQ2_XXS
+  added as a fifth contender; KV q4_0 variants added for GSQ-RCO+MTP at 131072,
+  Orca IQ3_XXS at 131072 and gpt-oss-20b (control), each with a loop and a
+  throughput pass. The idle Radeon iGPU is NOT a lever: three 4K monitors cannot
+  move to it and the desktop's VRAM is mostly application rendering. The KV cache
+  type is the lever (q8_0 KV = 4.35 GB at 131072 on a dense 27B; q4_0 about half).
 
 ## Phase 3 part A 2026-10-24
 

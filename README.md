@@ -28,7 +28,8 @@ release zips. It is never built from source here.
 ## Architecture
 
 ```
-Claude Code CLI
+Claude Code CLI  (scripts/claude-local.ps1: lean set = 7 tools, no MCP,
+   |              one-model policy appended; -LisFull for the full set)
    | ANTHROPIC_BASE_URL=http://127.0.0.1:8080   (all model tiers = "local")
    v
 llama-server.exe  /v1/messages  (native Windows, CUDA build)
@@ -52,7 +53,7 @@ ruled (below).
 
 | Model | Local file | Ctx | KV | Chat template | MTP | Decode tok/s | Loop (Phase 3d) |
 |---|---|---|---|---|---|---|---|
-| Orca Qwen3.8-27B-Uncensored IQ3_XXS (abliterated, 11.64 GB) | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` | 65536 | q4_0 | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED | ON (`--spec-type draft-mtp --spec-draft-n-max 2`) | 81.6 (measured, Phase 3e; 45.3 without MTP) | 3/3, 0 tool errors, median 8 turns, ~128 s wall (measured at 131072 without MTP; not run on 65536 + MTP) |
+| Orca Qwen3.8-27B-Uncensored IQ3_XXS (abliterated, 11.64 GB) | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` | 65536 | q4_0 | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED | ON (`--spec-type draft-mtp --spec-draft-n-max 2`) | 81.6 (measured, Phase 3e; 45.3 without MTP) | 3/3, 0 tool errors, median 8 turns, ~128 s wall (measured at 131072 without MTP); on 65536 + MTP + lean set (ruling 13): 1/1 PASS, 6 turns, 40.7 s, 0 tool errors (one rep, variance UNVERIFIED) |
 
 Chosen for accuracy over speed (ruling 6: the only 131072 row with 0 tool errors);
 ruling 12 then traded context for MTP: at 65536 all 66 layers, the 1,152 MiB KV and the
@@ -61,7 +62,11 @@ bench decode is 1.80x. `serve.ps1` applies the template automatically for files 
 `models/qwen3.8-27b-uncensored` and the MTP flags for the default file only (`-NoMtp`
 turns them off; above `-Ctx` 65536 they are skipped with a warning); without the template Claude Code
 gets HTTP 500 ("System message must be at the beginning."). `claude-local.ps1` sets
-Claude Code's context window to 65536 to match. Quality and refusal
+Claude Code's context window to 65536 to match, and (ruling 13) starts every session
+with the lean set: `--tools Bash,Read,Edit,Write,Glob,Grep,Skill`, no MCP servers and a
+one-model policy appended to the system prompt, hooks on; a fresh session's first prompt
+is 12,347 tokens from a dir outside `Z:\repos` (was 25,578). `-LisFull` drops the three
+additions. Quality and refusal
 removal of the abliterated build are UNVERIFIED. Numbers: [config/models.md](config/models.md),
 [bench/summary-2026-10-24.md](bench/summary-2026-10-24.md).
 
@@ -95,7 +100,7 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - [docs/landscape-2026-10-24.md](docs/landscape-2026-10-24.md) — Claude Code wiring, backends, model candidates, gotchas
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phases P0-P6
 - [config/models.md](config/models.md) — tracked model candidates
-- [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 65536)
+- [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 65536, WebSearch, WebFetch, Agent and Workflow denied)
 - [bench/README.md](bench/README.md) — P3 bench result schema
 
 ## Rules

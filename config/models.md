@@ -19,14 +19,16 @@ q4_0, chat template `config/chat-templates/qwen3.8-27b.jinja` REQUIRED (`serve.p
 adds it for this folder), MTP ON (`--spec-type draft-mtp --spec-draft-n-max 2`);
 measured 81.6 tok/s decode, 66/66 layers on GPU with 1,684 MiB left free (Phase 3e).
 The Phase 3d loop (3/3, 0 tool errors, median 127.7 s wall) ran this file at 131072
-without MTP; a loop on the 65536 + MTP configuration is not measured (UNVERIFIED).
+without MTP; on the 65536 + MTP configuration with the wrapper's lean set (ruling 13)
+one rep passed 3/3 in 6 turns, 40.7 s wall, 0 tool errors (variance UNVERIFIED).
 Quality and refusal removal UNVERIFIED. MTP rule: `serve.ps1` adds the two MTP flags
 only for this default file and only without `-NoMtp`; every other `-Model` runs without
 MTP. At `-Ctx` above 65536 `serve.ps1` skips the MTP flags with a warning (`-NoMtp`
 silences it): MTP costs about 1.1 GB, so `--fit` would move layers to CPU (estimate,
 UNVERIFIED at 131072). `scripts/claude-local.ps1` and `config/claude-settings.json`
 default to a 65536 context window to match; the wrapper passes a per-run copy of the
-settings file with `CLAUDE_CODE_AUTO_COMPACT_WINDOW` rewritten to `-LisContextTokens`. KV rule: `serve.ps1` uses q4_0 only for this
+settings file with `CLAUDE_CODE_AUTO_COMPACT_WINDOW` rewritten to `-LisContextTokens`
+and, unless `-LisFull`, the lean set (7 tools, no MCP, one-model policy; ruling 13). KV rule: `serve.ps1` uses q4_0 only for this
 default file and q8_0 for any other `-Model` (the KV those rows were benched with)
 unless `-KvType` is passed.
 

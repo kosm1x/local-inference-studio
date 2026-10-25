@@ -180,6 +180,7 @@ Set-Location <your project>
 pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1
 pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -p "list the files in this repo"
 pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -LisContextTokens 65536
+pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -LisFull
 ```
 
 For this process only, it sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`,
@@ -187,14 +188,28 @@ For this process only, it sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`,
 default aliases to `local`. It unsets `ANTHROPIC_API_KEY` (a real key would be sent to
 the local server) and the `CLAUDE_CODE_SUBAGENT_MODEL*` variables, and passes
 `--settings config\claude-settings.json` (model and subagent model `local`,
-auto-compact at 65536, WebSearch and WebFetch denied; the wrapper passes a per-run copy
-in `%TEMP%` with the auto-compact value rewritten to `-LisContextTokens`). Why: a global
-`~\.claude\settings.json` that pins cloud models or a subagent model would otherwise
-win, and those models do not exist locally. Your environment is restored on exit.
+auto-compact at 65536, WebSearch, WebFetch, Agent and Workflow denied; the wrapper
+passes a per-run copy in `%TEMP%` with the auto-compact value rewritten to
+`-LisContextTokens`). Why: a global `~\.claude\settings.json` that pins cloud models or
+a subagent model would otherwise win, and those models do not exist locally. Your
+environment is restored on exit.
 
-All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The one
-wrapper option is `-LisContextTokens N` (default 65536, minimum 1024); set it to the
-server's `-Ctx` when that is smaller. Success: Claude Code answers and the server log
+Lean set (ruling 13): before your arguments the wrapper adds
+`--tools Bash,Read,Edit,Write,Glob,Grep,Skill` (7 tools),
+`--strict-mcp-config --mcp-config <per-run empty {"mcpServers":{}} file in %TEMP%>` (no
+MCP servers) and `--append-system-prompt` with a one-model policy (one local model, no
+subagents, ignore cloud model-role rules, verify before destructive actions, keep
+answers short; text in `docs/context-audit-2026-10-24.md` section 5; it names a
+65,536-token window whatever `-LisContextTokens` says). Hooks stay on.
+Measured fresh-session prompt: 12,347 tokens from a dir outside `Z:\repos`, 12,775
+from this repo (was 25,578 and 26,224 to 32,988). `-LisFull` (also `-LisFull:true` /
+`-LisFull:false`) omits the three additions for a session that needs the full tool set
+or MCP (measured 21,908 tokens from the scratch dir; Agent and Workflow stay denied by
+the settings file).
+
+All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The two
+wrapper options are `-LisContextTokens N` (default 65536, minimum 1024; set it to the
+server's `-Ctx` when that is smaller) and `-LisFull`. Success: Claude Code answers and the server log
 shows the requests. A `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
 
 fnm note: if your shell profile runs `fnm env --use-on-cd`, a Bash tool command like

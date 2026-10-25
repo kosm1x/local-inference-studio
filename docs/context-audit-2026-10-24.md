@@ -3,8 +3,8 @@
 Question (operator): what fills the first prompt of a local Claude Code session, which
 of it can be dropped without editing `~/.claude`, and how does the name "Fable" reach a
 local session? Measured on the ruling 12 server (Orca IQ3_XXS, ctx 65536, q4_0 KV, MTP)
-right after its cutover. Nothing in this document is implemented yet; the operator picks
-the lean set.
+right after its cutover. Nothing here was implemented when it was measured; ruling 13
+adopted the lean set (see "Adopted 2026-10-24" at the end).
 
 Method:
 
@@ -156,7 +156,7 @@ below does the same from the repo side.
 ## 5. Policy for local sessions: one model does everything
 
 Goal: no orchestrator/subagent split and no Fable/Opus roles in local sessions.
-Mechanisms, ranked (none implemented):
+Mechanisms, ranked (1 as the `--tools` allow-list, 2 and 3 adopted by ruling 13):
 
 1. Hard: remove the delegation tools in `scripts/claude-local.ps1`:
    `--disallowedTools Agent,Workflow` (VERIFIED -3,667 tokens and the agent listing
@@ -196,3 +196,25 @@ UNVERIFIED in this audit: interactive sessions (MCP connect timing, `/model` pic
 whether `--tools` without Skill also drops the skills listing without inflating Workflow
 (Workflow is absent in that set, so it should); `--exclude-dynamic-system-prompt-sections`;
 the attribution reminder as a separate lever; agentic quality with the lean tool set.
+
+## Adopted 2026-10-24 (ruling 13)
+
+The operator ruled the lean set with hooks on: `scripts/claude-local.ps1` adds `--tools
+Bash,Read,Edit,Write,Glob,Grep,Skill`, `--strict-mcp-config --mcp-config <per-run empty
+{"mcpServers":{}}>` and `--append-system-prompt` with the section 5 text verbatim;
+`config/claude-settings.json` denies `Agent` and `Workflow`; `-LisFull` omits the three
+flags. Measured on the live server (same one-turn call, prompt = `usage.input_tokens` +
+`cache_read_input_tokens` = the server's `prompt eval` count):
+
+| cwd | Before | After | Note |
+|---|---|---|---|
+| scratch dir outside `Z:\repos` | 25,578 | 12,347 | = run (i) 12,193 + append 148 + 6 |
+| repo root | 26,224 (MCP connecting) / 32,988 (connected) | 12,775 | "Lean with hooks" estimate was about 12,700 |
+| scratch dir, `-LisFull` | 25,578 | 21,908 | settings deny alone; = run (b) 21,911, so the deny does remove the Agent and Workflow schemas and the agent listing (item 2 now VERIFIED by this pair) |
+
+All runs `is_error` false, `modelUsage` `local` only. First agentic loop on 65536 + MTP +
+lean (`bench/loop/run.ps1 -Reps 1`): PASS 3/3, 6 turns, 40.7 s wall, 0 tool errors, first
+request 12,587 tokens; one rep, variance UNVERIFIED. The policy text appears in the
+session transcript's `prompt_snapshot`; the server log (verbosity 3) records no prompt
+text, so server-side receipt rests on the token delta. Still UNVERIFIED: interactive
+sessions on the lean set, and the lean set on harder tasks.

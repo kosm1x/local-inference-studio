@@ -8,8 +8,13 @@ only when its done-check passes on this machine.
 - Default server (rulings 6 and 12): Orca Qwen3.8-27B-Uncensored IQ3_XXS, ctx 65536,
   KV q4_0, patched chat template, MTP ON (`--spec-type draft-mtp --spec-draft-n-max 2`);
   logon task Running (PID 15328, restarted 22:52 for the ruling 12 cutover), smoke PASS,
-  one-turn Claude Code call PASS (`contextWindow` 65536). Scripts tip: the ruling 12
-  commit (`git log -1 -- scripts/serve.ps1`; docs continue after it).
+  one-turn Claude Code call PASS (`contextWindow` 65536). Scripts tip: the ruling 13
+  commit (`git log -1 -- scripts/claude-local.ps1`; `serve.ps1` unchanged since ruling 12).
+- Local sessions use the lean set (ruling 13): 7 tools, no MCP, the one-model policy
+  appended, hooks on; `-LisFull` restores the full tool set and MCP. Fresh-session prompt
+  12,347 tokens from a scratch dir (was 25,578) and 12,775 from the repo root (was 26,224
+  to 32,988); first agentic loop on 65536 + MTP + lean: PASS 3/3, 6 turns, 40.7 s, 0 tool
+  errors (one rep, variance UNVERIFIED).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e) and in use for the default (ruling 12).
@@ -364,6 +369,37 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   `claude-local.ps1 -LisContextTokens 131072` (the wrapper rewrites
   `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in its per-run settings copy to the same value, so
   the settings env and the process env cannot disagree).
+- (13) Lean set for local sessions (after the fresh-session context audit,
+  [context-audit-2026-10-24.md](context-audit-2026-10-24.md)): RULED 2026-10-24 by the
+  operator, ADOPT, CLOSED. One local model runs long unsupervised tasks here, so
+  `claude-local.ps1` now adds, before the forwarded arguments, `--tools
+  Bash,Read,Edit,Write,Glob,Grep,Skill` (Skill is never dropped alone: the Workflow
+  schema then grows by about 4,000 tokens), `--strict-mcp-config --mcp-config` with a
+  per-run empty `{"mcpServers":{}}` file (`%TEMP%\lis-mcp-<pid>.json`, deleted with the
+  settings copy) and `--append-system-prompt` with the 112-word one-model policy (audit
+  section 5). `config/claude-settings.json` `permissions.deny` gains `Agent` and
+  `Workflow`. Hooks stay on (no `disableAllHooks`); no `--bare` (ruling 2). The wrapper
+  switch `-LisFull` omits the three additions for a session that needs the full tool set
+  or MCP; the settings deny of Agent and Workflow still applies there. Measured
+  2026-10-24 on the live server (PID 15328, Orca 65536 + MTP), `claude-local.ps1 -p
+  "reply with the single word ok" --output-format json --max-turns 1`, prompt =
+  `usage.input_tokens` + `cache_read_input_tokens` (= the server's `prompt eval` count):
+  scratch dir outside `Z:\repos` 25,578 -> 12,347 (-13,231); repo root 26,224 (MCP
+  connecting) / 32,988 (MCP connected) -> 12,775; `-LisFull` from the scratch dir 21,908
+  (not the old 25,578: the settings deny removes the Agent and Workflow schemas and the
+  agent listing, matching audit run (b) 21,911). Every run `is_error` false, result "ok",
+  `modelUsage` `local` only. First agentic loop on 65536 + MTP + lean
+  (`bench/loop/run.ps1 -Reps 1`, fresh fixture copy under `%LOCALAPPDATA%\lis-loop`):
+  PASS, tests 3/3 (`node --test` re-run in the copy: 3 pass, 0 fail), 6 turns, wall
+  40.7 s (api 36.5 s), tokens in 72,370 / out 2,017, 0 tool errors, 0 denials,
+  `is_error` false, VRAM peak 15,457 MiB, first request 12,587 tokens. Phase 3d's Orca
+  row (131072, no MTP, full tool set) had a median of 8 turns and 127.7 s; one rep, so
+  the variance and the share of the speed-up owed to MTP versus the smaller prompt are
+  UNVERIFIED. The policy text is in the session's `prompt_snapshot` system prompt
+  (transcript, last of 10 blocks); the server log runs at verbosity 3 and records no
+  prompt text, so server-side receipt rests on the token delta (scratch 12,347 against
+  the audit's 12,193 for `--tools` alone plus its measured 148 for the append).
+  Interactive sessions on the lean set and harder tasks are UNVERIFIED.
 
 ## Phase 3 part A 2026-10-24
 

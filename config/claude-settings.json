@@ -5,6 +5,6 @@
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "65536"
   },
   "permissions": {
-    "deny": ["WebSearch", "WebFetch"]
+    "deny": ["WebSearch", "WebFetch", "Agent", "Workflow"]
   }
 }

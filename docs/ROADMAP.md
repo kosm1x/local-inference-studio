@@ -492,7 +492,7 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   sees inside a quoted payload. Bench (`bench/perm/run.ps1 -Sample 24`, the same 24
   corpus commands): set A 11 rule, 6 classified, 7 blocked, 41 classifier requests,
   1,868.7 s; set A + hook 18 hook, 1 rule, 4 classified, 1 blocked, 11 classifier
-  requests, 803.8 s (median run 49.0 vs 15.9 s). One rep per set. Not covered by any
+  requests, 803.8 s (median run 49.0 vs 16.0 s). One rep per set. Not covered by any
   rule or the hook: `python -c` pipes, `for` loops, `wsl --default`, quoted program paths,
   and ssh by rule (a trailing `*` spans the remote command, so ssh is the hook's job).
   Reads of any file stay unguarded (ruling 15).

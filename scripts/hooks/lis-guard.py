@@ -79,13 +79,22 @@ CRITICAL_PATH = re.compile(
     r'|\.env\b|\.pem\b|\.key\b|[\\/]token\b|^token\b|\.git(?:[\\/]|$|[\s\'"]))')
 
 WRITE_VERBS = {'tee', 'mv', 'cp', 'chmod', 'chown', 'ln', 'install', 'truncate', 'touch'}
-PS_WRITE = re.compile(r'(?i)\b(?:Set-Content|Out-File|Add-Content|New-Item|Copy-Item|Move-Item|Rename-Item|Set-Acl)\b')
-PS_DEL_ALIAS = re.compile(r'(?i)(?<![\w-])(?:del|erase|ri|rd|rmdir|rm|move|mv|copy|cp|mi|cpi)\b')
-PS_IOFILE = re.compile(r'(?i)\[IO\.File\]::(?:Delete|WriteAll\w*|Copy|Move|AppendAll\w*|Create\w*)')
+PS_WRITE = re.compile(r'(?i)\b(?:Set-Content|Out-File|Add-Content|New-Item|Copy-Item|Move-Item|Rename-Item|Set-Acl'
+                      r'|Tee-Object|Set-Item|Clear-Content|Clear-Item|Invoke-Item)\b')
+# PowerShell aliases of the delete/move/write/exec cmdlets (ni = New-Item, ii = Invoke-Item, W4).
+PS_DEL_ALIAS = re.compile(r'(?i)(?<![\w-])(?:del|erase|ri|rd|rmdir|rm|move|mv|copy|cp|mi|cpi'
+                          r'|ni|ii|ren|rni|si|sc|ac|clc|cli|tee)\b')
+PS_IOFILE = re.compile(r'(?i)\[(?:System\.)?IO\.(?:File|Directory)\]::(?:Delete|Write\w*|Copy|Move|Create\w*'
+                       r'|AppendAll\w*|Replace|Encrypt|Decrypt|SetAttributes|SetLastWriteTime)')
 PS_INVOKE_WEB = re.compile(r'(?i)\b(?:Invoke-WebRequest|iwr|Invoke-RestMethod|irm)\b')
+PS_CD = re.compile(r'(?i)^(?:Set-Location|Push-Location|sl|cd|chdir|pushd)(?:\s+(.*))?$')
 REMOTE_WRITE = {'rm', 'rmdir', 'systemctl', 'docker', 'git', 'tee', 'mv', 'cp', 'chmod', 'chown', 'kill',
                 'pkill', 'killall', 'apt', 'apt-get', 'dpkg', 'reboot', 'shutdown', 'poweroff', 'halt',
-                'dd', 'truncate', 'crontab', 'sed', 'npm', 'pip'}
+                'dd', 'truncate', 'crontab', 'sed', 'npm', 'pip',
+                'shred', 'chattr', 'wipefs', 'blkdiscard', 'mkswap', 'swapoff', 'fdisk', 'sfdisk', 'parted'}
+HOSTNAME_FLAGS_OK = {'-s', '-f', '-d', '-i', '-I', '-a', '-A', '-y', '-h', '-V', '--short', '--fqdn', '--long',
+                     '--domain', '--ip-address', '--all-ip-addresses', '--alias', '--all-fqdns', '--yp',
+                     '--nis', '--help', '--version'}  # -F/--file and -b/--boot set the name
 REMOTE_READ = {'uptime', 'df', 'free', 'cat', 'tail', 'head', 'ls', 'docker', 'systemctl', 'journalctl',
                'who', 'hostname', 'uname', 'grep', 'wc', 'echo', 'date', 'ps', 'du', 'top', 'nvidia-smi'}
 
@@ -280,13 +289,17 @@ def remote_write(seg):
     if not toks:
         return None
     v = exe(toks[0])
-    if v == 'sudo' and len(toks) > 1:
-        v, toks = exe(toks[1]), toks[1:]
+    if v in ('sudo', 'doas'):  # skip every leading option and the -u/-g/-C value (W2)
+        k = 1
+        while k < len(toks) and toks[k].startswith('-'):
+            k += 2 if toks[k] in ('-u', '-g', '-C', '-D', '-h', '-p', '-r', '-t', '-U', '-T', '--user', '--group') else 1
+        if k < len(toks):
+            v, toks = exe(toks[k]), toks[k:]
     if v == 'systemctl' and len(toks) > 1 and toks[1] in ('status', 'is-active', 'is-enabled', 'list-units', 'show', 'cat'):
         return None
     if v == 'docker' and len(toks) > 1 and toks[1] in ('ps', 'images', 'version', 'info', 'logs', 'inspect', 'stats'):
         return None
-    if v == 'date' and any(x in ('-s', '--set') or x.startswith('--set=') for x in toks[1:]):
+    if v == 'date' and date_sets(toks[1:]):
         return 'date -s'
     if v == 'journalctl' and any(x.startswith('--vacuum') or x in ('--rotate', '--flush') for x in toks[1:]):
         return 'journalctl --vacuum/--rotate/--flush'
@@ -301,6 +314,21 @@ def remote_write(seg):
     return None
 
 
+def date_sets(a):
+    """date sets the clock: -s/--set (and --s/--se), also inside a bundle like -us (W6)."""
+    for x in a:
+        if x.startswith('--'):
+            if x.split('=', 1)[0] in ('--s', '--se', '--set'):
+                return True
+        elif x.startswith('-') and len(x) > 1:
+            for ch in x[1:]:
+                if ch == 's':
+                    return True
+                if ch in 'dfrI':  # these take the rest of the token as their value
+                    break
+    return False
+
+
 def strip_quoted(s):
     return re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", '""', s)
 
@@ -312,27 +340,56 @@ def critical_verb(cmd):
     return None
 
 
+_CURL_BOOL = set('0123469#aBfgGIijJklLMnNOpqRsSvVZ')  # curl short options that take no value
+_CURL_FILE = set('odTDcKFbE')                         # curl short options whose value is a file
+
+
 def _curl_target_critical(a):
-    """A curl option that writes to / reads a file names a critical path (C2/C7b)."""
-    takes = {'-o', '-O', '-D', '-T', '-K', '-c'}
+    """A curl option that writes to / reads a file names a critical path (C2/C7b).
+    Long names match exactly; a short bundle (-sfo PATH, -soPATH, -sd@PATH) is read
+    letter by letter, and the first letter that takes a value owns the rest (W1)."""
     long_file = ('--output', '--dump-header', '--cookie-jar', '--trace', '--trace-ascii',
-                 '--config', '--upload-file', '--cookie', '--key', '--cert')
-    long_data = ('--data', '--form')
+                 '--config', '--upload-file', '--cookie', '--key', '--cert', '--output-dir',
+                 '--stderr', '--libcurl', '--etag-save', '--hsts', '--alt-svc')
+    long_data = ('--data', '--form', '--json')
     for j, t in enumerate(a):
-        val = None
-        if t in takes:
-            val = a[j + 1] if j + 1 < len(a) else None
-        elif t.startswith(('-o', '-D', '-T', '-K', '-c')) and not t.startswith('--') and len(t) > 2:
-            val = t[2:]
-        elif t.startswith(long_file):
-            val = t.split('=', 1)[1] if '=' in t else (a[j + 1] if j + 1 < len(a) else None)
-        elif t in ('-d', '-F') or t.startswith(long_data):
-            dv = t.split('=', 1)[1] if '=' in t else (a[j + 1] if j + 1 < len(a) else '')
-            if dv.startswith('@'):
-                val = dv[1:]
+        nxt = a[j + 1] if j + 1 < len(a) else None
+        val = letter = None
+        if t.startswith('--'):
+            name = t.split('=', 1)[0]
+            v = t.split('=', 1)[1] if '=' in t else nxt
+            if name in long_file:
+                val = v
+            elif name.startswith(long_data):
+                letter, val = 'd', v
+        elif t.startswith('-') and len(t) > 1:
+            for k, ch in enumerate(t[1:], 2):
+                if ch in _CURL_BOOL:
+                    continue
+                if ch in _CURL_FILE:
+                    letter, val = ch, (t[k:] or nxt)
+                break
+        if val and letter in ('d', 'F'):  # data/form read a file only after @ or <
+            m = re.search(r'[@<](.*)$', val)
+            val = m.group(1) if m else None
         if val and CRITICAL_PATH.search(val):
             return True
     return False
+
+
+def procsubst(s):
+    """Inner text of every >( ... ) process substitution in s (W5)."""
+    out, i = [], 0
+    while True:
+        i = s.find('>(', i)
+        if i < 0:
+            return out
+        depth, j = 1, i + 2
+        while j < len(s) and depth:
+            depth += {'(': 1, ')': -1}.get(s[j], 0)
+            j += 1
+        out.append(s[i + 2:j - 1] if not depth else s[i + 2:])
+        i = j
 
 
 def critical(cmd, ctx0='local'):
@@ -340,12 +397,15 @@ def critical(cmd, ctx0='local'):
     hit = critical_verb(cmd)
     if hit:
         return hit
+    # a critical path inside a >( ... ) process substitution, e.g. > >(tee <critical>) (W5)
+    if any(CRITICAL_PATH.search(' ' + inner) for inner in procsubst(cmd)):
+        return 'process substitution writing a critical path'
     # cd into a critical dir then a relative write (W2)
     cd_crit = False
     for seg in split_segments(cmd):
         t = tokens(seg) or []
         v0 = exe(t[0]) if t else ''
-        if v0 == 'cd':
+        if v0 in ('cd', 'pushd'):
             cd_crit = bool(len(t) > 1 and CRITICAL_PATH.search(t[1]))
             continue
         if cd_crit and (v0 in ('cp', 'mv', 'rm', 'tee') or re.search(r'>', strip_quoted(seg))):
@@ -354,7 +414,10 @@ def critical(cmd, ctx0='local'):
     m = re.search(r'(?i)\bcat\s+("[^"]*"|\'[^\']*\'|[^|;&]+?)\s*\|\s*ssh\b', cmd)
     if m and CRITICAL_PATH.search(m.group(1)):
         return 'cat of a critical file piped into ssh'
+    ps_cd = False  # PowerShell: Set-Location into a critical dir earlier in the same payload (W4)
     for ctx, seg in walk(cmd, ctx0):
+        if ctx != 'ps':
+            ps_cd = False
         if ctx == 'remote':
             w = remote_write(seg)
             if w:
@@ -365,12 +428,19 @@ def critical(cmd, ctx0='local'):
             cv = critical_verb(code)
             if cv:
                 return cv
+            m = PS_CD.match(code.strip())
+            if m:
+                ps_cd = bool(m.group(1) and CRITICAL_PATH.search(' ' + m.group(1)))
+                continue
+            if ps_cd and (PS_WRITE.search(code) or PS_DEL_ALIAS.search(code) or PS_IOFILE.search(code)
+                          or PS_INVOKE_WEB.search(code) or '>' in strip_quoted(code)):
+                return 'PowerShell write in a critical directory after Set-Location'
             if PS_WRITE.search(code) and CRITICAL_PATH.search(code):
                 return 'PowerShell write to a critical path'
             if PS_DEL_ALIAS.search(code) and CRITICAL_PATH.search(code):
-                return 'PowerShell delete/move alias on a critical path'
+                return 'PowerShell write/delete alias on a critical path'
             if PS_IOFILE.search(code) and CRITICAL_PATH.search(code):
-                return 'PowerShell [IO.File] write on a critical path'
+                return 'PowerShell [IO.File]/[IO.Directory] write on a critical path'
             if PS_INVOKE_WEB.search(code):
                 om = re.search(r'(?i)-OutF\w*[=\s]+(\S+)', code)
                 if om and CRITICAL_PATH.search(om.group(1)):
@@ -397,6 +467,10 @@ def critical(cmd, ctx0='local'):
                 return f'{v} into a critical path'
         if v == 'curl' and _curl_target_critical(args):
             return 'curl writing/reading a critical path'
+        if v == 'nvidia-smi' and any((f in ('-f', '--filename') and j + 1 < len(args) and CRITICAL_PATH.search(args[j + 1]))
+                                     or (f.startswith('--filename=') and CRITICAL_PATH.search(f))
+                                     for j, f in enumerate(args)):
+            return 'nvidia-smi -f into a critical path'
         if v == 'git' and any((x.startswith('--output=') and CRITICAL_PATH.search(x)) for x in args):
             return 'git --output into a critical path'
         if v == 'uniq' and len(nonflag) >= 2 and any(CRITICAL_PATH.search(t) for t in nonflag[1:]):
@@ -534,7 +608,7 @@ def seg_readonly(seg, ctx, depth):
     if v in READ_VERBS:
         return True
     if v == 'date':
-        return not any(x in ('-s', '--set') or x.startswith('--set=') for x in a)
+        return not date_sets(a)
     if v == 'uniq':
         return len([t for t in a if not t.startswith('-')]) <= 1
     if v == 'sort':
@@ -552,7 +626,7 @@ def seg_readonly(seg, ctx, depth):
     if v == 'wmic':
         return len(a) >= 2 and a[1].lower() in ('get', 'list')
     if v == 'hostname':
-        return all(x.startswith('-') for x in a)
+        return all(x in HOSTNAME_FLAGS_OK for x in a)
     if v in ('env', 'printenv'):
         return v == 'printenv' or not a
     if v in VERSION_ONLY:
@@ -597,9 +671,9 @@ def remote_readonly(v, a, seg):
     if v not in REMOTE_READ:
         return False
     if v == 'hostname':
-        return all(x.startswith('-') for x in a)
+        return all(x in HOSTNAME_FLAGS_OK for x in a)
     if v == 'date':
-        return not any(x in ('-s', '--set') or x.startswith('--set=') for x in a)
+        return not date_sets(a)
     if v == 'docker':
         return bool(a) and a[0] in ('ps', 'images', 'version', 'inspect', 'logs', 'info', 'stats')
     if v == 'systemctl':

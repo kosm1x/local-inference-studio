@@ -245,6 +245,9 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   forms (`-a`, `--list`, `--show-current`, `-vv`, bare); the `curl` allow rules are
   anchored to `http://127.0.0.1:8080/` and `http://localhost:8080/`; `wmic` has no allow
   rule (the hook allows `wmic <alias> get|list` and gives no decision on the rest).
+  `date`, `nvidia-smi` and `hostname` are allowed only as `date`, `date +*`,
+  `nvidia-smi`, `nvidia-smi --query-*`, `nvidia-smi -L*`, `nvidia-smi -q*` and a bare
+  `hostname`, so `date -s`, `nvidia-smi -pl` and `hostname <name>` match no allow rule.
   `deny`: WebSearch, WebFetch, Agent, Workflow.
 - The hook, `scripts/hooks/lis-guard.py` (Python 3, stdlib, `python -I`), which the
   wrapper adds to the per-run settings as a PreToolUse `Bash` hook. It denies a critical

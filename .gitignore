@@ -8,3 +8,4 @@ bench/results/*.json
 logs/*
 !logs/.gitkeep
 bench/results/*.log
+bench/results/latest

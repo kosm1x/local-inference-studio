@@ -1,0 +1,1 @@
+This is a small Node.js project with failing tests. Run node --test to see them. Make every test in test/text.test.js pass by changing src/text.js only. Do not edit, add, rename or delete anything under test/. When you are done, run node --test again and confirm that every test passes.

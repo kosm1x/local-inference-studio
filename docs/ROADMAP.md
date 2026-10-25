@@ -62,7 +62,8 @@ only when its done-check passes on this machine.
   from "Phase 3c": IQ2_XXS fits all-GPU at 131072 at 55.0 tok/s, IQ3_XXS fits only
   at 65536 at 44.6, all 20/20 tool calls, quality UNVERIFIED; the logon task still
   runs Qwen3.6-35B-A3B UD-IQ3_XXS); uploader per model (Unsloth vs Bartowski, given
-  the tool-call gap reported for one quant).
+  the tool-call gap reported for one quant). Phase 3d (agentic loop) ran 2026-10-24;
+  its recommendation is folded into ruling (6).
 
 ## P4 — MoE CPU offload
 
@@ -250,6 +251,13 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
 - (6) Default model: decided by a real agentic-loop comparison (Phase 3d), not by
   tok/s. Contenders: Qwen3.6-35B-A3B (current default), gpt-oss-20b, Saluki 27B,
   GSQ-RCO IQ3_XXS with MTP at 65536. Qwen3.6 keeps serving until then.
+  RECOMMENDATION from Phase 3d (the ruling stays with the operator): gpt-oss-20b
+  MXFP4 at 131072 with q8_0 KV. Every final row passed 3/3, so pass rate did not
+  separate them; gpt-oss-20b was the fastest on both fixtures (median 26.6 s, 8 turns,
+  no template patch, all-GPU with 2 GB free, 170 tok/s). Qwen3.6-35B-A3B stays the
+  fallback (3/3, 45.6 s, but 16 turns and 15 tool errors from guessed paths). The
+  Qwen3.8-27B rows (69 to 156 s) work only with the patched chat template. The
+  evidence is one small task at n=3; harder tasks are UNVERIFIED.
 - (7) Phase 6 (MTP): folded into that comparison as the fourth contender; no
   separate MTP decision.
 - (8) vLLM/WSL2 stack from the P5 spike: REMOVED 2026-10-24 (`~/lis-vllm` 9.9 GB,
@@ -411,6 +419,28 @@ card details: [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Ph
 3c"). The default-model ruling (P3) stays open. After the runs: `Start-ScheduledTask
 LocalInferenceStudio-llama-server`, `/health` ok after 11 s, `scripts/smoke.ps1`
 PASS (`get_weather {"city":"Mexico City"}`).
+
+## Phase 3d 2026-10-24
+
+Agentic-loop comparison for ruling (6): Claude Code 2.1.310 headless through
+`scripts/claude-local.ps1` fixes a committed 3-test Node fixture, 3 repetitions per
+contender (`bench/loop/run.ps1`, method in `bench/README.md`). Final rows, all 3/3 PASS
+(median wall s / median turns): gpt-oss-20b q8_0 26.6 / 8; gpt-oss-20b q4_0 37.3 / 10;
+Qwen3.6-35B-A3B q8_0 (logon task) 45.6 / 16; GSQ-RCO + MTP 65536 q8_0 68.8 / 9; GSQ-RCO
++ MTP 131072 q4_0 121.1 / 8; Saluki 131072 q8_0 120.9 / 8; Orca IQ3_XXS 131072 q4_0
+127.7 / 8; Orca IQ2_XXS 131072 q8_0 156.1 / 11. The Qwen3.8-27B GGUFs (Saluki,
+GSQ-RCO, both Orca quants) share a chat template that rejects Claude Code's message
+order (HTTP 500, "System message must be at the beginning.": the SessionStart hook
+output arrives as a second system message); they REQUIRE
+`--chat-template-file config/chat-templates/qwen3.8-27b.jinja`. KV q4_0 moved Orca
+IQ3_XXS to all-GPU at 131072 (45.3 tok/s) and GSQ-RCO + MTP at 131072 to 56.4 tok/s
+(64/66 layers, 124 MiB short); on gpt-oss-20b (the control) q4_0 changed neither pass
+rate nor turns measurably at n=3. Table, failure modes, the captured role order and the
+harness fix (fixture `package.json` removed: the operator's `fnm --use-on-cd` broke
+`cd` inside Claude Code's Bash tool): [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md)
+("Phase 3d"). Recommendation: see ruling (6). After the runs: `Start-ScheduledTask
+LocalInferenceStudio-llama-server` (Qwen3.6), `/health` ok after 29 s, PID 25900,
+`scripts/smoke.ps1` PASS.
 
 ## Phase 5 spike 2026-10-24
 

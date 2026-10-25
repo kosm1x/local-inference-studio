@@ -7,7 +7,7 @@ orcarouter/Qwen3.8-27B-Uncensored-GGUF, read with a token) on
 the API exactly. Repo names still marked UNVERIFIED have not been checked.
 "Fits all-GPU" is measured for the benched rows (P3 part B, Phase 3b and Phase 3c, 2026-10-24): whether
 `--fit` kept every tensor on GPU at the target context with the `serve.ps1`
-defaults of the time (q8_0 KV; the default is q4_0 since ruling 6). "Decode tok/s" (median of 3 after one discarded warm-up) and
+defaults of the time (q8_0 KV, still the default for every model except the ruling 6 file). "Decode tok/s" (median of 3 after one discarded warm-up) and
 "Prefill 20K ms" (cold, median of 3) are the P3 bench numbers; the full table is
 `bench/summary-2026-10-24.md`. Unbenched rows are the weights-only estimate.
 "lastModified" is the repo's, not the file's.
@@ -18,8 +18,10 @@ Qwen3.8-27B-Uncensored IQ3_XXS, local file
 q4_0, chat template `config/chat-templates/qwen3.8-27b.jinja` REQUIRED (`serve.ps1`
 adds it for this folder); measured 45.3 tok/s decode, 66/66 layers on GPU with 1,630
 MiB left free, Phase 3d loop 3/3 with 0 tool errors at a median 127.7 s wall (~128 s).
-No MTP (P6 n/a for the default, see `docs/ROADMAP.md`). Quality and refusal removal
-UNVERIFIED.
+MTP not used (the GGUF has the head; P6 n/a for the default, see `docs/ROADMAP.md`).
+Quality and refusal removal UNVERIFIED. KV rule: `serve.ps1` uses q4_0 only for this
+default file and q8_0 for any other `-Model` (the KV those rows were benched with)
+unless `-KvType` is passed.
 
 | Model | HF repo | Quant | Size | Fits all-GPU? | Decode tok/s | Prefill 20K ms | Ctx target | Status | Local file |
 |---|---|---|---|---|---|---|---|---|---|

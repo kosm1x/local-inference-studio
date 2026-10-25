@@ -36,5 +36,6 @@
 
 ## 2026-10-24 — Ruling 6 cutover (Orca IQ3_XXS default)
 
-- **Avoid:** copying a brief's factual claim into docs unchecked: the brief said the Orca GGUF has "no MTP head", but `config/models.md` (header table: `nextn_predict_layers` 1) and the live log (`blk.64.*` unused tensors) show it has one. → Check each claim against the repo's measured tables and the server log first.
+- **Mistake:** the brief claimed the Orca GGUF has "no MTP head", but `config/models.md` (header table: `nextn_predict_layers` 1) and the live log (`blk.64.*` unused tensors) show it has one. → Check `nextn_predict_layers` in `config/models.md` (and the server log) before asserting a model has or lacks MTP.
+- **Mistake:** template detection compared a non-normalised path; `GetFullPath` ran only on relative inputs, so an absolute forward-slash `-Model` skipped `--chat-template-file` (HTTP 500 under Claude Code) (audit catch). → Normalise every path before any prefix test.
 - **Better:** the logon task log runs at verbosity 3 and carries no placement lines; capture fit with ONE `-lv 4` start on :8081 after stopping the task server (two 27B servers cannot share the card), then restart the task.

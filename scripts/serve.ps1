@@ -3,16 +3,19 @@
 .SYNOPSIS
   Run llama-server (Anthropic /v1/messages on 127.0.0.1) from bin/.
 .DESCRIPTION
-  Default command line = "Suggested start" in docs/landscape-2026-10-24.md, plus
-  --host/--port, --reasoning-format auto, --api-key local and --no-mmproj (the vision
-  projector is skipped unless -WithMmproj). -Model is a Hugging Face "repo:quant"
-  (passed as -hf, downloaded on first run) or a local .gguf path (passed as -m; a
-  relative path is resolved against the repo root). The default (ruling 6,
-  2026-10-24) is the local orcarouter Qwen3.8-27B-Uncensored IQ3_XXS with q4_0 KV
-  (all-GPU at 131072 only with q4_0). -ChatTemplateFile is passed as
-  --chat-template-file; it defaults to config/chat-templates/qwen3.8-27b.jinja when
-  the model is under models/qwen3.8-27b-uncensored (that GGUF's embedded template
-  rejects Claude Code's second system message with HTTP 500).
+  Default command line (ruling 6 in docs/ROADMAP.md, 2026-10-24): the local orcarouter
+  Qwen3.8-27B-Uncensored IQ3_XXS at -c 131072 with q4_0 KV and
+  --chat-template-file config/chat-templates/qwen3.8-27b.jinja, plus -fa on, -np 1,
+  Qwen sampling, --host/--port, --reasoning-format auto, --api-key local and
+  --no-mmproj (the vision projector is skipped unless -WithMmproj). -Model is a
+  Hugging Face "repo:quant" (passed as -hf, downloaded on first run) or a local .gguf
+  path (passed as -m; relative to the repo root; a missing file throws). -KvType
+  defaults to q4_0 for the default model file only and to q8_0 for any other -Model
+  (the KV the other rows were benched with); an explicit -KvType always wins.
+  -ChatTemplateFile (relative to the repo root) is passed as --chat-template-file; it
+  defaults to config/chat-templates/qwen3.8-27b.jinja when the model is under
+  models/qwen3.8-27b-uncensored (that GGUF's embedded template rejects Claude Code's
+  second system message with HTTP 500).
   -ExtraArgs (string[]) is passed through verbatim, one element per argument, so a
   value with spaces stays whole; use it from inside pwsh. `pwsh -File` hands
   -ExtraArgs 'a','b' over as the single string "a,b", so from `pwsh -File` use
@@ -56,14 +59,22 @@ if ($listener) {
     exit 1
 }
 
-$repoRoot = Join-Path $PSScriptRoot '..'
+$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $source = if ($Model -like '*.gguf') { '-m' } else { '-hf' }
-if ($source -eq '-m' -and -not [IO.Path]::IsPathRooted($Model)) {
-    $Model = [IO.Path]::GetFullPath((Join-Path $repoRoot $Model))
+if ($source -eq '-m') {
+    # Normalise every local path (relative, absolute, forward slashes) before the tests below.
+    $Model = [IO.Path]::GetFullPath($Model, $repoRoot)
+    if (-not (Test-Path -LiteralPath $Model -PathType Leaf)) { throw "Model file not found: $Model" }
 }
+$defaultModel = [IO.Path]::GetFullPath('models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf', $repoRoot)
+if (-not $PSBoundParameters.ContainsKey('KvType') -and $Model -ne $defaultModel) { $KvType = 'q8_0' }
 if (-not $ChatTemplateFile -and $source -eq '-m' -and
-    $Model.StartsWith([IO.Path]::GetFullPath((Join-Path $repoRoot 'models\qwen3.8-27b-uncensored')) + '\', 'OrdinalIgnoreCase')) {
-    $ChatTemplateFile = Join-Path $repoRoot 'config\chat-templates\qwen3.8-27b.jinja'
+    $Model.StartsWith([IO.Path]::GetFullPath('models\qwen3.8-27b-uncensored', $repoRoot) + '\', 'OrdinalIgnoreCase')) {
+    $ChatTemplateFile = 'config\chat-templates\qwen3.8-27b.jinja'
+}
+if ($ChatTemplateFile) {
+    $ChatTemplateFile = [IO.Path]::GetFullPath($ChatTemplateFile, $repoRoot)
+    if (-not (Test-Path -LiteralPath $ChatTemplateFile -PathType Leaf)) { throw "Chat template not found: $ChatTemplateFile" }
 }
 # Numbers are passed as strings so the decimal separator never depends on the culture.
 $cmdArgs = @(
@@ -80,7 +91,7 @@ $cmdArgs = @(
 )
 if (-not $WithMmproj) { $cmdArgs += '--no-mmproj' }
 if ($NCpuMoe -gt 0) { $cmdArgs += '--n-cpu-moe', "$NCpuMoe" }
-if ($ChatTemplateFile) { $cmdArgs += '--chat-template-file', (Resolve-Path -LiteralPath $ChatTemplateFile).Path }
+if ($ChatTemplateFile) { $cmdArgs += '--chat-template-file', $ChatTemplateFile }
 $cmdArgs += $ExtraArgs
 $cmdArgs += $ExtraArgLine -split '\s+' | Where-Object { $_ }
 

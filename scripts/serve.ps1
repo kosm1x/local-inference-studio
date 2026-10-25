@@ -19,7 +19,8 @@
   second system message with HTTP 500).
   MTP (--spec-type draft-mtp --spec-draft-n-max 2) is added for the default model file
   only, unless -NoMtp; any other -Model runs without it. It fits all-GPU at 65536 with
-  q4_0 KV (Phase 3e); at a larger -Ctx pass -NoMtp, or --fit moves layers to CPU.
+  q4_0 KV (Phase 3e); with -Ctx above 65536 the flags are skipped with a warning (pass
+  -NoMtp to silence it), since MTP there is expected to push layers to CPU.
   -ExtraArgs (string[]) is passed through verbatim, one element per argument, so a
   value with spaces stays whole; use it from inside pwsh. `pwsh -File` hands
   -ExtraArgs 'a','b' over as the single string "a,b", so from `pwsh -File` use
@@ -97,7 +98,13 @@ $cmdArgs = @(
 if (-not $WithMmproj) { $cmdArgs += '--no-mmproj' }
 if ($NCpuMoe -gt 0) { $cmdArgs += '--n-cpu-moe', "$NCpuMoe" }
 if ($ChatTemplateFile) { $cmdArgs += '--chat-template-file', $ChatTemplateFile }
-if ($Model -eq $defaultModel -and -not $NoMtp) { $cmdArgs += '--spec-type', 'draft-mtp', '--spec-draft-n-max', '2' }
+if ($Model -eq $defaultModel -and -not $NoMtp) {
+    if ($Ctx -gt 65536) {
+        Write-Warning 'MTP skipped: only measured to fit all-GPU up to -Ctx 65536 (Phase 3e); pass -NoMtp to silence'
+    } else {
+        $cmdArgs += '--spec-type', 'draft-mtp', '--spec-draft-n-max', '2'
+    }
+}
 $cmdArgs += $ExtraArgs
 $cmdArgs += $ExtraArgLine -split '\s+' | Where-Object { $_ }
 

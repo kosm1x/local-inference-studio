@@ -59,7 +59,7 @@ ruling 12 then traded context for MTP: at 65536 all 66 layers, the 1,152 MiB KV 
 MTP draft context sit on the GPU with 1,684 MiB left free (measured, `-lv 4`), and
 bench decode is 1.80x. `serve.ps1` applies the template automatically for files under
 `models/qwen3.8-27b-uncensored` and the MTP flags for the default file only (`-NoMtp`
-turns them off; pass it with any `-Ctx` above 65536); without the template Claude Code
+turns them off; above `-Ctx` 65536 they are skipped with a warning); without the template Claude Code
 gets HTTP 500 ("System message must be at the beginning."). `claude-local.ps1` sets
 Claude Code's context window to 65536 to match. Quality and refusal
 removal of the abliterated build are UNVERIFIED. Numbers: [config/models.md](config/models.md),

@@ -112,7 +112,8 @@ With no parameters it serves the default file on `127.0.0.1:8080` at ctx 65536, 
 KV, flash attention on, one slot, `--api-key local`, model alias `local`, and (for files
 under `models\qwen3.8-27b-uncensored`) `--chat-template-file config\chat-templates\qwen3.8-27b.jinja`;
 for the default file only, MTP (`--spec-type draft-mtp --spec-draft-n-max 2`; `-NoMtp`
-turns it off, and a larger `-Ctx` needs `-NoMtp` to stay all-GPU).
+turns it off; with `-Ctx` above 65536 the flags are skipped with a warning so the model
+stays all-GPU, and `-NoMtp` silences the warning).
 
 ```powershell
 pwsh scripts\serve.ps1
@@ -186,7 +187,8 @@ For this process only, it sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`,
 default aliases to `local`. It unsets `ANTHROPIC_API_KEY` (a real key would be sent to
 the local server) and the `CLAUDE_CODE_SUBAGENT_MODEL*` variables, and passes
 `--settings config\claude-settings.json` (model and subagent model `local`,
-auto-compact at 65536, WebSearch and WebFetch denied). Why: a global
+auto-compact at 65536, WebSearch and WebFetch denied; the wrapper passes a per-run copy
+in `%TEMP%` with the auto-compact value rewritten to `-LisContextTokens`). Why: a global
 `~\.claude\settings.json` that pins cloud models or a subagent model would otherwise
 win, and those models do not exist locally. Your environment is restored on exit.
 

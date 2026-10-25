@@ -361,9 +361,9 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   `contextWindow` 65536. An agentic loop on this configuration, real-text and
   deep-context MTP speed-up, and sessions that need more than 65536 tokens (Claude Code
   compacts earlier) stay UNVERIFIED. Revert: `serve.ps1 -Ctx 131072 -NoMtp` with
-  `claude-local.ps1 -LisContextTokens 131072` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
-  back to 131072 in `config/claude-settings.json` (whether that settings `env` value or
-  the wrapper's process env wins is UNVERIFIED, so change both).
+  `claude-local.ps1 -LisContextTokens 131072` (the wrapper rewrites
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in its per-run settings copy to the same value, so
+  the settings env and the process env cannot disagree).
 
 ## Phase 3 part A 2026-10-24
 

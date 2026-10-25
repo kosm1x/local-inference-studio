@@ -16,6 +16,9 @@
   - ANTHROPIC_MODEL must override `model: fable`.
   Both are VERIFIED (Phase 2 run 2026-10-24): all requests reached 127.0.0.1:8080
   with model `local`, including subagents; see docs/ROADMAP.md.
+  The --settings file is a per-run copy of config/claude-settings.json in $env:TEMP
+  (lis-settings-<pid>.json, deleted on exit) whose env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+  is rewritten to -LisContextTokens, so the settings env and the process env agree.
 
   There is deliberately no param() block. A declared parameter binds claude's
   positional prompt (or any unmatched token such as --model) to itself and claims
@@ -73,7 +76,8 @@ $set = [ordered]@{
 # ANTHROPIC_API_KEY is unset too: it would take precedence over the bearer token and
 # send a real key to the local server.
 $unset = 'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE', 'ANTHROPIC_API_KEY'
-$settings = Join-Path $PSScriptRoot '..\config\claude-settings.json'
+$settingsSrc = Join-Path $PSScriptRoot '..\config\claude-settings.json'
+$settings = Join-Path $env:TEMP "lis-settings-$PID.json"
 
 # Unset with Remove-Item: [Environment]::SetEnvironmentVariable($k, $null) leaves the
 # variable defined as "" in PowerShell 7.6 / .NET 10.
@@ -83,11 +87,16 @@ foreach ($k in @($set.Keys) + $unset) {
 }
 $code = 1
 try {
+    $cfg = Get-Content -LiteralPath $settingsSrc -Raw | ConvertFrom-Json -AsHashtable
+    if (-not $cfg.env) { $cfg.env = [ordered]@{} }
+    $cfg.env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] = "$LisContextTokens"
+    $cfg | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $settings -Encoding utf8NoBOM
     foreach ($k in $set.Keys) { Set-Item "env:$k" $set[$k] }
     foreach ($k in $unset) { Remove-Item "env:$k" -ErrorAction Ignore }
     & claude --settings $settings @claudeArgs
     $code = $LASTEXITCODE
 } finally {
+    Remove-Item -LiteralPath $settings -ErrorAction Ignore
     foreach ($k in $saved.Keys) {
         if ($null -eq $saved[$k]) { Remove-Item "env:$k" -ErrorAction Ignore }
         else { Set-Item "env:$k" $saved[$k] }

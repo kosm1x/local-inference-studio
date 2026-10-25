@@ -507,7 +507,8 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   printed `False`) and 46 repos against the sweep's own 47. Stays OPEN: the remaining
   gaps are recon coverage and an unchecked probe, not permissions; the next lever is the
   recon checklist named under (14). Table: [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md)
-  ("Recon task, 4 runs").
+  ("Recon task, 4 runs"). Live C (interactive, one rep): 0 classifier requests, checklist
+  9 of 14, 1 false statement (repo counts); stays OPEN.
 
 ## Phase 3 part A 2026-10-24
 

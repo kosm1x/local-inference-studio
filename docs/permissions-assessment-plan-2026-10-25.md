@@ -242,6 +242,16 @@ per-volume, GPU or llama-server query) and a leftover RUN 2 script whose Docker 
 tests a path that does not exist; neither is a permissions defect. Detail:
 `bench/summary-2026-10-24.md` "Recon task, 4 runs".
 
+Live C (2026-10-25, one rep, interactive, "Recon this PC", same cwd with RUN 2's scripts
+removed, wrapper defaults): 7 Bash calls, 6 hook allow, 1 with no hook decision allowed
+without a classifier request (rule or built-in allow, UNVERIFIED), 0 classifier requests,
+0 timeouts, 0 denials, no approval prompt; wall 114.9 s, peak context 18,003, no
+compaction. Checklist 9 of 14 (RUN 4: 7): all 8 volumes and the J/K flag now present
+(plain `df -h`), Docker correct; GPU, the llama-server model and the VPS link missing;
+1 false statement (repo counts 18 and 33 against its own listing of 16 and 30). The
+permission targets hold interactively; the report target (14 of 14, 0 false) is still
+not met, so (15) stays OPEN.
+
 ## 7. What this does not fix
 
 - The `$_`-through-bash and silenced-stderr traps: a policy-text change, separate commit.

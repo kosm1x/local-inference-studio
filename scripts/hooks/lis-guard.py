@@ -58,14 +58,18 @@ WRITE_VERBS = {'tee', 'mv', 'cp', 'chmod', 'chown', 'ln', 'install', 'truncate',
 PS_WRITE = re.compile(r'(?i)\b(?:Set-Content|Out-File|Add-Content|New-Item|Copy-Item|Move-Item|Rename-Item|Set-Acl)\b')
 REMOTE_WRITE = {'rm', 'rmdir', 'systemctl', 'docker', 'git', 'tee', 'mv', 'cp', 'chmod', 'chown', 'kill',
                 'pkill', 'killall', 'apt', 'apt-get', 'dpkg', 'reboot', 'shutdown', 'poweroff', 'halt',
-                'dd', 'truncate', 'crontab', 'sed', 'npm', 'pip', 'sqlite3', 'psql'}
+                'dd', 'truncate', 'crontab', 'sed', 'npm', 'pip'}
 REMOTE_READ = {'uptime', 'df', 'free', 'cat', 'tail', 'head', 'ls', 'docker', 'systemctl', 'journalctl',
                'who', 'hostname', 'uname', 'grep', 'wc', 'echo', 'date', 'ps', 'du'}
 
 READ_VERBS = {'ls', 'cat', 'head', 'tail', 'grep', 'wc', 'df', 'du', 'uptime', 'date', 'echo', 'printf',
               'which', 'type', 'file', 'stat', 'uname', 'free', 'nvidia-smi', 'wmic', 'systeminfo',
               'whoami', 'id', 'pwd', 'tr', 'cut', 'test', '[', '[[', 'true', 'false', 'netstat',
-              'tasklist', 'nproc', 'continue', 'break', ':'}
+              'tasklist', 'nproc', 'continue', 'break', ':', 'cd', 'jq', 'uniq', 'column', 'basename',
+              'dirname', 'realpath', 'readlink', 'sha256sum', 'md5sum', 'diff', 'cmp', 'tree', 'rg'}
+PS_METHODS_OK = {'tostring', 'substring', 'trim', 'trimstart', 'trimend', 'replace', 'split', 'tolower',
+                 'toupper', 'contains', 'startswith', 'endswith', 'gettype', 'padleft', 'padright', 'round',
+                 'indexof', 'join', 'equals', 'compareto'}
 VERSION_ONLY = {'node', 'npm', 'pnpm', 'python', 'py', 'uv', 'claude', 'pip'}
 VERSION_FLAGS = {'-v', '--version', '-V', 'version'}
 PS_EXES = {'powershell', 'pwsh'}
@@ -249,7 +253,7 @@ def critical(cmd):
                 if CRITICAL_PATH.search(m.group(1)):
                     return 'redirect into a critical path'
             continue
-        for m in re.finditer(r'(?<![\d&])>>?\s*([^\s;|&]+)', seg):
+        for m in re.finditer(r'>>?\s*([^\s;|&]+)', seg):
             if CRITICAL_PATH.search(m.group(1).strip('\'"')):
                 return 'redirect into a critical path'
         toks = tokens(seg)
@@ -278,6 +282,9 @@ def ps_readonly(payload):
     for m in re.finditer(r'\[([\w.]+)\]::', code):
         if m.group(1).lower() != 'math':
             return False
+    for m in re.finditer(r'\.\s*([A-Za-z_]\w*)\s*\(', code):  # $_.Delete(), .Kill(), ... are writes
+        if m.group(1).lower() not in PS_METHODS_OK:
+            return False
     for m in re.finditer(r'(?<![\w$.-])([A-Za-z]+-[A-Za-z]+)\b', code):
         w = m.group(1).lower()
         if not (w.startswith('get-') or w.startswith('format-') or w in PS_OK_EXACT):
@@ -302,7 +309,7 @@ def curl_ok(args):
         if t in ('-H', '--header', '-m', '--max-time', '--connect-timeout', '-w', '--write-out', '-A', '--user-agent'):
             skip = True; continue
         if t.startswith('--'):
-            if t.startswith(('--data', '--output', '--upload', '--form', '--request', '--config', '--remote-name')):
+            if t.startswith(('--data', '--output', '--upload', '--form', '--request', '--config', '--remote-name', '--json')):
                 return False
             continue
         if t.startswith('-'):

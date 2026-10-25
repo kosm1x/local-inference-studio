@@ -66,6 +66,7 @@ CASES = [
     ('ssh ' + VPS + " 'apt-get install -y jq'", 'deny'),
     ('ssh ' + VPS + ' reboot', 'deny'),
     ('git commit -m "drop the rm -rf step"', 'deny'),  # deliberate over-match, documented
+    ('ls 2>~/.claude/err.txt', 'deny'),
     # (c) read-only grammar -> allow
     ('ls -la /z/repos', 'allow'),
     ('ls /c/Users/me/.ssh/', 'allow'),
@@ -96,6 +97,8 @@ CASES = [
     (WSL_SSH.format('uptime; docker ps | wc -l'), 'allow'),
     ('MSYS_NO_PATHCONV=1 ' + WSL_SSH.format('df -h; free -m; systemctl status caddy --no-pager | head -5'), 'allow'),
     ('ssh -o ConnectTimeout=8 ' + VPS + " 'journalctl -u caddy -n 20; tail -5 /var/log/syslog'", 'allow'),
+    ('cd /z/repos/x && git status --porcelain', 'allow'),
+    ("pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'", 'allow'),
     # (d) passthrough -> no decision, the rules/classifier judge
     ('mkdir -p out && echo hi > out/x.txt', None),
     ('npm install', None),
@@ -112,6 +115,10 @@ CASES = [
     ('ssh ' + VPS, None),
     ('for d in /z/repos/*/; do echo $d; done', None),
     ('node -e "1"', None),
+    ("pwsh -NoProfile -Command 'Get-ChildItem C:/tmp/x | ForEach-Object { $_.Delete() }'", None),
+    ("pwsh -NoProfile -Command '(Get-Process -Id 4242).Kill()'", None),
+    ('curl -s --json \'{"a":1}\' http://127.0.0.1:8080/x', None),
+    ('ssh ' + VPS + " 'sqlite3 /srv/app/data.db \"select 1\"'", None),
     ('', None),
 ]
 

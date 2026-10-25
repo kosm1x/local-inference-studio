@@ -42,7 +42,7 @@ only when its done-check passes on this machine.
 - Open rulings: thinking on or off by default; `CLAUDE_CODE_MAX_OUTPUT_TOKENS`
   value.
 
-## P3 — Bench matrix (DONE (measurement); default-model selection = open ruling)
+## P3 — Bench matrix (DONE (measurement); default model RULED 2026-10-24, ruling 6)
 
 - Goal: pick the default model on measured numbers.
 - Steps: for Qwen3.6-35B-A3B, Qwen3.8-27B, Gemma 4 26B-A4B, GLM-4.7-Flash and
@@ -57,13 +57,10 @@ only when its done-check passes on this machine.
 - UNVERIFIED: prefill only at 20K tokens; the 20 tool prompts are synthetic (two
   tools, one turn); one run per model, no variance; every model ran with the
   Qwen-tuned `serve.ps1` sampling; decode text quality not inspected.
-- Open rulings: the default model (the numbers are in, plus two Qwen3.8-27B
-  compressions from "Phase 3b" and two abliterated Qwen3.8-27B-Uncensored quants
-  from "Phase 3c": IQ2_XXS fits all-GPU at 131072 at 55.0 tok/s, IQ3_XXS fits only
-  at 65536 at 44.6, all 20/20 tool calls, quality UNVERIFIED; the logon task still
-  runs Qwen3.6-35B-A3B UD-IQ3_XXS); uploader per model (Unsloth vs Bartowski, given
-  the tool-call gap reported for one quant). Phase 3d (agentic loop) ran 2026-10-24;
-  its recommendation is folded into ruling (6).
+- Default model: RULED 2026-10-24 (ruling 6), Orca Qwen3.8-27B-Uncensored IQ3_XXS at
+  131072 with q4_0 KV and the patched chat template; the logon task serves it.
+- Open rulings: uploader per model (Unsloth vs Bartowski, given the tool-call gap
+  reported for one quant).
 
 ## P4 — MoE CPU offload
 
@@ -100,8 +97,15 @@ only when its done-check passes on this machine.
   (about 1.34 GB projected) plus 300 MiB less free memory at start pushed `--fit`
   from 61 to 52 GPU layers. The done-check is met for that model;
   speed-up on real agent text is UNVERIFIED.
-- Open rulings: whether MTP is worth the context it costs on 16 GB (65536 with MTP
-  vs 131072 without), tied to the P3 default-model ruling.
+- Status 2026-10-24 (ruling 6): the new default, Orca Qwen3.8-27B-Uncensored
+  IQ3_XXS, carries an MTP layer (`nextn_predict_layers` 1; the server logs
+  `blk.64.*` as unused tensors), but MTP is not tried on it and not planned for the
+  default: at 131072 with q4_0 KV it has 1,630 MiB left free, and GSQ-RCO + MTP with
+  1.2 GB smaller weights already missed all-GPU there by 124 MiB, so the default
+  would lose GPU layers with MTP on (estimate, UNVERIFIED). P6 does not apply to the
+  default as served.
+- Open rulings: none for the default; whether MTP is worth the context it costs on
+  16 GB (65536 with MTP vs 131072 without) stays open for other models only.
 
 ## Phase 1 run 2026-10-24
 
@@ -258,8 +262,25 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   fallback (3/3, 45.6 s, but 16 turns and 15 tool errors from guessed paths). The
   Qwen3.8-27B rows (69 to 156 s) work only with the patched chat template. The
   evidence is one small task at n=3; harder tasks are UNVERIFIED.
+  RULED 2026-10-24 by the operator, CLOSED: the default is Orca Qwen3.8-27B-Uncensored
+  IQ3_XXS (`models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`) at
+  131072 with q4_0 KV and `--chat-template-file config/chat-templates/qwen3.8-27b.jinja`
+  (REQUIRED). Reason: accuracy over speed; it is the only final Phase 3d row at 131072
+  with 0 tool errors and 0 denials (3/3, median 8 turns; the other 0-error row,
+  GSQ-RCO + MTP, holds that only at 65536), and the operator accepts its cost
+  (median loop wall 127.7 s against gpt-oss-20b's 26.6 s; 45.3 tok/s decode).
+  `scripts/serve.ps1` defaults now produce this command line, so the logon task
+  (action unchanged, `-LogFile` only) serves it. Cutover 2026-10-24 21:22: `stop.ps1`,
+  `Start-ScheduledTask`, `/health` ok after 5 s; a `-lv 4` start on :8081 read 66/66
+  layers on GPU, 10,137 MiB CUDA0 model buffer, 521 MiB CPU_Mapped, 2,304 MiB q4_0 KV,
+  1,630 MiB left free (projected 13,330 of 14,961 MiB); `smoke.ps1` PASS
+  (`get_weather {"city":"Mexico City"}`); `claude-local.ps1 -p ... --max-turns 1`
+  returned `is_error` false, result "ok", `modelUsage` `local` only. Quality and
+  refusal removal of the abliterated build stay UNVERIFIED. Fallbacks: gpt-oss-20b
+  MXFP4 (fastest) and Qwen3.6-35B-A3B UD-IQ3_XXS (`-Model
+  unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`).
 - (7) Phase 6 (MTP): folded into that comparison as the fourth contender; no
-  separate MTP decision.
+  separate MTP decision. The ruled default runs without MTP (see P6).
 - (8) vLLM/WSL2 stack from the P5 spike: REMOVED 2026-10-24 (`~/lis-vllm` 9.9 GB,
   `~/lis-vllm-dl` 402 MB, `~/.cache/vllm` 1.1 GB, `models/orcasaq-2-27b` 12 GB).
   The install recipe in the Phase 5 section stays for a larger GPU.

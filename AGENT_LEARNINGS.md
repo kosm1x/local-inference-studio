@@ -33,3 +33,8 @@
 - **Avoid:** heredocs through the Bash tool collapse `\\` to `\`, and Python text-mode writes CRLF on Windows; write template or escape-heavy files with the Write tool, or open with `newline=''`.
 - **Mistake:** a Python edit script asserted on `\n` patterns against files that are CRLF on disk (ROADMAP, models.md); the first edit passed, the script died, and a commit went out with one of four fixes. → Detect `\r\n` per file before matching, apply all edits before any `git add`, and check the diff stat lists every intended file.
 - **Better:** when a contender's wall time is quoted "on both fixtures", check that the other contenders produced a number on both; a comparison with one finisher is a measurement, not a ranking (audit catch).
+
+## 2026-10-24 — Ruling 6 cutover (Orca IQ3_XXS default)
+
+- **Avoid:** copying a brief's factual claim into docs unchecked: the brief said the Orca GGUF has "no MTP head", but `config/models.md` (header table: `nextn_predict_layers` 1) and the live log (`blk.64.*` unused tensors) show it has one. → Check each claim against the repo's measured tables and the server log first.
+- **Better:** the logon task log runs at verbosity 3 and carries no placement lines; capture fit with ONE `-lv 4` start on :8081 after stopping the task server (two 27B servers cannot share the card), then restart the task.

@@ -42,20 +42,38 @@ Phase 0 done (2026-10-24): evaluation of two reference repos, landscape
 survey, and this scaffold. Phase 1 done (2026-10-24): llama.cpp b11868 CUDA 13.4
 installed, Qwen3.6-35B-A3B UD-IQ3_XXS serves `/v1/messages` with tool_use
 (`smoke.ps1` PASS); numbers in [docs/ROADMAP.md](docs/ROADMAP.md). Phase 2 done
-(2026-10-24): Claude Code runs an edit-test-fix loop on the local server. Next: Phase 3.
+(2026-10-24): Claude Code runs an edit-test-fix loop on the local server. Phase 3
+(bench matrix and agentic-loop comparison) done 2026-10-24; the default model is
+ruled (below).
+
+## Default model (ruling 6, 2026-10-24)
+
+| Model | Local file | Ctx | KV | Chat template | Decode tok/s | Loop (Phase 3d) |
+|---|---|---|---|---|---|---|
+| Orca Qwen3.8-27B-Uncensored IQ3_XXS (abliterated, 11.64 GB) | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` | 131072 | q4_0 | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED | 45.3 (measured) | 3/3, 0 tool errors, median 8 turns, ~128 s wall (measured) |
+
+Chosen for accuracy over speed (the only 131072 row with 0 tool errors); gpt-oss-20b
+is 4.8x faster on the same loop. All 66 layers and the 2,304 MiB KV sit on the GPU
+with 1,630 MiB left free (measured, `-lv 4`). `serve.ps1` applies the template
+automatically for files under `models/qwen3.8-27b-uncensored`; without it Claude Code
+gets HTTP 500 ("System message must be at the beginning."). Quality and refusal
+removal of the abliterated build are UNVERIFIED. Numbers: [config/models.md](config/models.md),
+[bench/summary-2026-10-24.md](bench/summary-2026-10-24.md).
 
 ## Quick start
 
 ```powershell
 pwsh scripts/install.ps1        # llama.cpp b11868 CUDA 13.4 zip + cudart into bin/
-pwsh scripts/serve.ps1          # llama-server; -hf downloads the model on first run
+pwsh scripts/serve.ps1          # llama-server with the default model (local file, see above)
 pwsh scripts/smoke.ps1          # /health, /v1/messages tool_use, /count_tokens
 pwsh scripts/claude-local.ps1   # Claude Code pointed at the local server
 ```
 
-`install.ps1` fetches binaries only. The model (default
-`unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS`) is downloaded by `llama-server -hf`
-on first run into its own cache.
+`install.ps1` fetches binaries only. The default model is a local file from the gated
+`orcarouter/Qwen3.8-27B-Uncensored-GGUF` repo and is not downloaded by any script; it
+must already be in `models/qwen3.8-27b-uncensored/`. `-Model` also takes a Hugging Face
+`repo:quant`, which `llama-server -hf` downloads on first run into its own cache (the
+previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`).
 
 ## Run at logon
 

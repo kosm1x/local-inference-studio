@@ -7,14 +7,23 @@ orcarouter/Qwen3.8-27B-Uncensored-GGUF, read with a token) on
 the API exactly. Repo names still marked UNVERIFIED have not been checked.
 "Fits all-GPU" is measured for the benched rows (P3 part B, Phase 3b and Phase 3c, 2026-10-24): whether
 `--fit` kept every tensor on GPU at the target context with the `serve.ps1`
-defaults (q8_0 KV). "Decode tok/s" (median of 3 after one discarded warm-up) and
+defaults of the time (q8_0 KV; the default is q4_0 since ruling 6). "Decode tok/s" (median of 3 after one discarded warm-up) and
 "Prefill 20K ms" (cold, median of 3) are the P3 bench numbers; the full table is
 `bench/summary-2026-10-24.md`. Unbenched rows are the weights-only estimate.
 "lastModified" is the repo's, not the file's.
 
+Default (ruling 6, 2026-10-24; the `scripts/serve.ps1` defaults and the logon task):
+Qwen3.8-27B-Uncensored IQ3_XXS, local file
+`models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`, ctx 131072, KV
+q4_0, chat template `config/chat-templates/qwen3.8-27b.jinja` REQUIRED (`serve.ps1`
+adds it for this folder); measured 45.3 tok/s decode, 66/66 layers on GPU with 1,630
+MiB left free, Phase 3d loop 3/3 with 0 tool errors at a median 127.7 s wall (~128 s).
+No MTP (P6 n/a for the default, see `docs/ROADMAP.md`). Quality and refusal removal
+UNVERIFIED.
+
 | Model | HF repo | Quant | Size | Fits all-GPU? | Decode tok/s | Prefill 20K ms | Ctx target | Status | Local file |
 |---|---|---|---|---|---|---|---|---|---|
-| Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ3_XXS | 13.2 GB | no, measured: `--fit` keeps 41/41 layers on GPU but moves part of 2 layers' experts to CPU (~535 MiB) at 131072 ctx with `--no-mmproj` and q8_0 KV | 134.0 | 5,351 | 131072 | benched (default) | - |
+| Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ3_XXS | 13.2 GB | no, measured: `--fit` keeps 41/41 layers on GPU but moves part of 2 layers' experts to CPU (~535 MiB) at 131072 ctx with `--no-mmproj` and q8_0 KV | 134.0 | 5,351 | 131072 | benched (default until ruling 6; fallback) | - |
 | Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ4_XS | 17.7 GB | no (partial offload) | - | - | 131072 | candidate | - |
 | Qwen3.8-27B dense | unsloth/Qwen3.8-27B-GGUF `Qwen3.8-27B-UD-Q3_K_XL.gguf` (lastModified 2026-08-20) | UD-Q3_K_XL | 13.15 GB (13146393504 B) | no, measured: `--fit` puts 50/66 layers on GPU, 2921 MiB CPU_Mapped, 1088 MiB of the 4352 MiB KV on CPU at 131072 ctx | 11.7 | 19,001 | 131072 | benched | `models\qwen3.8-27b\Qwen3.8-27B-UD-Q3_K_XL.gguf` |
 | Underdog Saluki 27B 1.0 (Qwen3.8-27B, see provenance note) | ConwayResearch/Underdog-Saluki-27B-1.0 `Underdog-Saluki-27B-1.0-IQ2-mix.gguf` (lastModified 2026-10-15) | IQ2-mix | 7.90 GB (7898369152 B) | yes, measured: `--fit` made no change at 131072 ctx (65/65 layers, full 4352 MiB KV on GPU, 2462 MiB left free; 265 MiB CPU_Mapped) | 57.5 (57.1 at 65536) | 12,335 | 131072 | benched | `models\saluki-27b\Underdog-Saluki-27B-1.0-IQ2-mix.gguf` |
@@ -27,7 +36,7 @@ defaults (q8_0 KV). "Decode tok/s" (median of 3 after one discarded warm-up) and
 | Qwen3.8-27B OrcaSAQ2 (3.21 bpw, vLLM + vendor kernel) | orcarouter/OrcaSAQ-2-27B (4 safetensors shards, EXL3 `quant_method`, lastModified 2026-10-12) | EXL3 3.21 bpw (OrcaSAQ2) | 12.27 GB safetensors (12.32 GB / 12323397010 B all files, incl. a 29 MB mp4) | no, measured (vLLM 0.30.0, WSL2): weights 11.26 GiB of a 14.55 GiB budget leave a 0.33-0.49 GiB KV pool; 32768 needs 1.29 GiB, so no context >= 4096 starts | - | - | 131072 | blocked: vLLM KV pool too small on this 16 GB card with the desktop's 1.3-2.0 GiB (Phase 5 spike, `bench/summary-2026-10-24.md`) | `models\orcasaq-2-27b\` |
 | Qwen3.8-27B-Uncensored (abliterated) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) | IQ3_M | 12.8 GB (12768331360 B) | no at 131072 (weights-only estimate: the smaller IQ3_XXS below already misses by 1441 MiB, measured) | - | - | 131072 | fallback | - |
 | Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` (lastModified 2026-10-12) | IQ2_XXS | 8.88 GB (8884504160 B) | yes, measured: `--fit` made no change at 131072 ctx (66/66 layers, full 4352 MiB KV on GPU, 2084 MiB left free; 398 MiB CPU_Mapped) | 55.0 (55.2 at 65536) | 11,369 (11,268 at 65536) | 131072 | benched (Phase 3c; quality and refusal removal UNVERIFIED) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` |
-| Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (lastModified 2026-10-12) | IQ3_XXS | 11.64 GB (11637692000 B) | no at 131072 with q8_0 KV, measured: 58/66 layers on GPU, 1684 MiB CPU_Mapped, 544 MiB of the 4352 MiB KV on CPU (`--fit` cut 1441 MiB); yes at 131072 with q4_0 KV (66/66, 2304 MiB KV, 1630 MiB left free; Phase 3d); yes at 65536 with q8_0 KV (66/66, 2078 MiB left free) | 20.2 at 131072 (45.3 with q4_0 KV); 44.6 at 65536 | 14,750 (11,520 at 65536) | 131072 | benched (Phase 3c; quality and refusal removal UNVERIFIED) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` |
+| Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (lastModified 2026-10-12) | IQ3_XXS | 11.64 GB (11637692000 B) | no at 131072 with q8_0 KV, measured: 58/66 layers on GPU, 1684 MiB CPU_Mapped, 544 MiB of the 4352 MiB KV on CPU (`--fit` cut 1441 MiB); yes at 131072 with q4_0 KV (66/66, 2304 MiB KV, 1630 MiB left free; Phase 3d); yes at 65536 with q8_0 KV (66/66, 2078 MiB left free) | 20.2 at 131072 (45.3 with q4_0 KV); 44.6 at 65536 | 14,750 (11,520 at 65536) | 131072 | DEFAULT (ruling 6: q4_0 KV, template REQUIRED); benched (Phase 3c; quality and refusal removal UNVERIFIED) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` |
 
 Agentic loop (Phase 3d, `bench/loop/run.ps1`: Claude Code fixes a 3-test Node fixture,
 3 repetitions; median wall s / median turns; table and failure modes in
@@ -37,17 +46,19 @@ Agentic loop (Phase 3d, `bench/loop/run.ps1`: Claude Code fixes a 3-test Node fi
 |---|---|---|---|
 | gpt-oss-20b MXFP4 | 131072 / q8_0 | 3/3, 26.6 s / 8 | embedded |
 | gpt-oss-20b MXFP4 | 131072 / q4_0 | 3/3, 37.3 s / 10 | embedded |
-| Qwen3.6-35B-A3B UD-IQ3_XXS (logon task) | 131072 / q8_0 | 3/3, 45.6 s / 16 | embedded |
+| Qwen3.6-35B-A3B UD-IQ3_XXS (logon task until ruling 6) | 131072 / q8_0 | 3/3, 45.6 s / 16 | embedded |
 | Qwen3.8-27B GSQ-RCO IQ3_XXS + MTP | 65536 / q8_0 | 3/3, 68.8 s / 9 | patched, REQUIRED |
 | Qwen3.8-27B GSQ-RCO IQ3_XXS + MTP | 131072 / q4_0 | 3/3, 121.1 s / 8 | patched, REQUIRED |
 | Underdog Saluki 27B IQ2-mix | 131072 / q8_0 | 3/3, 120.9 s / 8 | patched, REQUIRED |
-| Qwen3.8-27B-Uncensored IQ3_XXS | 131072 / q4_0 | 3/3, 127.7 s / 8 | patched, REQUIRED |
+| Qwen3.8-27B-Uncensored IQ3_XXS (default, ruling 6) | 131072 / q4_0 | 3/3, 127.7 s / 8 | patched, REQUIRED |
 | Qwen3.8-27B-Uncensored IQ2_XXS | 131072 / q8_0 | 3/3, 156.1 s / 11 | patched, REQUIRED |
 
 The Qwen3.8-27B rows (Saluki, GSQ-RCO and both Uncensored quants embed the same
 template, md5 `519239a4908bb1f805bbce5fa8c8a242`) REQUIRE the patched template under
 Claude Code: the embedded one raises "System message must be at the beginning." (HTTP
-500) because the SessionStart hook output arrives as a second system message. Serve
+500) because the SessionStart hook output arrives as a second system message.
+`serve.ps1` adds it on its own for files under `models/qwen3.8-27b-uncensored`; for the
+others pass `-ChatTemplateFile <repo>/config/chat-templates/qwen3.8-27b.jinja` or serve
 with `-ExtraArgs '--chat-template-file', '<repo>/config/chat-templates/qwen3.8-27b.jinja'`
 (from `pwsh -File`: the single token `"-ExtraArgLine:--chat-template-file <abs path>"`).
 Without it every loop repetition failed (0/3 Saluki, 0/1 GSQ-RCO). The path must not

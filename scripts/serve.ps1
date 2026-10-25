@@ -6,7 +6,13 @@
   Default command line = "Suggested start" in docs/landscape-2026-10-24.md, plus
   --host/--port, --reasoning-format auto, --api-key local and --no-mmproj (the vision
   projector is skipped unless -WithMmproj). -Model is a Hugging Face "repo:quant"
-  (passed as -hf, downloaded on first run) or a local .gguf path (passed as -m).
+  (passed as -hf, downloaded on first run) or a local .gguf path (passed as -m; a
+  relative path is resolved against the repo root). The default (ruling 6,
+  2026-10-24) is the local orcarouter Qwen3.8-27B-Uncensored IQ3_XXS with q4_0 KV
+  (all-GPU at 131072 only with q4_0). -ChatTemplateFile is passed as
+  --chat-template-file; it defaults to config/chat-templates/qwen3.8-27b.jinja when
+  the model is under models/qwen3.8-27b-uncensored (that GGUF's embedded template
+  rejects Claude Code's second system message with HTTP 500).
   -ExtraArgs (string[]) is passed through verbatim, one element per argument, so a
   value with spaces stays whole; use it from inside pwsh. `pwsh -File` hands
   -ExtraArgs 'a','b' over as the single string "a,b", so from `pwsh -File` use
@@ -25,12 +31,13 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Model = 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS',
+    [string]$Model = 'models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf',
     [int]$Ctx = 131072,
     [int]$Port = 8080,
     [int]$NCpuMoe = 0,
-    [string]$KvType = 'q8_0',
+    [string]$KvType = 'q4_0',
     [string]$Alias = 'local',
+    [string]$ChatTemplateFile = '',
     [switch]$WithMmproj,
     [string[]]$ExtraArgs = @(),
     [string]$ExtraArgLine = '',
@@ -49,7 +56,15 @@ if ($listener) {
     exit 1
 }
 
+$repoRoot = Join-Path $PSScriptRoot '..'
 $source = if ($Model -like '*.gguf') { '-m' } else { '-hf' }
+if ($source -eq '-m' -and -not [IO.Path]::IsPathRooted($Model)) {
+    $Model = [IO.Path]::GetFullPath((Join-Path $repoRoot $Model))
+}
+if (-not $ChatTemplateFile -and $source -eq '-m' -and
+    $Model.StartsWith([IO.Path]::GetFullPath((Join-Path $repoRoot 'models\qwen3.8-27b-uncensored')) + '\', 'OrdinalIgnoreCase')) {
+    $ChatTemplateFile = Join-Path $repoRoot 'config\chat-templates\qwen3.8-27b.jinja'
+}
 # Numbers are passed as strings so the decimal separator never depends on the culture.
 $cmdArgs = @(
     $source, $Model,
@@ -65,6 +80,7 @@ $cmdArgs = @(
 )
 if (-not $WithMmproj) { $cmdArgs += '--no-mmproj' }
 if ($NCpuMoe -gt 0) { $cmdArgs += '--n-cpu-moe', "$NCpuMoe" }
+if ($ChatTemplateFile) { $cmdArgs += '--chat-template-file', (Resolve-Path -LiteralPath $ChatTemplateFile).Path }
 $cmdArgs += $ExtraArgs
 $cmdArgs += $ExtraArgLine -split '\s+' | Where-Object { $_ }
 

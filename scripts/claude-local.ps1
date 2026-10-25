@@ -153,7 +153,7 @@ try {
         if (-not $cfg.hooks) { $cfg.hooks = [ordered]@{} }
         $cfg.hooks['PreToolUse'] = @($cfg.hooks['PreToolUse'] | Where-Object { $_ }) + @([ordered]@{
                 matcher = 'Bash'
-                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$guard`""; timeout = 10 })
+                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$guard`""; timeout = 10; onFailure = 'block' })
             })
     }
     $cfg | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $settings -Encoding utf8NoBOM

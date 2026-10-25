@@ -135,7 +135,9 @@ try {
     # a. decode, vLLM: tok/s = completion tokens / (last chunk - first chunk), client-side; run 0 is the warm-up.
     $decodeRuns = foreach ($r in 0..3) {
         $v = Invoke-VllmStream $decodePrompt 256
-        $tps = $v.completion_tokens / (($v.last_ms - $v.first_ms) / 1000)
+        $span = $v.last_ms - $v.first_ms
+        if ($span -le 0) { throw "vLLM decode: all $($v.completion_tokens) tokens arrived in one chunk; cannot measure tok/s" }
+        $tps = $v.completion_tokens / ($span / 1000)
         if ($r -eq 0) { Write-Host ("decode warm-up (discarded): {0:N1} tok/s ({1} tokens)" -f $tps, $v.completion_tokens); continue }
         Write-Host ("decode run {0}: {1:N1} tok/s ({2} tokens)" -f $r, $tps, $v.completion_tokens)
         [double]$tps

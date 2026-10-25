@@ -383,7 +383,7 @@ vLLM plugin; the CUDA kernels come from the exllamav3 wheel. Its Docker image pi
 plugin declares `get_min_capability() = 80` (Ampere and newer, so sm_89 passes vLLM's
 check).
 
-Installed, all inside WSL2 Ubuntu 24.04 (user `fmoctezuma`, no root used; sudo needs a
+Installed, all inside WSL2 Ubuntu 24.04 (the default WSL user, no root used; sudo needs a
 password, and there is no system gcc or nvcc):
 
 - `~/.local/bin/uv` 0.13.5, from the GitHub release tarball checked against its
@@ -451,5 +451,7 @@ to free the desktop's 1.3 to 2.0 GiB; (d) `--cpu-offload-gb` (vendor: about +40 
 token per GB); (e) gcc/nvcc in WSL via operator sudo, to test whether the FlashInfer
 backend leaves more KV (UNVERIFIED); (f) the vendor Docker image or native Linux, which
 avoid the WSL pinned-memory fallback (UNVERIFIED). To remove the spike install:
-`wsl -d Ubuntu -- rm -rf ~/lis-vllm ~/lis-vllm-dl ~/.cache/vllm` and delete
+`wsl -d Ubuntu -- bash -c 'rm -rf ~/lis-vllm ~/lis-vllm-dl ~/.cache/vllm'` (the
+`bash -c` quoting matters: PowerShell expands a bare `~` to the Windows profile
+before WSL sees it, and the `rm` then silently misses) and delete
 `models/orcasaq-2-27b/`.

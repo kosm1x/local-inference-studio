@@ -13,6 +13,14 @@ only when its done-check passes on this machine.
 - UNPROVEN until it happens: the revised `serve.ps1` (`ef5e65c`) has only been traced,
   never run by the task; the first `Start-ScheduledTask` or logon proves it, together
   with the logon start itself (`Get-ScheduledTaskInfo` LastRunTime + `/health`).
+- Live session 2026-10-24 22:00-23:00 (operator's first real Claude Code session on the
+  default, read from `logs/llama-server.log`): 32 turns, 0 errors, 0 truncations, max
+  context 45,417. Decode 654 s for 24,320 tokens (37.2 tok/s avg, 45 -> 35 across the
+  context range); prefill 76 s, of which 60 s were 3 full re-reads (prefix cache hit on
+  29/32 turns). 13/32 answers exceeded 1,000 tokens. Lesson: in real use decode time,
+  not prefill, is the cost of the dense 27B; verbosity is the lever. Candidate (UNVERIFIED):
+  Orca + MTP at ctx 65536 (KV shrinks ~1.1 GB, close to the MTP head's cost; sessions
+  peaked at 45K) could lift decode as it did for GSQ-RCO (1.72x).
 - Open rulings: (9) Bonsai revisit (a dense 27B now IS the default and VRAM headroom
   is 1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
   multi-file loop fixture should settle the accuracy question that the 3-test

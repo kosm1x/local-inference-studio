@@ -49,3 +49,9 @@
 - **Mistake:** the Phase 3d summary's "fastest on both fixtures" passed the orchestrator's read before the audit caught that only one contender finished on the old fixture. → Rankings need every contender to have a number on the same fixture.
 - **Better:** every built commit went through qa-auditor before push (3d, 3d residuals, ruling 6, ruling 6 residuals); each audit found a real wording or edge-case gap, none found a wrong number.
 - **Better:** a 3-strike stop on identical 500s (Saluki r1-r3 + GSQ-RCO r1) and a redirect to capture ONE failing request found the template cause in one pass; the fix then unblocked four model files.
+
+## 2026-10-24 — Live monitoring of the Orca default
+
+- **Mistake:** reported the running context size by summing prompt-in and tokens-out per turn (said ~67K); the server's own `stop processing: n_tokens` line peaked at 45,417. → Read the server's count; the sum ignores compaction and parallel conversations.
+- **Better:** a `tail -F | grep --line-buffered` monitor on `prompt eval time|eval time|total time|truncated = [1-9]|exited|error` gives one event per turn with the cache hit/miss visible in the prompt token count (tens = hit, tens of thousands = full re-read).
+- **Better:** judge a model's agentic cost from a real session's decode share (here 90 %) before optimising prefill; the loop bench over-weighted prefill because every rep started cold.

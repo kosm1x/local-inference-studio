@@ -8,7 +8,7 @@ only when its done-check passes on this machine.
 - Default server (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12): Orca
   Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV q4_0, patched chat template, no MTP;
   `claude-local.ps1` and `config/claude-settings.json` default to a 131072 window.
-  Cutover and the re-run grade: ruling (14). Scripts tip: the ruling 14 commit
+  Cutover and the re-run grade (RUN 3: no compaction, report incomplete): ruling (14). Scripts tip: the ruling 14 commit
   (`git log -1 -- scripts/serve.ps1`).
 - Local sessions use the lean set (ruling 13): 7 tools, no MCP, the one-model policy
   appended, hooks on; `-LisFull` restores the full tool set and MCP. Fresh-session prompt
@@ -37,7 +37,8 @@ only when its done-check passes on this machine.
   1,366 ms, cumulative draft acceptance 0.81. The cost is context: 65536 against the
   45,417 peak. Real-text and deep-context speed-up UNVERIFIED. Table and placement:
   [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 3e").
-- Open rulings: (14) pending the re-run grade; (9) Bonsai revisit (a dense 27B now IS
+- Open rulings: (14) OPEN after the re-run (no compaction, report incomplete on disks
+  and GPU); (9) Bonsai revisit (a dense 27B now IS
   the default and VRAM headroom is 1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
   multi-file loop fixture should settle the accuracy question that the 3-test
   fixture could not (every contender passed it).
@@ -415,7 +416,8 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
 ### Rulings 2026-10-25
 
 - (14) Default context back to 131072, no MTP: RULED 2026-10-25 by the operator, OPEN
-  pending the re-run grade. Reason: report accuracy. The operator's "Make a recon of
+  after the re-run (RUN 3, below: no compaction, but the report misses 6 of 8 volumes,
+  J and K included, and the GPU). Reason: report accuracy. The operator's "Make a recon of
   this PC" session on 65536 + MTP + lean set, auto permission mode (RUN 2), produced a
   wrong report: Claude Code auto-compacted at about 36K tokens, the local model's own
   summary turned the disk tool output (J: 135 of 4,657 GiB free, K: 328 of 14,902) into
@@ -435,7 +437,23 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   carries `-c 131072`, `-ctk q4_0 -ctv q4_0`, `--chat-template-file
   ...\qwen3.8-27b.jinja` and no `--spec-type` (no "MTP draft context" line); `/slots`
   reports `n_ctx` 131072 and `speculative` false; `smoke.ps1` PASS (`get_weather
-  {"city":"Mexico City"}`).
+  {"city":"Mexico City"}`). Re-run (RUN 3) 2026-10-25 06:38 to 06:44 UTC, the same
+  command as RUN 2 (`claude-local.ps1 -p "Make a recon of this PC" --output-format json
+  --permission-mode auto --max-turns 60`) from the same cwd: `is_error` false, 10 turns,
+  341.7 s wall, 9 Bash calls, 3 tool errors (1 classifier timeout, 0 denials, 2 real),
+  no compaction, main-loop peak 18,048 tokens (classifier requests 36K to 38K), decode
+  35.5 to 40.5 tok/s. Grade against the machine: OS, CPU, RAM, C and Z, toolchain,
+  Docker (daemon down), WSL and repo counts CORRECT; D, E, F, G, J and K OMITTED, so J
+  (135 of 4,657 GiB free) and K (328 of 14,902) are not flagged; GPU OMITTED (the
+  report says it was not checked); one minor WRONG (the cwd called a repo). No false
+  disk or GPU claim, so the compaction defect is gone; the new gap is tool use: two
+  drive queries ran as `powershell -Command "... $_ ..."` through Git Bash, bash
+  expanded `$_`, `2>/dev/null` hid the errors, and the fallback `df -BG /c /z` named
+  only C and Z. One rep, variance UNVERIFIED. Numbers: bench/summary-2026-10-24.md
+  ("Recon task, 3 runs"). Stays OPEN: the closing condition (correct on disks and GPU
+  with no compaction) is not met. Next levers are for the operator to rule on: the
+  `$_`-through-bash trap (policy text, or a PowerShell tool for the local session) and
+  a recon checklist.
 
 ## Phase 3 part A 2026-10-24
 

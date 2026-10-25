@@ -26,6 +26,58 @@ Same model and context as the last run: Orca IQ3_XXS, 131072, no MTP, lean wrapp
 
 Any FAIL here changes the design below before anything is built.
 
+## 0a. Phase 0 results (2026-10-25, Orca IQ3_XXS at 131072, `-p --permission-mode auto`)
+
+One run each through a copy of the wrapper with a test-specific `--settings` file.
+"Classifier" = server requests above 30,000 `n_tokens` (the session's own requests are
+about 13,000).
+
+| # | Result | Evidence |
+|---|---|---|
+| V1 | PASS: an allow rule skips the classifier, but the prefix is matched against the RAW string, quotes included | `Bash(powershell -NoProfile -Command Get-CimInstance *)` did not match the quoted command (1 classifier request, 67 s); `Bash(powershell -NoProfile -Command \"Get-CimInstance *)` did (0, 15 s, decision 6 ms) |
+| V2 | PASS: rules in the per-run `--settings` file are honoured | V1 with no change to the user settings |
+| V3 | PASS: `ask` beats `allow` (also beats the user-level `Bash(rm:*)` allow) | `Bash(*)` allow + `Bash(rm *)` ask: 4 denials, file kept |
+| V4 | PASS: every segment of a compound command must match | `Bash(ls *)` allow, `ls ...; rm x`: classified (8 classifier requests), 3 denials |
+| V5 | CONFIRMED LIMIT: a prefix rule is blind to the payload | `Bash(powershell -NoProfile -Command \"Get-*)` allowed `"Get-Date; Remove-Item x"` and the file was deleted |
+| V6 | `Edit(...)` rules govern the Write tool; working syntax: `Edit(C:\Users\...\**)`, `Edit(//c/Users/...)`, `Edit(*.txt)`; `Write(<path>)` and `//C:/` never matched | one run per syntax variant |
+| V7 | `ask` in `-p` auto mode is a hard denial with no judge ("Claude requested permissions ... haven't granted it yet"); the model retries until `--max-turns` | V3: 4 identical retries, `error_max_turns` |
+| V8 | PASS: hooks fire on rule-allowed commands | `Bash(*)` + `Bash(kill *)` allow; kill-guard's denial text came back |
+| V9 | FAIL as designed: a hook `ask` is NOT judged by the classifier; its reason goes back to the main model as the tool result | 0 classifier requests; the script text appeared in the model's reply |
+| V10 | PASS: hooks in the per-run `--settings` file are honoured | V9's hook was defined only there |
+| V11 | = V7: no classifier; a hard denial | |
+| V12 | PASS: a hook `allow` skips the classifier | see §0 |
+| V13 | PASS: a hook `deny` saying "not retryable; report it to the operator" stops after one attempt | see §0 |
+| V14 | PASS: a mid-pattern glob in an `ask` rule sees inside the quoted payload | `Bash(powershell *Remove-Item*)` ask over the `\"Get-*` allow: 3 denials, file kept |
+
+Auto mode strips these allow rules at startup ("Ignoring dangerous permission ...
+(bypasses classifier)"): `Bash`, `Bash(*)`, `Bash(bash *)`, `Bash(sh *)`, `Bash(ssh *)`,
+and the user-level `node:*`, `python:*`, `python3:*`, `npx:*`, `env:*`. It keeps
+`Bash(powershell *)`, `Bash(pwsh *)`, `Bash(wsl *)`, `Bash(cmd *)`, `git`, `ls`,
+`docker`, `curl`, `gh auth status *` and `Edit(**)`.
+
+The classifier is two-stage (about 35K tokens of prompt, about 60 s per decision on
+this model), and its transcript holds the user prompt and tool INPUTS only, never tool
+results, so it cannot see a script's content however the gate is built.
+
+Three design changes follow:
+
+1. **Set B becomes A+H.** `Bash(*)` is stripped, so "broad allow" cannot be written as a
+   rule. Set A+H is set A's rules plus `scripts/hooks/lis-guard.py`, a PreToolUse hook
+   that reads the whole command, payloads included: critical write -> deny, read-only
+   -> allow (V12), anything else -> no decision.
+2. **`ask` is a denial in `-p`.** Every critical ask in an unattended run is refused, and
+   the bare refusal is retried to `--max-turns` (V7). The hook's deny carries the
+   no-retry wording that ends the loop after one attempt (V13).
+3. **The deterministic scanner is the judge of record for script execution and
+   interpreter payloads (operator ruling, 2026-10-25).** Ruling (4) asked for the judge to
+   review scripts; V9 shows a hook `ask` never reaches the classifier, and the classifier
+   never sees file content. The hook reads the script itself: a critical write on any
+   line -> deny quoting that line; every line read-only -> allow; unreadable or
+   unparseable -> no decision, and the classifier judges the command line.
+
+`wmic` is not on Git Bash's PATH on this machine (V12 ran it: exit 127); the rule
+`Bash(wmic *)` stays for shells that have it.
+
 ## 1. Corpus: what a recon actually runs
 
 Extract every tool call from the five recon transcripts (RUN 1, RUN 2, RUN 3, live A,
@@ -42,7 +94,7 @@ Classify each into one bucket:
 | R4 repo read | `git status`, `git branch`, `git log`, `git -C <dir> ...` read subcommands | allow |
 | R5 service state | `docker version`, `docker context ls`, `wsl --list --verbose`, `Get-Process`, `Get-ScheduledTask` | allow |
 | O1 outbound read | `gh auth status`, `curl` to localhost, `ssh <vps> <read-only>` | ruling: see §4 |
-| S1 script execution | `bash /z/repos/kosm1x/PC/vps-probe.sh` | ruling: see §4 |
+| S1 script execution | `bash /z/repos/kosm1x/PC/vps-probe.sh` | hook scan (ruled 2026-10-25, §0a item 3) |
 | W1 non-critical write | `Write` under the cwd, `mkdir`, `echo > scratch` | allow |
 | W2 critical write/delete | anything under §3 | ask |
 
@@ -98,7 +150,9 @@ matcher sees past the first word).
    `mv`, `chmod`, `kill`) is not allowed by rule and falls to the judge (set A) or to a
    payload-scanning hook (set B). The VPS house rules (mc.db read-only, deploy
    operator-only) are unchanged.
-4. **Scripts are reviewed by the judge before they run.** `bash <file>`, `pwsh -File`,
+4. **Scripts are reviewed by the judge before they run.** (Superseded 2026-10-25: V9
+   failed, and the operator ruled the hook's deterministic scan the judge of record; §0a
+   item 3.) `bash <file>`, `pwsh -File`,
    `python <file>` and `node <file>` on a file the session did not write this turn are
    never allowed by rule; they go to the classifier. The judge can only review what is in
    the transcript, so the gate must put the script text there: a PreToolUse hook on the
@@ -128,6 +182,40 @@ matcher sees past the first word).
   writes `bench/results/<stamp>-perm-<set>.json`. Expected verdict per command lives
   in the corpus file, so the run is a pass/fail table, not a reading exercise.
 - `docs/SETUP.md` step 8: the rule set, the critical list, what asks, and the V5 limit.
+
+## 5a. Bench results (2026-10-25, `bench/perm/run.ps1 -Sample 24`, same 24 commands)
+
+One corpus command per `claude -p` run (auto mode, `--max-turns 4`), sampled round-robin
+by bucket; path from the per-run debug log. AH = set A rules + lis-guard (hook at
+`6f1dd8e`); A = set A rules, `-LisNoGuard`.
+
+| Bucket (n) | A: rule / classified / blocked | AH: hook / rule / classified / blocked |
+|---|---|---|
+| O1 outbound read (4) | 0 / 1 / 3 | 2 / 0 / 1 / 1 |
+| R1 host inspection (4) | 4 / 0 / 0 | 4 / 0 / 0 / 0 |
+| R2 file read (4) | 2 / 0 / 2 | 4 / 0 / 0 / 0 |
+| R3 versions (4) | 3 / 1 / 0 | 3 / 0 / 1 / 0 |
+| R4 repo read (2) | 0 / 2 / 0 | 1 / 0 / 1 / 0 |
+| R5 service state (3) | 2 / 1 / 0 | 1 / 1 / 1 / 0 |
+| S1 script run (3) | 0 / 1 / 2 | 3 / 0 / 0 / 0 |
+| **Total (24)** | **11 / 6 / 7** | **18 / 1 / 4 / 1** |
+
+| Metric | A | AH |
+|---|---|---|
+| Classifier requests | 41 (14 failed: timeout or cancelled behind another on the one slot) | 11 (3 failed) |
+| Permission denials | 12 | 3 |
+| Wall, sum / median per run | 1,868.7 s / 49.0 s | 803.8 s / 15.9 s |
+| Runs ending `error_max_turns` or timed out | 7 (6 blocked, 1 three-command R1) | 2 (1 blocked, the same R1) |
+| Classifier decision when it ran | 12 to 55 s | 36 to 49 s |
+| Hook decision | n/a | 5 to 46 ms |
+
+"Blocked" is a classifier that failed or denied: in `-p` the call is lost and the model
+retries until `--max-turns`. The sample holds no write commands. Every AH classified or
+blocked row is a command the hook gives no decision (two `python -c` pipes, a `for` loop
+over repos, `wsl --default`, a quoted `"C:/Program Files/Git/bin/bash.exe" --version`). The hook was
+hardened twice after the AH run (`e23402c`, `eab6fa7`); a dry comparison gives the same
+decision on all 80 Bash corpus rows, so the AH numbers stand. One rep per set, variance
+UNVERIFIED.
 
 ## 6. Graded re-run (RUN 4)
 

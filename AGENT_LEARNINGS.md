@@ -13,6 +13,7 @@
 - Scripted doc edits detect `
 ` per file before matching, apply every edit before any `git add`, and the diff stat is checked against the intended file list (a half-applied script shipped one of four fixes on 10-24).
 - A brief's claim about a model (MTP head, template, fit) is read from `config/models.md` or the GGUF header before dispatch, never from memory; the subagent verifies it again on arrival.
+- Code or doc text containing backslashes goes through the Write or Edit tool, never a Bash heredoc or `python -c`: the Bash tool collapses a doubled backslash to one (hit 3 times: 10-24 3d, 10-24 lean set, 10-25 permissions).
 
 ## 2026-10-24 — P3 to P5: bench matrix, Saluki/GSQ-RCO/Orca, vLLM spike
 
@@ -77,3 +78,11 @@
 - **Mistake:** wrote "compacted at about 36K" from the monitor's last n_tokens; the transcript's `compact_boundary.preTokens` says 39,098. -> Compaction size comes from the transcript metadata, not from the last server line before it.
 - **Avoid:** judging a run by server health (no compaction, no truncation, no denials): RUN 3 was clean on every server metric and still omitted the two nearly-full disks.
 - **Better:** the classifier cost is structural, not a RUN 2 accident: 7 classifier requests took about 240 s of RUN 3's 330 s of GPU time (2.7x the work). Auto mode on the local model is a cost figure the operator rules on, not a bug to fix.
+
+## 2026-10-25 - Ruling 15 build: rule set A, lis-guard hook, perm bench
+- **Mistake:** wrote the dry matcher and the corpus sanitiser through Bash heredocs with backslash literals; both died on a SyntaxError and the fix attempts through `sed` and `python -c` hit the same collapse. -> Promoted to Standing rules: Write/Edit tool, or `chr(92)`.
+- **Mistake:** in PowerShell, `$s = Invoke-RestMethod ...` overwrote `$S` (the scratch path): variables are case-insensitive, and the `--debug-file` went nowhere. -> Distinct names, never case variants.
+- **Mistake:** edited `scripts/hooks/lis-guard.py` while the AH bench was calling it per tool use, so one run could mix versions. -> Freeze every file a running bench reads; park edits in the scratchpad and re-run after.
+- **Avoid:** a scratch dir named `build`: a PreToolUse hook protects it as generated output and refuses Edit.
+- **Better:** a hook `deny` whose reason says "not retryable; report it to the operator" ends the `-p` retry loop after one attempt (V13), where a bare ask-rule denial is retried to `--max-turns` (V7).
+- **Better:** the debug log names every permission path: `classifier_request_started/finished ... outcome=`, `tool_dispatch_start ... permissionDecisionMs=` and `Hook ... returned permissionDecision:`; the bench reads them instead of guessing from the server log.

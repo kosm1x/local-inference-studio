@@ -17,6 +17,9 @@ only when its done-check passes on this machine.
   reproducible figure is the saving (about 9,560 against `-LisFull` in the same cwd,
   about 13,200 against the pre-ruling full set). First agentic loop on 65536 + MTP +
   lean: PASS 3/3, 6 turns, 40.7 s, 0 tool errors (one rep, variance UNVERIFIED).
+- Permissions (ruling 15): rule set A plus the lis-guard hook in every local session
+  (`-LisNoGuard` leaves the hook out); on the 24-command bench the hook cut classifier
+  requests from 41 to 11 and wall time from 1,868.7 to 803.8 s. Graded re-run pending.
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -38,7 +41,7 @@ only when its done-check passes on this machine.
   45,417 peak. Real-text and deep-context speed-up UNVERIFIED. Table and placement:
   [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 3e").
 - Open rulings: (14) OPEN after the re-run (no compaction, report incomplete on disks
-  and GPU); (9) Bonsai revisit (a dense 27B now IS
+  and GPU); (15) OPEN until the graded recon re-run (RUN 4); (9) Bonsai revisit (a dense 27B now IS
   the default and VRAM headroom is 1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
   multi-file loop fixture should settle the accuracy question that the 3-test
   fixture could not (every contender passed it).
@@ -468,6 +471,28 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   `$_`-through-bash trap (policy text, or a PowerShell tool for the local session),
   which covers only (b); silenced stderr (`2>/dev/null`), which hid (c); and a recon
   checklist.
+
+- (15) Permissions, only writes and deletes of critical files block or ask: RULED
+  2026-10-25 by the operator, built the same day, OPEN until the graded recon re-run
+  (RUN 4, plan section 6). Plan and measurements:
+  [docs/permissions-assessment-plan-2026-10-25.md](permissions-assessment-plan-2026-10-25.md)
+  (sections 0a and 5a). Built: rule set A in `config/claude-settings.json` (read-only
+  allow prefixes, critical-write ask rules; `Bash(*)` cannot be used, auto mode strips it)
+  and `scripts/hooks/lis-guard.py`, a PreToolUse Bash hook the wrapper adds unless
+  `-LisNoGuard` (critical write anywhere, payloads and ssh included -> deny with "not
+  retryable; report it to the operator"; read-only -> allow; else no decision). The
+  hook's deterministic scan is the judge of record for script execution and interpreter
+  payloads (operator ruling 2026-10-25): critical line -> deny quoting it, all lines
+  read-only -> allow, unparseable -> the classifier judges. Verified: V12 a hook allow
+  skips the classifier (2 requests, 16 s); V13 the not-retryable deny ends the `-p` loop
+  after one attempt (V7: four retries to `error_max_turns`); V14 a mid-pattern ask rule
+  sees inside a quoted payload. Bench (`bench/perm/run.ps1 -Sample 24`, the same 24
+  corpus commands): set A 11 rule, 6 classified, 7 blocked, 41 classifier requests,
+  1,868.7 s; set A + hook 18 hook, 1 rule, 4 classified, 1 blocked, 11 classifier
+  requests, 803.8 s (median run 49.0 vs 15.9 s). One rep per set. Not covered by any
+  rule or the hook: `python -c` pipes, `for` loops, `wsl --default`, quoted program paths,
+  and ssh by rule (a trailing `*` spans the remote command, so ssh is the hook's job).
+  Reads of any file stay unguarded (ruling 15).
 
 ## Phase 3 part A 2026-10-24
 

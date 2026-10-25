@@ -224,9 +224,48 @@ delegate to subagents (`/ship-it`, multi-round-audit, code-review, the `/diagnos
 you pass yourself lands after the wrapper's; which one wins is UNVERIFIED, so pass
 `-LisFull` instead of overriding `--tools`.
 
-All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The two
+Permissions (ruling 15: only writes and deletes of critical files block or ask; the rest
+runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
+
+- Rule set A, in `config/claude-settings.json` `permissions`. `allow`: read-only prefixes
+  for host inspection, versions, service state, repo reads and localhost `curl`, e.g.
+  `Bash(powershell -NoProfile -Command \"Get-*)`. The matcher sees the raw command string,
+  so a PowerShell rule carries the opening quote of the `-Command` payload, and every
+  `;` / `&&` / `|` segment of a command must match. An allowed command skips the auto-mode
+  classifier (about 60 s per decision on the local model). `ask`: `Edit(...)` rules for
+  the critical paths (`~/.claude`, `~/.ssh`, Windows, Program Files, ProgramData, `.env*`,
+  `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs Write; the wrapper
+  rewrites `Edit(~/...)` to the `//c/Users/<name>/...` form at run time) and Bash shapes
+  for history rewrite (`git push --force`, `reset --hard`, `clean`, `rebase`,
+  `branch -D`), disks, registry, services, scheduled tasks, `wsl --unregister|--import`
+  and Docker deletes, plus `Bash(powershell *Remove-Item*)`-style rules that see inside a
+  payload. `deny`: WebSearch, WebFetch, Agent, Workflow.
+- The hook, `scripts/hooks/lis-guard.py` (Python 3, stdlib, `python -I`), which the
+  wrapper adds to the per-run settings as a PreToolUse `Bash` hook. It denies a critical
+  write or delete anywhere in the command, including inside `powershell -Command "..."`,
+  `bash -c '...'`, `wsl ... -- ...` and ssh remote commands (on the VPS side: `rm`,
+  `systemctl` other than `status`, `docker` other than read subcommands, `git push`,
+  `tee`, `>`, `mv`, `chmod`, `kill`, `apt`, `reboot`); it allows commands whose every
+  segment is read-only (ssh read-only VPS review included). For scripts (`bash file`,
+  `pwsh -File`, `python file`, `node file`) and interpreter payloads it is the judge of
+  record (operator ruling, 2026-10-25): a critical write on any line is denied quoting
+  that line, a file whose every line is read-only is allowed, and a file it cannot read
+  or parse gets no decision. Everything without a decision goes to the classifier. Its denials say "not retryable; report it to the operator",
+  which stops the retry loop. `-LisNoGuard` leaves the hook out. Tests:
+  `python -I scripts\hooks\tests\lis-guard_test.py`.
+- What asks: the `ask` rules above. Interactively you get a prompt. In `-p` mode an ask
+  is a hard denial with no classifier, and the model retries the same call until
+  `--max-turns`.
+- The limit (V5): a prefix rule cannot see a payload. `Bash(powershell -NoProfile
+  -Command \"Get-*)` alone allows `"Get-Date; Remove-Item x"`; only the mid-pattern ask
+  rules and the hook catch it. A trailing `*` also spans the rest of an ssh remote
+  command, which is why no ssh rule exists and ssh is the hook's job. Reads are not
+  guarded: the hook allows `cat` of any file (ruling 15), and the classifier never sees a
+  tool's output or a script's content.
+
+All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The three
 wrapper options are `-LisContextTokens N` (default 131072, minimum 1024; set it to the
-server's `-Ctx` when that is smaller) and `-LisFull`. Success: Claude Code answers and the server log
+server's `-Ctx` when that is smaller), `-LisFull` and `-LisNoGuard`. Success: Claude Code answers and the server log
 shows the requests. A `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
 
 fnm note: if your shell profile runs `fnm env --use-on-cd`, a Bash tool command like

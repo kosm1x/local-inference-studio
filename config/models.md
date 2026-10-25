@@ -50,7 +50,10 @@ Claude Code: the embedded one raises "System message must be at the beginning." 
 500) because the SessionStart hook output arrives as a second system message. Serve
 with `-ExtraArgs '--chat-template-file', '<repo>/config/chat-templates/qwen3.8-27b.jinja'`
 (from `pwsh -File`: the single token `"-ExtraArgLine:--chat-template-file <abs path>"`).
-Without it every loop repetition failed (0/3 Saluki, 0/1 GSQ-RCO).
+Without it every loop repetition failed (0/3 Saluki, 0/1 GSQ-RCO). The path must not
+contain spaces (`serve.ps1` splits `-ExtraArgLine` on whitespace). The unsloth
+`Qwen3.8-27B-UD-Q3_K_XL.gguf` has a different template with the same check and is NOT
+covered by this patch (not run).
 
 GGUF header (read locally from each downloaded file, GGUF v3):
 

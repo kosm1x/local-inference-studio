@@ -253,7 +253,7 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   GSQ-RCO IQ3_XXS with MTP at 65536. Qwen3.6 keeps serving until then.
   RECOMMENDATION from Phase 3d (the ruling stays with the operator): gpt-oss-20b
   MXFP4 at 131072 with q8_0 KV. Every final row passed 3/3, so pass rate did not
-  separate them; gpt-oss-20b was the fastest on both fixtures (median 26.6 s, 8 turns,
+  separate them; gpt-oss-20b was the fastest on the final fixture (median 26.6 s, 8 turns,
   no template patch, all-GPU with 2 GB free, 170 tok/s). Qwen3.6-35B-A3B stays the
   fallback (3/3, 45.6 s, but 16 turns and 15 tool errors from guessed paths). The
   Qwen3.8-27B rows (69 to 156 s) work only with the patched chat template. The

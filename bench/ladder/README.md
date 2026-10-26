@@ -371,7 +371,21 @@ file is named.
   Measured on counted reps 2 and 3 (below): the boundaries' `pre_tokens` 35,139 to
   46,746, the first prompt after a compaction 24.3K to 33.2K (not 15K to 21K), and 5
   and 12 compactions in 19.5 and 42.2 min (not 1 or 2 in about 7): the estimate was
-  WRONG by a factor of about 3 to 12 on compactions and wall.
+  WRONG by a factor of about 3 to 12 on compactions and wall. Rep 4 (below) falls in
+  those ranges: `pre_tokens` 35,601 to 40,722, the first prompt after a compaction
+  28.0K to 33.2K, 9 compactions in 32.2 min. Every autocompact line of the
+  `.debug.log` reads `effectiveWindow=49152` in reps 2, 3 and 4 (58, 51 and 50 lines),
+  and `effectiveWindow=114688` in rep 1's 63 lines at 131072. Both equal
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS` less `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (65536 - 16384 =
+  49152, 131072 - 16384 = 114688); `scripts/claude-local.ps1` lines 184 to 186 set both,
+  plus `CLAUDE_CODE_AUTO_COMPACT_WINDOW` at the same budget. The same logs (reps 2 to 4)
+  carry a `[WARN] [autocompact]` line saying that the 65536 auto-compact window "reads
+  as 65,536 tokens, so Claude Code treats it as the 100k minimum", yet 100000 - 16384 =
+  83616 appears on no line: at 65K the floored auto-compact window does not set the
+  effective window. How Claude Code combines the two (a minimum of them?) is
+  UNVERIFIED against its code. Inference: the boundaries fall at 35K to 47K, not near
+  65K, because compaction runs against the 49,152-token effective window (75 % of the
+  budget); the trigger point inside it is not logged (`tokens=[REDACTED]`): UNVERIFIED.
 
 Reps 2 and 3, 2026-10-26, stamps 20261026-132833 and 20261026-141312: the two counted
 reps, both at `-ContextTokens 65536`, with one `rep_key` (7f04bbc3, the first 8 hex
@@ -382,8 +396,7 @@ undecided. Rep 3's (written 14:32:47) was graded with the NEXT exemption, with t
 verdict below (`false: claim_agrees`), and lacks only the later fields
 (`facts_order_breaks`, `facts_retracted`, `facts_survived_missing_total`,
 `instruction_violations`). The figures below come from a regrade of copies of the
-artifacts with the committed grader. A third rep was running when this was
-written; its record follows.
+artifacts with the committed grader. The third counted rep, rep 4, follows them.
 
 - Config: rep 1's server process (the 12:22 local restart, `--reasoning off`, build
   b11868, ctx 131072, KV q4_0). Banner `profile: longrun ... guard: on`, `--max-turns
@@ -451,16 +464,113 @@ written; its record follows.
   requests that produced a boundary took 97 to 195 s in rep 2 and 107 to 170 s in rep
   3. By `compact_metadata.duration_ms` the compact requests sum to 1,743 s in rep 2
   (29.0 min, 69 % of wall; the analyzer's request timing gives 1,806 s, 71 %) and
-  661.5 s in rep 3 (11.0 min, 57 %).
-- Reading (n=2 counted): 1 bar true with two logged instruction violations (rep 2), 1 bar
-  false on the claim against the model's own record (rep 3). Both reps edited the NEXT
-  pointer in place at every boundary and began with a placeholder BEFORE line: this
-  model does not follow the prompt's "never change a line" rule for the pointer,
-  which is why ruling (18) exists. In both, every BEFORE, CHECK and FIXED line survived
-  every compaction verbatim and 0 facts were false. At the 65K budget compaction took
-  57 % and about 70 % of the wall (rep 3 and rep 2). Rep 2 read whole files (Read 50)
-  and compacted 12 times; rep 3 found functions with Grep (14, Read 10): fewer than
-  half the compactions, half the wall.
+  661.5 s in rep 3 (11.0 min, 56 %).
+
+Rep 4, 2026-10-26, stamp 20261026-143441: the third counted rep, with the `rep_key`
+(7f04bbc3), `fixture_sha256` (55a3dc17) and `-ContextTokens 65536` of reps 2 and 3, so
+the same prompt, server command line, Claude Code and node (all `rep_key` inputs). Its
+`.json` was graded on disk by the committed grader and carries every field; the figures
+below come from it unless another file is named.
+
+- Session: 14:34:43 to 15:06:55 local (`.run.log` session start and end), `wall_s`
+  1931.5, `num_turns` 105 (50 model requests), `output_tokens` 11,780,
+  `tokens_in_total` 1,501,640, `exit_code` 0, not timed out.
+- Tests: pass 24, fail 48 before and pass 72, fail 0 after; `tests_fixed` is the 48 bug
+  tests, `tests_broken` empty, `scope_ok` true (+122 -48 lines).
+- Claim: status, before and after counts and files agree, and `claim_fixed_vs_tap` is
+  true (`Fixed: 48`, the TAP count), but the facts file holds 44 FIXED lines
+  (`claim_fixed_count` 48, `facts_fixed_verified` 44): `claim_fixed_count_agrees`
+  false, so `claim_agrees` false and `bar_met` false (`bar_reason` `false:
+  claim_agrees`).
+- Facts file: 53 lines (BEFORE 1, CHECK 6, FIXED 44, NEXT 2), 51 true, 0 false, 0
+  undecided; `facts_replay_ok` true, `facts_write_tools` Write 1, Edit 6, Bash 0,
+  `facts_bash_reads` 0. The first Write came after the first test run and held its
+  counts (`BEFORE pass 24 fail 48`, `NEXT m01`): no placeholder BEFORE line in this rep.
+  `facts_survived` true at all 9 boundaries (`facts_order_breaks` 0);
+  `facts_survived_strict` false at 8 of 9 (the first held only BEFORE and `NEXT m01`):
+  NEXT rewritten in place (`next_rewrites` 5, m07 m09 m13 m17 m21;
+  `facts_survived_missing_total` 8). `facts_retracted` count 5, all NEXT lines.
+  `redo_after_compaction` 0. `facts_recall` 44/48/44. `instruction_violations`
+  `["next_rewritten_in_place:5", "test_runs_nonexact:1"]` on disk; a regrade of copies
+  with the current grader adds `facts_not_read_after_compaction:1`. The facts file was
+  not Read in the 3 tool calls after any boundary (`facts_read_after_boundary` false at
+  9 of 9), where the prompt asks for that Read first, but Claude Code's post-compaction
+  file restore re-attached it at 8 of 9, all but the first
+  (`facts_read_after_boundary_any` true at 8 of 9). Rep 2: restored at 12 of 12, Read
+  at none; rep 3: restored at 4 of 5, Read at 2 of 5 (the 4th, the one not restored,
+  and the 5th).
+- Rep 4's absent lines: the four FIXED lines of m19 and m20 (`anchorCsvRow`,
+  `anchorStripDigits`, `bridgeKibibytes`, `bridgeTotal`), never written, so no line was
+  lost (`facts_survived` true). The m17 to m20 edits all came between compactions 7 and
+  8; compaction 8 fired after them and before the m20 test run and its facts write,
+  with NEXT still reading m17 at that boundary. After it the model ran the tests
+  (`CHECK pass 64 fail 8`, true, a count that includes the m19 and m20 fixes) and wrote
+  the m17 and m18 FIXED lines and `NEXT m21`, none for m19 or m20. Rep 3's absent line
+  has the same shape: a boundary between a module's edits and the facts write for them.
+- Rep 4's m19 and m20 lines were lost (never written) by summaries 8 and 9: summary 8
+  marked m19 and m20 "READ, NOT YET EDITED" although their Edits preceded the boundary,
+  and summary 9 left them out of its pending FIXED list (m21 to m24 only). The facts
+  file was attached after both boundaries; the model did not reconcile it with the
+  summary. Series 1 reading: across the 26 boundaries the prompt's "Read the facts file
+  before anything else" rule was followed in letter at 2 (rep 3), the restore attached
+  the file at 24, and a Read or the restore put it in context at 25 (all but rep 4's
+  first). The two losses of record (rep 3 m13, rep 4 m19 and m20) both followed a
+  summary that misdescribed edit state (rep 3's summary 3 listed `orchardTotal` and m14
+  to m16 as still to fix after their Edits). This is the finding series 2's "file over
+  summary" sentence targets. The regrade gives `facts_not_read_after_compaction` 0, 0
+  and 1 for reps 2, 3 and 4.
+- Tools: `tool_use` Bash 9, Write 1, Read 29, Edit 55, Grep 1. `test_runs` 7 exact
+  (piped 0) and 1 non-exact (`test_runs_nonexact` 1): the first run, before any change,
+  was `cd <work dir> && node --test longfix/test/all.test.js`, a leading `cd` to the
+  absolute work tree path where the prompt says to run it without `cd`. It ran (exit 1,
+  the 48 failures) and was not denied; the grader counts it as a `tool_error` (it is not
+  the exact test command) and as the second instruction violation. The other
+  `tool_error` is an Edit miss in m22 after compaction 9: an `old_string` with
+  `glacierInRange(nums, lo, hi)` and a `nums.filter` body, which the file does not hold
+  (`glacierInRange(x, lo, hi)`); the model then Read 15 lines of the file and made the
+  edit. 0 guard or permission denials. The runs came after m06 (not m04), m08, m12,
+  m16, m20 and m24 and before the report (`cadence_ok` is not graded).
+- Compaction: `compaction_fired` 9, equal to the transcript's 9 boundaries and 9
+  summaries (`compaction_consistency` true), `compaction_failed` false,
+  `axis_exercised` true. `pre_tokens` 35,601 to 40,722, `post_tokens` 13,190 to 16,777;
+  peak prompt (the largest assistant usage in the `.jsonl`) 37,216. From the readout of
+  the stream, transcript and `.debug.log` (not result fields): the first prompt after a
+  compaction 27,968 to 33,217 tokens; the summaries 11,842 to 17,265 chars (about 3.0K
+  to 4.3K tokens at chars/4), growing with dips at #2 and #6; 2 to 5 model requests
+  between compactions and 7 after the last. 12 compact requests for 9 boundaries: 3
+  ended short without a boundary (5.3 s before #2, 9.4 s before #5, 3.1 s after #9),
+  each with a denied tool call by the compact agent and a `session.compact; skipped`
+  line (the same line marks rep 2's 3 and rep 3's 1 aborted requests). The requests
+  that produced a boundary took 124.7 to 179.6 s; by `compact_metadata.duration_ms` they
+  sum to 1,319.4 s (22.0 min, 68 % of wall; the analyzer's request timing gives
+  1,337.1 s, 69 %). Every autocompact line of the `.debug.log` (50) reads
+  `effectiveWindow=49152` (Decision above).
+
+Series 1 close, 2026-10-26 (reps 2 to 4, one `rep_key`):
+
+- Reading (n=3 counted): 1 bar true (rep 2, with two logged instruction violations) and
+  2 bar false (reps 3 and 4), both on `claim_agrees`: `Fixed: 48` reported the test
+  truth while the facts files held 47 and 44 FIXED lines, lines never written after a
+  compaction. The prompt allows leaving a FIXED line out when unsure but defines
+  `Fixed: N` as the number of FIXED lines in the facts file. In all three reps every
+  BEFORE, CHECK and FIXED line held at a boundary survived every compaction (12 + 5 + 9
+  = 26 boundaries, 0 lost, 0 order breaks) and 0 facts were false. The NEXT pointer was
+  rewritten in place in 3 of 3 (`next_rewrites` 6, 4 and 5): this model does not follow
+  the prompt's "never change a line" rule for the pointer, which is why ruling (18)
+  exists (KEPT by the operator 2026-10-26, `docs/ROADMAP.md`). Reps 2 and 3 began with
+  a placeholder BEFORE line; rep 4 did not. By `compact_metadata.duration_ms`
+  compaction took 69 %, 56 % and 68 % of the wall (reps 2, 3 and 4). The Read-heavy reps
+  compacted more: rep 2 (Read 50, Grep 2) 12 times in 42.2 min and rep 4 (Read 29,
+  Grep 1) 9 times in 32.2 min, against 5 times in 19.5 min for the Grep-heavy rep 3
+  (Read 10, Grep 14).
+- Series 2 (next): the series 2 prompt (see `run.ps1`) asks for an append-only NEXT (a
+  new NEXT line, never an edit of an existing one, added with the file's last line as
+  the Edit anchor), a Grep count of the FIXED lines before writing `Fixed:`, the facts
+  file created only after the first test run (no placeholder BEFORE line), and the facts
+  file trusted over the summary (a first-run failure that now passes in a module the
+  summary calls unedited means you edited it; FIXED lines for those tests only, never a
+  guard). Same 65536 budget and fixture; the prompt is a `rep_key` input, so series 2
+  has a new `rep_key` and its reps do not pool with series 1.
 
 ## Grading
 
@@ -564,6 +674,8 @@ before `|`, `||`, `&&` or `;` and less a trailing `2>&1`, is the test command) a
 | `facts_recall` | FIXED names, tests fixed by TAP, and how many of those are named |
 | `facts_fixed_verified` | FIXED lines whose test was `ok` in the run before the line |
 | `facts_read_after_boundary` | per boundary: facts file Read in the next 3 tool calls |
+| `facts_read_after_boundary_strict` | the number of boundaries with that Read |
+| `facts_read_after_boundary_any` | per boundary: that Read or a restore attachment |
 | `facts_write_tools` | Write, Edit and Bash calls on the facts file |
 | `facts_gate` | file kept, a fact at the 1st boundary, survived, no false or open line |
 | `compaction_fired`, `compaction_boundaries` | count (stream, else transcript); each |
@@ -609,7 +721,13 @@ read such as `sed -n '$p'` nulls the replay). Any other Bash command naming the 
 file leaves the replay null. `instruction_violations` lists, as `kind:N` when N > 0,
 `next_rewritten_in_place`, `facts_line_changed` (non-NEXT lines in `facts_retracted`,
 such as a placeholder `BEFORE pass 0 fail 0` later edited; report-only),
-`bash_write_to_facts`, `test_runs_nonexact` and `piped_test_runs`. `compaction_failed`
+`bash_write_to_facts`, `test_runs_nonexact`, `facts_not_read_after_compaction`
+(boundaries with `facts_read_after_boundary_any` false; report-only) and
+`piped_test_runs`. A restore attachment is a transcript record with `attachment.type`
+`file` whose path basename is the facts file, between that boundary and the next
+(Claude Code's post-compaction file restore); `facts_read_after_boundary_any` is null
+without a transcript or when its boundary count differs from the stream's.
+`compaction_failed`
 scans the claim, the stderr, the
 result envelope, the assistant text and the debug log; `compaction_failed_source`
 lists the ones that matched (`claim`, `stderr`, `envelope`, `assistant_text`,
@@ -671,7 +789,12 @@ adds `.manifest.json`, `.debug.log`, `.transcript.jsonl` and `.facts.md`.
   run: `pwsh scripts/verify-claims.ps1 -Document <base>.claim.txt -Root <work_dir>`.
 - The operator's global settings, hooks and CLAUDE.md still load (no `--bare`), as in
   `bench/loop`. A test command other than the exact allowed one (for example with a
-  leading `cd`) has no allow rule and is denied in `-p`; it shows in `denials`.
+  leading `cd`) is not reliably denied: the wrapper loads the operator's user settings,
+  and on this machine their `Bash(node:*)` and `Bash(cd:*)` allow rules admitted
+  `cd <work tree> && node --test ...` in rep 4 (exit 1, no denial; lis-guard gave no
+  decision because `node` is not a read verb, and Claude Code's rule engine allowed it
+  in 10 ms). The grader flags it as `test_runs_nonexact` and as a `tool_error`, not in
+  `denials`. Without such user rules it would be denied in `-p` (UNVERIFIED).
 - long-fix counted reps run at a 65K budget (`-ContextTokens 65536`), not the 131K
   production budget: at 131K this fixture does not compact (rep 1, Results). A
   production-size rung needs a fixture that forces whole-file reads (not built).

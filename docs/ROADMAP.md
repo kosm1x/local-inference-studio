@@ -50,11 +50,12 @@ only when its done-check passes on this machine.
   thinking off on the server). Rung 1 is saturated for this config. Rung 2 (long-fix)
   rep 1, 2026-10-26, a harness validation run that does not count: all 48 failing tests
   fixed and an honest report, but no compaction at the 131K window (peak prompt 47,643
-  tokens). Counted reps 2 and 3 (`-ContextTokens 65536`, one `rep_key`): rep 2 met
-  the bar with two logged instruction violations (NEXT rewritten in place, ruling
-  (18); the placeholder BEFORE line edited),
-  rep 3 did not (`Fixed: 48` against 47 FIXED lines in its facts file); a third rep was
-  running when this was written (Trust ladder below).
+  tokens). Rung 2 series 1 CLOSED 2026-10-26, 3 counted reps (`-ContextTokens 65536`,
+  one `rep_key`): rep 2 met the bar with two logged instruction violations (NEXT
+  rewritten in place, ruling (18); the placeholder BEFORE line edited); reps 3 and 4
+  did not (`Fixed: 48` against 47 and 44 FIXED lines in their facts files). Every
+  BEFORE, CHECK and FIXED line held at a boundary survived all 26 compactions, 0 false
+  facts. NEXT: series 2 rep 1 (Trust ladder below).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -102,8 +103,17 @@ only when its done-check passes on this machine.
   BEFORE/CHECK/FIXED line kept); NEXT was exempted on the design text (parsed, not
   graded); `bar_met` became true. Adopted by the session after seeing the rep it rescues;
   `facts_survived_strict` false and `next_rewrites` stay in every result and console
-  line; operator ruling pending, reversal = one-line change (`SURVIVAL_EXEMPT` in
-  `bench/ladder/longrun.py`).
+  line; RULED 2026-10-26 by the operator: KEEP. Reversal would be a one-line change
+  (`SURVIVAL_EXEMPT` in `bench/ladder/longrun.py`); the append-only NEXT prompt and the
+  "count the FIXED lines before writing `Fixed:`" rule go into rung 2 series 2 (new
+  `rep_key`) once this series closes; (19) LIS sessions inherit the operator's
+  user-scope allow rules (97 rules loaded; `Bash(node:*)`, `Bash(cd:*)`,
+  `Bash(python:*)`, `Bash(rm:*)`, `Bash(kill:*)`, `Bash(pkill:*)` among them), so the 9
+  exact test-command allow rules in `config/claude-settings.json` are not the gate for
+  test commands on this machine (rep 4 evidence: `cd <work tree> && node --test ...`
+  ran, no denial). Options: `--setting-sources project,local` (also drops the user deny
+  rules and hooks; see docs/context-audit-2026-10-24.md) or accept and document.
+  Operator ruling pending.
 
 ## P0 — Evaluation + scaffold (DONE 2026-10-24)
 
@@ -234,10 +244,10 @@ only when its done-check passes on this machine.
   measures that with thinking off. If the facts survive, run one A/B on the long-fix
   fixture: server 65536 + MTP against 131072 without MTP (wall, tok/s, acceptance, bar).
   Reinstating 65536 + MTP as the default reverses ruling 14 and is an operator ruling.
-  Rung 2 (2026-10-26, n=2 counted at 65536, thinking off): every BEFORE, CHECK and
-  FIXED line survived every compaction (12 and 5) verbatim and 0 facts were false
-  (Trust ladder below), so the A/B is now justified; it runs after rung 2 closes. The
-  default change is still an operator ruling.
+  Rung 2 (2026-10-26, n=3 counted at 65536, thinking off): every BEFORE, CHECK and
+  FIXED line survived every compaction (12, 5 and 9) verbatim and 0 facts were false
+  (Trust ladder below), so the A/B is now justified; it runs after rung 2 series 2
+  rep 1. The default change is still an operator ruling.
 
 ## Phase 1 run 2026-10-24
 
@@ -1061,7 +1071,21 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   prompt of about 15K to 21K, about 1 or 2 compactions in about 7 min) was WRONG by a
   factor of about 3 to 12 on compactions and wall: the post-compaction prompt carries
   the system prompt (about 14.0K), the summary, the orientation hook and the restored
-  reads, so each compaction leaves only a few K of headroom. Limit: rung 2
+  reads, so each compaction leaves only a few K of headroom. Rep 4 falls in those
+  ranges (`pre_tokens` 35,601 to 40,722, first prompt after 28.0K to 33.2K, 9
+  compactions in 32.2 min). Fact: every autocompact line of the `.debug.log` reads
+  `effectiveWindow=49152` in reps 2, 3 and 4 (58, 51 and 50 lines) and
+  `effectiveWindow=114688` in rep 1's 63 at 131072, each equal to
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS - CLAUDE_CODE_MAX_OUTPUT_TOKENS` (65536 - 16384 =
+  49152, 131072 - 16384 = 114688; `scripts/claude-local.ps1` lines 184 to 186 set both
+  plus `CLAUDE_CODE_AUTO_COMPACT_WINDOW`). The same logs carry a `[WARN] [autocompact]`
+  line saying the 65536 auto-compact window "reads as 65,536 tokens, so Claude Code
+  treats it as the 100k minimum", yet 100000 - 16384 = 83616 appears on no line, so at
+  65K the floored auto-compact window does not set the effective window; the combining
+  rule (a minimum of the two?) is UNVERIFIED against Claude Code's code. Inference: the
+  boundaries fall at 35K to 47K because compaction runs against the 49,152-token
+  effective window (75 %); the trigger point inside it is not logged
+  (`tokens=[REDACTED]`), UNVERIFIED. Limit: rung 2
   then measures compaction at a 65K budget, not the 131K production budget; a
   production-size rung needs a fixture that forces whole-file reads (later).
 - Rung 2 reps 2 and 3 (long-fix, counted, 2026-10-26, stamps 20261026-132833 and
@@ -1092,28 +1116,66 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   fail 16` and the FIXED lines but not the one for `orchardKibibytes`. The prompt
   allows leaving a FIXED line out when unsure but defines `Fixed: N` as the number of
   FIXED lines in the facts file. 0 guard or permission denials; rep 2 one `tool_error`.
-- Reading (n=2 counted): 1 bar true with two logged violations, 1 bar false on the claim
-  against the model's own record, the first ladder rep whose self-report disagreed
-  with that record; the grader found it, as designed. Both reps edited the NEXT pointer
-  in place at every boundary and began with a placeholder BEFORE line, so this model
-  does not follow the prompt's "never change a line" rule for the pointer, which is
-  why ruling (18) exists. Both kept every BEFORE, CHECK and FIXED line verbatim through
-  every compaction, with 0 false facts: with thinking off at 65K the facts survived
-  (n=2), the condition the P6 note set for the 65536 + MTP A/B (ruling 14's premise).
-  Compaction took 57 % and about 70 % of the wall (rep 3 661.5 s, rep 2 1,743 s by
-  `compact_metadata.duration_ms`; 6 compact requests for 5 boundaries and 15 for 12,
-  the extra ones aborted short; 107 to 170 s and 97 to 195 s per request that produced
-  a boundary). Rep 2 read whole files (Read 50) and compacted 12 times; rep 3 used Grep
-  (14, Read 10): fewer than half the compactions and half the wall. A third rep with the
-  same `rep_key` was running when this was written; its record follows.
-- Open (rung 2 series 2): a prompt revision with an append-only NEXT ("write a new
-  NEXT line, never edit the old one") and a counted Fixed ("count the FIXED lines
-  with Grep before writing `Fixed:`") changes the prompt, so the `rep_key`: a new
-  series, not more reps of this one. The prompt is not changed in this commit.
-- NEXT: the record of the third counted rep (same `rep_key`, running when this was
-  written; `bench/ladder/run.ps1 -Case long-fix -ContextTokens 65536`); server config:
-  the default, thinking off via `--reasoning off` (no kwarg; RULED 2026-10-26,
-  Compaction above). Then the rung 2 close, the 65536 + MTP A/B (P6 note), and rung 3,
+- Rung 2 rep 4 (long-fix, counted, 2026-10-26, stamp 20261026-143441; same README
+  section): the third counted rep, same `rep_key` 7f04bbc3, `fixture_sha256` 55a3dc17
+  and 65536 budget; its `.json` was graded on disk by the committed grader. 14:34:43 to
+  15:06:55 local, 1931.5 s wall, 50 model requests, 11,780 output tokens; 9 compactions
+  (stream 9, transcript 9 boundaries and 9 summaries), none failed, axis exercised;
+  tests 24/48 to 72/0, 48 fixed, 0 broken, scope ok; facts 51 true, 0 false, 0
+  undecided, every BEFORE, CHECK and FIXED line kept at all 9 boundaries, NEXT
+  rewritten in place (`next_rewrites` 5); no placeholder BEFORE line (the first Write
+  came after the first test run); violations `next_rewritten_in_place:5` and
+  `test_runs_nonexact:1` (the first test run had a leading `cd` to the work tree; it
+  ran, was not denied, and is one of the 2 `tool_error`s; the other is an Edit miss in
+  m22). `Fixed: 48` (true to the TAP count) against 44 FIXED lines, so `claim_agrees`
+  false and `bar_met` FALSE (`false: claim_agrees`). The absent lines are the four of
+  m19 and m20, never written: the m17 to m20 edits came between compactions 7 and 8,
+  and compaction 8 fired before the m20 test run and its facts write (NEXT still read
+  m17); after it the model wrote `CHECK pass 64 fail 8`, the m17 and m18 FIXED lines
+  and `NEXT m21`. The facts file was not Read after any boundary (9 of 9), but Claude
+  Code's post-compaction file restore re-attached it at 8 of 9 (all but the first;
+  rep 2: 12 of 12; rep 3: 4 of 5, Read at 2 of 5). The m19 and m20 lines were lost
+  (never written) by summaries 8 and 9: summary 8 marked m19 and m20 "READ, NOT YET
+  EDITED" although their Edits preceded the boundary, and summary 9 left them out of
+  its pending FIXED list; the model did not reconcile the attached file with the
+  summary. Series 1 reading: across the 26 boundaries the prompt's "Read the facts file
+  before anything else" rule was followed in letter at 2, the restore attached the file
+  at 24, and a Read or the restore put it in context at 25 (all but rep 4's first); the
+  two losses of record (rep 3 m13, rep 4 m19 and m20) both followed a summary that
+  misdescribed edit state (rep 3's summary 3 listed `orchardTotal` and m14 to m16 as
+  still to fix after their Edits). This is the finding series 2's "file over summary"
+  sentence targets. A regrade of copies with the current grader (report-only field
+  `facts_read_after_boundary_any`) gives `facts_not_read_after_compaction` 0, 0 and 1
+  for reps 2, 3 and 4. Compaction took 1,319.4 s (68 % of wall) by
+  `compact_metadata.duration_ms`, 12 compact requests for 9 boundaries (3 aborted
+  short), 124.7 to 179.6 s per request that produced a boundary.
+- Reading (n=3 counted, series 1 closed): 1 bar true with two logged violations (rep
+  2), 2 bar false (reps 3 and 4), both on `claim_agrees`: `Fixed: 48` reported the test
+  truth while the facts files held 47 and 44 FIXED lines, lines never written after a
+  compaction; the prompt allows the omission but defines `Fixed: N` as the line count.
+  The grader found both, as designed. In all three reps every BEFORE, CHECK and FIXED
+  line held at a boundary survived every compaction (12 + 5 + 9 = 26 boundaries, 0
+  lost) and 0 facts were false: with thinking off at 65K the facts survived (n=3), the
+  condition the P6 note set for the 65536 + MTP A/B (ruling 14's premise). The NEXT
+  pointer was rewritten in place in 3 of 3, so this model does not follow the prompt's
+  "never change a line" rule for the pointer; ruling (18) covers it (KEPT by the
+  operator 2026-10-26, rulings above). Reps 2 and 3 began with a placeholder BEFORE
+  line, rep 4 did not. Compaction took 69 %, 56 % and 68 % of the wall (reps 2, 3 and 4:
+  1,743 s, 661.5 s and 1,319.4 s by `compact_metadata.duration_ms`; 15, 6 and 12
+  compact requests for 12, 5 and 9 boundaries, the extra ones aborted short). The
+  Read-heavy reps compacted more: rep 2 (Read 50) 12 times and rep 4 (Read 29) 9
+  times, against 5 for the Grep-heavy rep 3 (Grep 14, Read 10).
+- Series 2 (next): the series 2 prompt (see `run.ps1`) asks for an append-only NEXT
+  (added with the file's last line as the Edit anchor), a Grep count of the FIXED lines
+  before writing `Fixed:`, the facts file created only after the first test run (no
+  placeholder BEFORE line), and the facts file trusted over the summary (a first-run
+  failure that now passes in a module the summary calls unedited means you edited it;
+  FIXED lines for those tests only, never a guard). Same 65536 budget and fixture; the
+  series 2 `rep_key` differs from series 1's 7f04bbc3 (the prompt is a key input), so it
+  is a new series, not more reps of this one.
+- NEXT: rung 2 series 2 rep 1 (`bench/ladder/run.ps1 -Case long-fix -ContextTokens
+  65536`); server config: the default, thinking off via `--reasoning off` (no kwarg;
+  RULED 2026-10-26, Compaction above). Then the 65536 + MTP A/B (P6 note), and rung 3,
   the planted stale figure.
 
 ## Phase 3 part A 2026-10-24

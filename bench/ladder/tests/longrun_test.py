@@ -87,7 +87,8 @@ class LongRun(unittest.TestCase):
               transcript=(1, 1), meta_extra=None, profile='longrun',
               numstat=f'1\t1\t{S1}\n1\t1\t{S2}\n6\t0\t{FACTS}\n', debug=None, copy=None):
         """steps: (tool, input, result text, is_error), boundary() or ('text', text). copy:
-        the lines of <base>.facts.md (run.ps1's copy), not written when None."""
+        the lines of <base>.facts.md (run.ps1's copy), not written when None. transcript:
+        (boundaries, summaries), a list of records, or None (no transcript file)."""
         self.n += 1
         base = os.path.join(self.root, f'case{self.n}')
         man = base + '.manifest.json'
@@ -129,7 +130,9 @@ class LongRun(unittest.TestCase):
             files['.debug.log'] = debug
         if copy is not None:
             files['.facts.md'] = text(copy)
-        if transcript:
+        if isinstance(transcript, list):
+            files['.transcript.jsonl'] = '\n'.join(json.dumps(x) for x in transcript)
+        elif transcript:
             files['.transcript.jsonl'] = '\n'.join(
                 [json.dumps({'type': 'system', 'subtype': 'compact_boundary'})] * transcript[0]
                 + [json.dumps({'type': 'user', 'isCompactSummary': True})] * transcript[1])
@@ -247,11 +250,13 @@ class LongRun(unittest.TestCase):
                          [('NEXT', 'NEXT m02')] * 2)
         self.assertEqual((r['facts_survived_missing_total'], r['facts_order_breaks']), (2, 0))
         self.assertEqual(r['facts_retracted'], {'count': 1, 'first': ['NEXT m02']})
-        self.assertEqual(r['instruction_violations'],
-                         ['next_rewritten_in_place:1', 'piped_test_runs:1'])
+        # The second boundary has no Read and the transcript no restore attachment.
+        v = ['next_rewritten_in_place:1', 'facts_not_read_after_compaction:1',
+             'piped_test_runs:1']
+        self.assertEqual(r['instruction_violations'], v)
         self.assertEqual((r['facts_gate'], r['bar_met'], r['bar_reason']), (True, True, None))
         self.assertIn('survived True (strict False, next_rewrites 1)', self.out)
-        self.assertIn("violations ['next_rewritten_in_place:1', 'piped_test_runs:1']", self.out)
+        self.assertIn(f'violations {v}', self.out)
 
     def test_mismatched_check_is_false(self):
         steps = good(self.work)
@@ -544,6 +549,72 @@ class LongRun(unittest.TestCase):
             b = self.grade(steps)['compaction_boundaries'][0]
             self.assertEqual((b['trigger'], b['pre_tokens'], b['post_tokens'], b['duration_ms']),
                              ('auto', 100, 20, 5))
+
+    def restore_transcript(self, attach=True, other=False):
+        """One boundary, its summary, then file attachments as Claude Code's restore writes
+        them (the facts file when attach, a src file when other)."""
+        recs = [{'type': 'system', 'subtype': 'compact_boundary'},
+                {'type': 'user', 'isCompactSummary': True}]
+        for on, f in ((attach, FACTS), (other, S1)):
+            if on:
+                recs.append({'type': 'attachment', 'attachment': {
+                    'type': 'file', 'filename': os.path.join(self.work, f),
+                    'displayPath': f}})
+        return recs
+
+    def test_facts_read_after_boundary_read(self):
+        r = self.grade(transcript=self.restore_transcript(attach=False))
+        b = r['compaction_boundaries'][0]
+        self.assertEqual((b['facts_read_after'], b['facts_restored_after'],
+                          b['facts_read_after_any']), (True, False, True))
+        self.assertEqual((r['facts_read_after_boundary_any'],
+                          r['facts_read_after_boundary_strict']), ([True], 1))
+        self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
+
+    def test_facts_restore_attachment_counts_as_read(self):
+        # Reps 2-4: no Read after the boundary, but the restore re-attached the facts file.
+        steps = [s for s in good(self.work) if s[0] != 'Read']
+        r = self.grade(steps, transcript=self.restore_transcript())
+        b = r['compaction_boundaries'][0]
+        self.assertEqual((b['facts_read_after'], b['facts_restored_after'],
+                          b['facts_read_after_any']), (False, True, True))
+        self.assertEqual((r['facts_read_after_boundary'], r['facts_read_after_boundary_any'],
+                          r['facts_read_after_boundary_strict']), ([False], [True], 0))
+        self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
+
+    def test_facts_neither_read_nor_restored_is_a_violation(self):
+        # Rep 4 boundary 1: no Read and no facts attachment (another file was restored).
+        steps = [s for s in good(self.work) if s[0] != 'Read']
+        r = self.grade(steps, transcript=self.restore_transcript(attach=False, other=True))
+        self.assertEqual((r['facts_read_after_boundary_any'],
+                          r['facts_read_after_boundary_strict']), ([False], 0))
+        self.assertEqual(r['instruction_violations'],
+                         ['facts_not_read_after_compaction:1', 'piped_test_runs:1'])
+        self.assertEqual(r['bar_met'], True)  # report-only
+
+    def test_facts_restore_index_follows_boundary(self):
+        # Two boundaries, the facts file restored after the first only: the k-th stream
+        # boundary takes the k-th transcript boundary's restore.
+        steps = [s for s in good(self.work) if s[0] != 'Read']
+        steps.insert(7, boundary())
+        b, summ = ({'type': 'system', 'subtype': 'compact_boundary'},
+                   {'type': 'user', 'isCompactSummary': True})
+        att = {'type': 'attachment', 'attachment': {
+            'type': 'file', 'filename': os.path.join(self.work, FACTS), 'displayPath': FACTS}}
+        r = self.grade(steps, transcript=[b, summ, att, b, summ])
+        self.assertEqual([x['facts_restored_after'] for x in r['compaction_boundaries']],
+                         [True, False])
+        self.assertEqual(r['facts_read_after_boundary_any'], [True, False])
+        self.assertIn('facts_not_read_after_compaction:1', r['instruction_violations'])
+
+    def test_facts_read_any_null_without_transcript(self):
+        steps = [s for s in good(self.work) if s[0] != 'Read']
+        for t in (None, (2, 2)):  # absent, or a boundary count that differs from the stream
+            r = self.grade(steps, transcript=t)
+            self.assertEqual((r['facts_read_after_boundary_any'],
+                              r['facts_read_after_boundary_strict']), ([None], 0))
+            self.assertIsNone(r['compaction_boundaries'][0]['facts_restored_after'])
+            self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
 
     def test_transcript_consistency(self):
         self.assertTrue(self.grade(transcript=(1, 1))['compaction_consistency'])

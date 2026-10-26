@@ -43,6 +43,12 @@ order; next_rewrites counts the distinct NEXT lines held at a boundary and missi
 final file. facts_retracted: lines a replayed write added that the final file lacks
 (reported); its non-NEXT lines are the facts_line_changed violation (report-only).
 facts_recall counts the final file's FIXED names.
+After each boundary, facts_read_after (strict) is a Read of the facts file in the next 3
+tool calls; facts_restored_after is a transcript record with attachment.type 'file' whose
+path basename is the facts name, between that transcript boundary and the next (Claude
+Code's post-compaction file restore); facts_read_after_any is either. The restore and any
+are null when the transcript is absent or its boundary count differs from the stream's.
+Boundaries with any false are the facts_not_read_after_compaction violation (report-only).
 """
 import collections
 import json
@@ -288,6 +294,32 @@ def transcript_counts(path):
     return counts
 
 
+def transcript_restores(path, name):
+    """Per transcript compact boundary: True when a file attachment of name follows it
+    before the next boundary. None when the transcript is unreadable or name is None."""
+    if not name:
+        return None
+    out = []
+    try:
+        with open(path, encoding='utf-8-sig') as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(e, dict):
+                    continue
+                if e.get('type') == 'system' and e.get('subtype') == 'compact_boundary':
+                    out.append(False)
+                a = e.get('attachment')
+                if out and isinstance(a, dict) and a.get('type') == 'file' \
+                        and base_name(a.get('filename')) == name:
+                    out[-1] = True
+    except (OSError, TypeError):
+        return None
+    return out
+
+
 def manifest_src(path):
     """{test name: src file} from the generator manifest, or None."""
     try:
@@ -383,8 +415,11 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
     facts_false, undecided = graded.count(False), graded.count(None)
 
     bounds = [e for e in ev if e['kind'] == 'system' and e['subtype'] == 'compact_boundary']
+    restores = transcript_restores(transcript_path, name)
+    if restores is not None and len(restores) != len(bounds):
+        restores = None
     at_b, blist, gone_all, next_gone = [], [], [], set()
-    for b in bounds:
+    for k, b in enumerate(bounds):
         lines = lines_at(b['i']) if ok else None
         gone = [] if lines is None else missing(lines, final)
         gone_all += [{'i': b['i'], 'kind': parse_line(x)[0], 'line': x} for x in gone]
@@ -393,6 +428,9 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
             else [x for x in lines if parse_line(x)[0] not in SURVIVAL_EXEMPT]
         after_b = [u for u in uses if u['i'] > b['i']][:3]
         done = {f for i, _, f in fixed_at if i < b['i']} if ok else None
+        read = any(u['name'] == 'Read' and name is not None
+                   and base_name(inp(u).get('file_path')) == name for u in after_b)
+        restored = None if restores is None else restores[k]
         at_b.append(lines)
         blist.append({
             'i': b['i'], 'trigger': meta_value(b['meta'], 'trigger'),
@@ -407,9 +445,8 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
             'facts_survived_strict': None if lines is None else subsequence(lines, final),
             'order_break': None if lines is None else not subsequence(kept, final)
             and not missing(kept, final),
-            'facts_read_after': any(u['name'] == 'Read' and name is not None
-                                    and base_name(inp(u).get('file_path')) == name
-                                    for u in after_b),
+            'facts_read_after': read, 'facts_restored_after': restored,
+            'facts_read_after_any': None if restored is None else read or restored,
             'redo_edits': None if done is None else
             sum(i > b['i'] and any(same_file(p, f) for p in done) for i, f in edits)})
     trans = transcript_counts(transcript_path)
@@ -504,6 +541,8 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
                          else len(names & set(fixed))},
         'facts_fixed_verified': verified,
         'facts_read_after_boundary': [x['facts_read_after'] for x in blist],
+        'facts_read_after_boundary_strict': sum(x['facts_read_after'] for x in blist),
+        'facts_read_after_boundary_any': [x['facts_read_after_any'] for x in blist],
         'facts_write_tools': {t: sum(u['name'] == t and name is not None
                                      and (name in str(inp(u).get('command')) if t == 'Bash'
                                           else base_name(inp(u).get('file_path')) == name)
@@ -546,5 +585,7 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
              else sum(parse_line(x)[0] != 'NEXT' for x in retracted)),
             ('bash_write_to_facts', appends),
             ('test_runs_nonexact', len(nonexact) if test_cmd else None),
+            ('facts_not_read_after_compaction',
+             sum(x['facts_read_after_any'] is False for x in blist)),
             ('piped_test_runs', piped)) if v],
     }

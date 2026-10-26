@@ -68,13 +68,15 @@ gets HTTP 500 ("System message must be at the beginning."). `claude-local.ps1` s
 Claude Code's context window to 131072 to match, and (ruling 13) starts every session
 with the lean set: `--tools Bash,Read,Edit,Write,Glob,Grep,Skill`, no MCP servers and a
 one-model policy appended to the system prompt (plus evidence rules and a machine-survey
-checklist since 2026-10-25; 540 tokens in all, +388), hooks on; a fresh session's first
-prompt is about 12,735 tokens from a dir outside `Z:\repos` (12,347 measured before the
-policy block, plus 388; was 25,578). `-LisFull` drops the three additions. Absolute
-sizes vary by a few hundred tokens with the cwd path; the reproducible figure is the
-saving, about 9,172 tokens against `-LisFull` in the same cwd (9,560 before the policy
-block) and about 12,812 against the pre-ruling full set (13,200 before). Quality and
-refusal removal of the abliterated build are UNVERIFIED. Numbers: [config/models.md](config/models.md),
+checklist since 2026-10-25; 540 tokens, +388; TEST 6 loop guards add 101), hooks on;
+before the loop guards a fresh session's first prompt is about 12,735 tokens from a
+dir outside `Z:\repos` (12,347 measured before the policy block, plus 388; was
+25,578). `-LisFull` drops the three additions. Absolute sizes vary by a few hundred
+tokens with the cwd path; the reproducible figure is the saving, about 9,172 tokens
+against `-LisFull` in the same cwd (9,560 before the policy block) and about 12,812
+against the pre-ruling full set (13,200 before), all measured before the loop guards
+(+101 tokens). Quality and refusal removal of the abliterated build are UNVERIFIED.
+Numbers: [config/models.md](config/models.md),
 [bench/summary-2026-10-24.md](bench/summary-2026-10-24.md).
 
 ## Quick start

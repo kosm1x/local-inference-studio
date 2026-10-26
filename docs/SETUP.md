@@ -204,8 +204,12 @@ answers short; text in `docs/context-audit-2026-10-24.md` section 5, which still
 the 65,536 window of the time; the wrapper's copy names a 131,072-token window whatever
 `-LisContextTokens` says), followed by an evidence and machine-survey block (numbers come
 from tool output, read a script before citing it, no silenced stderr, single-quoted
-PowerShell payloads in Bash, a survey checklist; 540 tokens in all, was 152, +388 on the
-prompt; the text is `$policy` in the wrapper). Hooks stay on.
+PowerShell payloads in Bash, a survey checklist; was 152, +388 on the prompt) and the
+TEST 6 loop guards (plain reads in parallel but at most one command per Bash batch that
+executes, writes or changes state, one retry after a permission-check timeout, no
+checks the task does not need, line ranges for files over 300 lines; 101 tokens, not in
+the prompt figures below); 641 tokens in all, 540 before the loop guards; the text is
+`$policy` in the wrapper. Hooks stay on.
 Fresh-session prompt: about 12,735 tokens from a dir outside `Z:\repos` and about 13,163
 from this repo (measured 12,347 and 12,775 before the 2026-10-25 policy block, plus 388;
 was 25,578 and 26,224 to 32,988). `-LisFull` (also `-LisFull:true` /
@@ -214,7 +218,8 @@ or MCP (measured 21,908 tokens from the scratch dir; Agent and Workflow stay den
 the settings file). Absolute sizes vary by a few hundred tokens with the cwd path and
 environment text; the reproducible figure is the lean saving, about 9,172 tokens against
 `-LisFull` in the same cwd and about 12,812 against the pre-ruling full set (9,560 and
-13,200 before the 2026-10-25 policy block).
+13,200 before the 2026-10-25 policy block), all measured before the loop guards (+101
+tokens).
 
 What a lean session cannot do (`-LisFull` restores these tools and MCP, nothing else):
 
@@ -237,8 +242,14 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `Bash(powershell -NoProfile -Command \"Get-*)`. The matcher sees the raw command string,
   so a PowerShell rule carries the opening quote of the `-Command` payload, and every
   `;` / `&&` / `|` segment of a command must match. An allowed command skips the auto-mode
-  classifier (about 60 s per decision on the local model). `ask`: `Edit(...)` rules for
-  the critical paths (`~/.claude`, `~/.ssh`, `.curlrc`/`_curlrc`, Windows, Program Files,
+  classifier (about 60 s per decision on the local model). Two exact rules run this
+  repo's tests from its root, `Bash(python -I scripts/hooks/tests/lis-guard_test.py)` and
+  `Bash(node --test bench/loop/fixture/test/text.test.js)` (TEST 6 in docs/ROADMAP.md;
+  an exact rule stays in auto mode, a wildcard after `node` or `python` is dropped).
+  An exact rule trusts the file it names: neither the hook nor the classifier scans
+  that file, so editing `scripts/hooks/tests/lis-guard_test.py` or the fixture test
+  changes what the rule allows. `ask`: `Edit(...)` rules for the critical paths
+  (`~/.claude`, `~/.ssh`, `.curlrc`/`_curlrc`, Windows, Program Files,
   ProgramData, `.env*`, `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs
   Write; the wrapper rewrites `Edit(~/...)` to the `//c/Users/<name>/...` form at run
   time; UNVERIFIED: a user name containing a space is not quoted in that rewrite, so such

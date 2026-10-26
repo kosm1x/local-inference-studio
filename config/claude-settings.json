@@ -87,7 +87,9 @@
       "Bash(git config --global user.email)",
       "Bash(git config --global autocrlf)",
       "Bash(git config --global core.symlinks)",
-      "Bash(pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()')"
+      "Bash(pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()')",
+      "Bash(python -I scripts/hooks/tests/lis-guard_test.py)",
+      "Bash(node --test bench/loop/fixture/test/text.test.js)"
     ],
     "ask": [
       "Edit(~/.claude/**)",

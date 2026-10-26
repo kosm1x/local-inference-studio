@@ -185,7 +185,8 @@ Draft text:
 
 Since 2026-10-25 the wrapper appends a second block after this paragraph (evidence rules
 and a machine-survey checklist, ROADMAP ruling 15 follow-up); the whole policy is 540
-tokens on the server tokenizer (152 before; +388 on the prompt). Text: `$policy` in
+tokens on the server tokenizer (152 before; +388 on the prompt), and 641 since the TEST 6
+loop guards (+101, added later on 2026-10-25). Text: `$policy` in
 `scripts/claude-local.ps1`.
 
 Candidate lean sets for the operator (all from section 3):

@@ -8,15 +8,17 @@ only when its done-check passes on this machine.
 - Default server (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12): Orca
   Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV q4_0, patched chat template, no MTP;
   `claude-local.ps1` and `config/claude-settings.json` default to a 131072 window.
-  Cutover and the re-run grade (RUN 3: no compaction, report incomplete): ruling (14). Scripts tip: the ruling 14 commit
-  (`git log -1 -- scripts/serve.ps1`).
+  Cutover and the re-run grades: ruling (14), whose closing condition (disks and GPU
+  correct, no compaction) RUN 5 met; CLOSE = operator ruling. Scripts tip: the ruling
+  14 commit (`git log -1 -- scripts/serve.ps1`).
 - Local sessions use the lean set (ruling 13): 7 tools, no MCP, the one-model policy
   appended, hooks on; `-LisFull` restores the full tool set and MCP. Fresh-session prompt
   12,347 tokens from a scratch dir (was 25,578) and 12,775 from the repo root (was 26,224
   to 32,988), both before the 2026-10-25 policy block (+388: about 12,735 and 13,163);
   absolute sizes vary by a few hundred tokens with the cwd path, the reproducible figure
   is the saving (about 9,172 against `-LisFull` in the same cwd, about 12,812 against
-  the pre-ruling full set; 9,560 and 13,200 before the policy block). First agentic
+  the pre-ruling full set; 9,560 and 13,200 before the policy block; all measured
+  before the 2026-10-25 loop guards, +101 tokens of policy). First agentic
   loop on 65536 + MTP + lean: PASS 3/3, 6 turns, 40.7 s, 0 tool errors (one rep,
   variance UNVERIFIED).
 - Permissions (ruling 15): rule set A plus the lis-guard hook in every local session
@@ -46,11 +48,16 @@ only when its done-check passes on this machine.
   1,366 ms, cumulative draft acceptance 0.81. The cost is context: 65536 against the
   45,417 peak. Real-text and deep-context speed-up UNVERIFIED. Table and placement:
   [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 3e").
-- Open rulings: (14) OPEN after the re-run (no compaction, report incomplete on disks
-  and GPU); (9) Bonsai revisit (a dense 27B now IS the default and VRAM headroom is
-  1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
-  multi-file loop fixture should settle the accuracy question that the 3-test
-  fixture could not (every contender passed it).
+- Open rulings: (14) closing condition (disks and GPU correct, no compaction) met by
+  RUN 5; CLOSE = operator ruling; (9) Bonsai revisit (a dense 27B now IS the default
+  and VRAM headroom is 1,630 MiB, so the deferral condition is met); P4 go/no-go;
+  whether a harder, multi-file loop fixture should settle the accuracy question that
+  the 3-test fixture could not (every contender passed it); (16) serve a second,
+  smaller model for the auto-mode classifier via `CLAUDE_CODE_AUTO_MODE_MODEL` (same
+  endpoint; whether llama-server b11868's router mode can serve it is UNVERIFIED;
+  nvidia-smi on 2026-10-25 showed 653 MiB free with every process counted, a
+  point-in-time value, while the 1,630 MiB in (9) is llama's projected fit for the
+  model alone), or keep the classifier on the main model (TEST 6 below).
 
 ## P0 — Evaluation + scaffold (DONE 2026-10-24)
 
@@ -537,6 +544,90 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   output). RUN 5 met the bar (>= 13 of 14, 0 false statements); the operator ruled the
   61.5 GiB figure a rounding imprecision and closed (15) on 2026-10-25. Variance
   UNVERIFIED.
+
+### TEST 6 2026-10-25 (test-coverage audit)
+
+- Rep 1 (one rep, through `claude-local.ps1` with rule set A, the lis-guard hook, auto
+  permission mode, Orca IQ3_XXS at 131072; this was the only user turn): "Audit this
+  repo's test coverage: which scripts have tests, which do not, how the existing tests
+  run, and what is missing. Write the findings and a prioritised plan to
+  docs/planning/test-coverage-2026-10-25.md. Change no other file." The operator stopped
+  the session at 39 minutes because it was looping: no file written, repo clean after.
+  Rep 2 was NOT run under the old config. Tally from the transcript's permission records:
+
+| Item | Count |
+| --- | --- |
+| Tool calls (Bash 39, Read 15, Grep 3) | 57 |
+| Bash decided by the hook (all correct, instant) | 14 |
+| Bash matched by Claude Code's per-subcommand rule check | 5 |
+| Bash sent to the auto-mode classifier | 19 |
+| of those allowed | 8 |
+| of those rejected (10 timeouts at the 60 s budget, 1 stage 2 error) | 11 |
+| Bash rejected by the operator when stopping the session | 1 |
+| Read/Grep decided by user-level allow rules | 18 |
+| Tool errors | 16 |
+| Peak prompt, tokens (no compaction) | 93,496 |
+
+- Findings. (a) The classifier is two-stage, each stage a ~38K-token prompt on the
+  single server slot, alternating with the ~90K main prompt, so the caches evict:
+  early single verdicts took 17 to 29 s, and once the main context passed ~70K stage 1
+  alone took 45 to 60 s, so 10 of the 19 classifier-bound commands hit the 60 s
+  budget (`classifier:auto-mode:unavailable`; the server requests outnumber the
+  commands, stage 1 plus stage 2). (b) Both rejection texts tell the model to retry: the
+  timeout text says the check is "temporarily unavailable (timed out) ... Wait a
+  moment and then try this action again", the stage 2 error text says "usually
+  transient - retrying often succeeds". With no retry cap the model wrote "classifier
+  timeouts have been transient" and retried: that is the loop. (c) Scope creep: from
+  minute 26 it issued a WSL "Linux CI proxy" re-run of the same test suite 10 times:
+  2 ran and failed on Git Bash path conversion of `/mnt/z/...`, 7 hit classifier
+  timeouts (the other 3 of the 10 timeouts were other commands), and 1 was rejected by
+  the operator when stopping the session; the task asked for no such check.
+  (d) Read-everything research: 14 Read calls took every script in full, the 49 KB
+  hook test file included, in the first two minutes, reaching 61K context before any
+  command needed the classifier. The first classifier-bound commands (the hook tests
+  and the fixture `node --test`) went out in one parallel batch; the first timed out,
+  the retry failed on a stale shell cwd, the third got `619/619 passed` at minute 8.
+  (e) Counts by tool held, but the test count came out three ways (619 from the run,
+  418 and 546 from Grep counts of tuple patterns) and was never reconciled; two inline
+  `python -c` counters were also rejected.
+- Permission layer: the hook decided 14 Bash calls, all correct and instant. It
+  allowed a `pwsh -NoProfile -Command '(Get-Module -ListAvailable -Name Pester ...) |
+  ForEach-Object { "$($_.Version) - $($_.Path)" }'` probe; two mutants with
+  `$(New-Item ...)` and `$(Invoke-Expression ...)` inside the payload, fed to the hook
+  on stdin, got no decision: sound. Context for the audit itself: Pester 3.4.0 is
+  installed under Windows PowerShell; the repo has no Pester tests, no CI, no `.github/`.
+- Levers. (1) Narrow allow rules, shipped: `Bash(python -I
+  scripts/hooks/tests/lis-guard_test.py)` and `Bash(node --test
+  bench/loop/fixture/test/text.test.js)` in rule set A (the fixture form runs from the
+  repo root, no `cd`). The docs say a narrow rule stays in effect in auto mode and is
+  resolved before the classifier, while broad ones (`Bash(*)`, `Bash(python*)`) are
+  dropped; whether an exact interpreter rule with arguments counts as narrow was not in
+  the docs. Proven for the hook-test rule (one `-p` run through the wrapper, auto mode):
+  the transcript records `"decision":"accept","source":"config","reasonType":"rule",
+  "ruleSource":"flagSettings"`, the debug log has no classifier request and
+  `permissionDecisionMs=8`, and the run printed `619/619 passed`. The fixture rule
+  survived the auto-mode rule filter (absent from the debug log's removal list); its
+  decision at call time is UNVERIFIED. That list does drop set A's `Bash(node -v*)`,
+  `Bash(node --version*)` and `Bash(python --version*)` ("Ignoring dangerous permission
+  ... (bypasses classifier)"), so those three never apply in auto mode. (2) Policy
+  sentences, shipped (+432 characters, 101 tokens on the server tokenizer; the whole
+  policy 540 -> 641): plain reads may run in parallel, but at most one command per
+  Bash batch that executes a program, writes or changes state; after a
+  permission-check timeout retry once, and if that also fails mark the figure
+  UNVERIFIED and move on; no checks the task does not need (no re-runs on other
+  platforms, no side investigations); grep or read a line range of a file over 300
+  lines. (3) Operator ruling (16): serve a second, smaller model for the classifier via
+  `CLAUDE_CODE_AUTO_MODE_MODEL`, which goes through the same endpoint (whether
+  llama-server b11868's router mode can serve it is UNVERIFIED; nvidia-smi on
+  2026-10-25 showed 653 MiB free with every process counted, a point-in-time value,
+  while the 1,630 MiB in (9) is llama's projected fit for the model alone), or keep
+  the classifier on the main model. No
+  setting exists for the classifier timeout or for skipping stage 2, and
+  `autoMode.classifyAllShell` stays unset.
+- NEXT: TEST 6 again, two reps with the levers above, bar unchanged (>= 12 of 14 on both
+  reps, 0 false statements). The 14-item rubric stays out of the repo until both reps
+  finish, because the session under test reads `docs/` (rep 1 grepped it for test
+  invocations) and must not see its grading criteria; it is published with the result.
 
 ## Phase 3 part A 2026-10-24
 

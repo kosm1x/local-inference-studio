@@ -364,7 +364,13 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   FAIL: a labelled split of 3+ parts (or of 2 complementary parts such as
   tested/untested or pass/fail) that does not sum to its total, an unscoped
   "N PowerShell scripts"-style count against the repo, "`path` (N lines)" or a Lines
-  cell against the file; a missing backticked path is INFO only. By hand:
+  cell against the file; a missing backticked path is INFO only.
+  Remainders later in the sentence (N skipped, other, others, remaining, rest, left,
+  pending, excluded or ignored) that close the gap exactly pass the split; the list is
+  closed, not semantic, so a word used in another sense ("3 rest days") still counts.
+  A file count followed within 40 chars by "at" or "as of" and a commit is INFO; an
+  unrelated "fixed at `<sha>`" that close also downgrades it, and INFO still shows it.
+  By hand:
   `python -I scripts/verify-doc.py <file.md>`.
   Text in double quotes is treated as a quotation and not checked for sums or file counts.
   Line counts are read only for files inside the working directory and under 8 MB; the

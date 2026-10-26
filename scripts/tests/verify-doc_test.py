@@ -139,6 +139,66 @@ def tests(root, out_dir):
         ('complementary good', '13 scripts (3 tested, 10 untested).\n', 0, ['0 findings'], []),
         ('complementary pair and not-prefix', '10 tests (8 pass, 3 fail). 5 checks (2 met, 2 not met).\n', 1,
          ['doc says 10, measured 8 + 3 = 11', 'doc says 5, measured 2 + 2 = 4'], []),
+        # a remainder later in the sentence closes a 2-part gap exactly, or the split fails
+        ('remainder plus', '20 runs (12 pass, 5 fail) plus 3 skipped.\n', 0, ['0 findings'], []),
+        ('remainder colon and', '20 runs: 12 pass, 5 fail; and 3 skipped.\n', 0, ['0 findings'], []),
+        ('remainder item', '20 runs (12 pass, 5 fail); 3 skipped.\n', 0, ['0 findings'], []),
+        ('remainder more other', '20 runs (12 pass, 5 fail), 1 skipped and 2 more other.\n', 0,
+         ['0 findings'], []),
+        ('remainder too big', '20 runs (12 pass, 5 fail) plus 4 skipped.\n', 1,
+         ['doc says 20, measured 12 + 5 = 17'], []),
+        ('remainders sum past gap', '20 runs (12 pass, 5 fail) plus 3 skipped and 3 other.\n', 1,
+         ['doc says 20, measured 12 + 5 = 17'], []),
+        ('unit is not a remainder', '20 runs (12 pass, 5 fail) plus 3 hours.\n', 1,
+         ['doc says 20, measured 12 + 5 = 17'], []),
+        ('next total is not a remainder', '20 runs (12 pass, 5 fail) and 3 tests (1 pass, 2 fail).\n', 1,
+         ['doc says 20, measured 12 + 5 = 17'], []),
+        ('next total item is not a remainder', '20 runs (12 pass, 5 fail), 30 jobs (27 done, 3 pending).\n',
+         1, ['doc says 20, measured 12 + 5 = 17'], []),
+        ('remainder starts its own total', '20 runs (12 pass, 5 fail) plus 3 skipped (2 flaky, 1 slow, '
+         '0 other).\n', 0, ['0 findings'], []),
+        ('hyphenated word is not a remainder', '20 runs (12 pass, 5 fail) plus 3 left-aligned columns.\n', 1,
+         ['doc says 20, measured 12 + 5 = 17'], []),
+        ('decimal is not a remainder', '20 runs (12 pass, 5 fail) plus 0.3 skipped.\n', 1,
+         ['doc says 20, measured 12 + 5 = 17'], []),
+        ('no remainder', '20 runs (12 pass, 5 fail).\n', 1,
+         ['FAIL sum: "20 runs (12 pass, 5 fail" (doc says 20, measured 12 + 5 = 17)'], []),
+        ('remainder short', '20 runs (12 pass, 5 fail) plus 2 skipped.\n', 1,
+         ['doc says 20, measured 12 + 5 = 17'], []),
+        ('remainder next sentence', '20 runs (12 pass, 5 fail). Then 3 skipped.\n', 1,
+         ['doc says 20, measured 12 + 5 = 17'], []),
+        # a count qualified by a commit ref is about that tree: INFO, not FAIL
+        ('historical at ref', '12 PowerShell scripts at `3a2a5d8`.\n', 0,
+         ['INFO count: "12 PowerShell scripts" historical figure, not checked against the live tree '
+          '(doc says 12, live 10) at line 1'], ['FAIL']),
+        ('historical table cell', '| # | Item |\n|---|---|\n| 1 | 12 PowerShell scripts (12 at `3a2a5d8`) |\n',
+         0, ['INFO count: "12 PowerShell scripts" historical figure', 'at line 3'], ['FAIL']),
+        ('historical as of', '12 PowerShell scripts as of 727fd07, 13 PowerShell scripts as of `727fd07`.\n', 0,
+         ['"12 PowerShell scripts" historical', '"13 PowerShell scripts" historical'], ['FAIL']),
+        ('historical right count silent', '10 PowerShell scripts at `3a2a5d8`.\n', 0, ['0 findings'], []),
+        ('no ref', '12 PowerShell scripts.\n', 1,
+         ['FAIL count: "12 PowerShell scripts" (doc says 12, measured 10 .ps1 files)'], ['INFO']),
+        ('ref over 40 chars away', '12 PowerShell scripts are listed in the long inventory table of '
+         'the plan at `3a2a5d8`.\n', 1, ['FAIL count: "12 PowerShell scripts"'], ['INFO']),
+        ('ref in next sentence', '12 PowerShell scripts. Then at `3a2a5d8` there were more.\n', 1,
+         ['FAIL count: "12 PowerShell scripts"'], ['INFO']),
+        ('ref in next cell', '| Count | Ref |\n|---|---|\n| 12 PowerShell scripts | at `727fd07` |\n', 1,
+         ['FAIL count: "12 PowerShell scripts"'], ['INFO']),
+        ('bare ref in next cell', '| Count | Ref |\n|---|---|\n| 12 PowerShell scripts | `727fd07` |\n', 1,
+         ['FAIL count: "12 PowerShell scripts"'], ['INFO']),
+        ('ref without qualifier', '12 PowerShell scripts, see `727fd07`.\n', 1,
+         ['FAIL count: "12 PowerShell scripts"'], ['INFO']),
+        ('fixed in ref is live', '12 PowerShell scripts (fixed in `727fd07`).\n', 1,
+         ['FAIL count: "12 PowerShell scripts"'], ['INFO']),
+        ('all-digit run id is not a ref', '12 PowerShell scripts at 20261025 run.\n', 1,
+         ['FAIL count: "12 PowerShell scripts"'], ['INFO']),
+        ('next count ref is not ours', '12 PowerShell scripts, now 13 PowerShell scripts at `3a2a5d8`.\n', 1,
+         ['FAIL count: "12 PowerShell scripts" (doc says 12, measured 10 .ps1 files)',
+          'INFO count: "13 PowerShell scripts" historical figure'], []),
+        ('other figure ref is not ours', '13 PowerShell scripts today (12 at `3a2a5d8`).\n', 1,
+         ['FAIL count: "13 PowerShell scripts" (doc says 13, measured 10 .ps1 files)'], ['INFO']),
+        ('hex word is not a ref', '12 PowerShell scripts at defaced form.\n', 1,
+         ['FAIL count: "12 PowerShell scripts"'], ['INFO']),
     ]
     n = fails = 0
     for name, text, code, want, never in cases:
@@ -241,6 +301,33 @@ def tests(root, out_dir):
     if not unmasked or [f for f in v.check(quoted, root) if f.startswith('FAIL')]:
         fails += 1
         print(f'FAIL pin: quote blanking removal must expose the quoted count: {unmasked}')
+    # with the remainder (or the commit-ref) regex disabled, the positive case goes red
+    for name, attr, text in [('remainder', 'REMAINDER', '20 runs (12 pass, 5 fail) plus 3 skipped.\n'),
+                             ('historical', 'HISTORICAL', '12 PowerShell scripts at `3a2a5d8`.\n')]:
+        n += 1
+        p = doc('m.md', text)
+        saved = getattr(v, attr)
+        setattr(v, attr, re.compile(r'(?!x)x'))
+        try:
+            unpinned = [f for f in v.check(p, root) if f.startswith('FAIL')]
+        finally:
+            setattr(v, attr, saved)
+        if not unpinned or [f for f in v.check(p, root) if f.startswith('FAIL')]:
+            fails += 1
+            print(f'FAIL pin: {name} removal must turn the positive case red: {unpinned}')
+    # mutant: "== gap" -> ">= gap" must let the too-big remainder through, so the case above
+    # depends on the exact comparison
+    n += 1
+    with open(SCRIPT, encoding='utf-8') as f:
+        src = f.read()
+    mutant = os.path.join(out_dir, 'verify-doc-mutant.py')
+    with open(mutant, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(src.replace(') == gap', ') >= gap'))
+    p = subprocess.run([sys.executable, '-I', mutant, doc('m.md', '20 runs (12 pass, 5 fail) plus 4 skipped.\n'),
+                        '--root', root], capture_output=True, text=True, timeout=30)
+    if src.count(') == gap') != 1 or p.returncode != 0 or 'FAIL' in p.stdout:
+        fails += 1
+        print(f'FAIL pin: ">= gap" mutant must pass the too-big remainder: exit {p.returncode} {p.stdout}')
 
     print(f'{n - fails}/{n} passed')
     return 1 if fails else 0

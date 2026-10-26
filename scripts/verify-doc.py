@@ -8,11 +8,17 @@ Checks (one line per finding; any FAIL -> exit 1; a usage error -> exit 2):
          72 allow, 135 none)" or "86 rows: R1x22, R2x22, O1x13", or of 2 complementary
          parts, "13 scripts (3 tested, 10 untested)": the parts must add up to the
          total. Other 2-part lists are skipped: "10 calls (2 Bash, 3 Read)" is often a
-         partial breakdown, not a partition.
+         partial breakdown, not a partition. Remainders later in the sentence ("N
+         [more] skipped|other|others|remaining|rest|left|pending|excluded|ignored")
+         that close the gap exactly pass: "20 runs (12 pass, 5 fail) plus 3 skipped".
   count  "N PowerShell scripts", "N `.py` files" (also Python, JavaScript, Markdown;
          plural only): N must equal the number of such files in the repo (git
          ls-files, or a walk). Skipped when scoped ("in scripts/", "under `bench/`")
-         or after an edit verb ("edits 3 PowerShell scripts").
+         or after an edit verb ("edits 3 PowerShell scripts"). "at|as of <commit>"
+         within 40 characters after it ("10 PowerShell scripts at `3a2a5d8`") makes it
+         historical: a mismatch is INFO, not FAIL. Known limit: an unrelated "at
+         <commit>" that close ("the bug fixed at `3a2a5d8`") also downgrades it; the
+         INFO line still shows the figure.
   lines  "`path` (N lines)", "`path`, N lines." and table rows "| `path` | N |" under
          a Lines/LOC header: N must equal the file's newline count (as wc -l). Only
          files inside the root and under 8 MB are read.
@@ -37,6 +43,10 @@ TOTAL = re.compile(r'(?<![\w./:\u2013-])~?' + NUM + r'((?:\s+' + LABEL + r'){1,4
 NOT_TOTAL = re.compile(r'(?i)\b(?:port|line|page|row|column|version|build|v)\s*$')
 COUNT = re.compile(r'(?<![\w./-])(\d+)\s+(PowerShell|Python|JavaScript|Markdown|`?\.(?:ps1|py|js|md)`?)'
                    r'\s+(?:scripts|files)\b', re.I)
+REMAINDER = re.compile(r'(?i)(?<![\w.])' + NUM + r'\s+(?:more\s+)?'
+                       r'(?:skipped|other|others|remaining|rest|left|pending|excluded|ignored)(?![\w-])')
+SHA = r'(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b'   # 7-40 hex, a digit and a letter
+HISTORICAL = re.compile(r'\b(?:at|as of)\s+`?' + SHA)
 SCOPED = re.compile(r'^\s*(?:in|under)\s+`?[\w./-]*/')
 PAIRS = {frozenset(p) for p in [('pass', 'fail'), ('allow', 'deny'), ('passed', 'failed'),
                                  ('with', 'without'), ('true', 'false'), ('met', 'unmet')]}
@@ -70,6 +80,32 @@ def complementary(items):
     a, b = (re.sub(r'^[\d,]+\s+', '', i.strip()).strip('`').lower() for i in items)
     return (frozenset((a, b)) in PAIRS
             or any(x == p + y for x, y in ((a, b), (b, a)) for p in ('un', 'non', 'non-', 'not ')))
+
+
+def sentence(tail):
+    """The rest of the sentence (or table cell) that tail starts in."""
+    return re.split(r'\||[.!?](?:\s|$)', tail, maxsplit=1)[0]
+
+
+def closes_gap(tail, gap):
+    """True if the remainders ("plus 3 skipped") in the rest of the sentence, up to the
+    next total (a remainder may start that total: "plus 3 skipped (2 a, 1 b)"), add up
+    to exactly gap."""
+    s = sentence(tail)
+    nxt = TOTAL.search(s)
+    cut = nxt.start() if nxt else len(s)
+    return sum(num(r.group(1)) for r in REMAINDER.finditer(s) if r.start() <= cut) == gap
+
+
+def historical(tail, n=None):
+    """True if "at|as of <commit>" starts within 40 characters after the figure, before
+    the next count and before any bare number other than n (the count's own value)."""
+    s = sentence(tail)
+    nxt = COUNT.search(s)
+    s = s[:nxt.start()] if nxt else s
+    bare = next((x for x in re.finditer(r'(?<![\w.])' + NUM + r'(?![\w.])', s) if num(x.group(1)) != n), None)
+    s = s[:bare.start()] if bare else s
+    return any(h.start() <= 40 for h in HISTORICAL.finditer(s))
 
 
 def unquoted(s):
@@ -172,7 +208,7 @@ def check(doc, root):
                         or len(set(labels)) < len(labels) or any(num(v) > total for v in vals)
                         or NOT_TOTAL.search(plain[:m.start()])):
                     continue
-                if total != got:
+                if total != got and not closes_gap(plain[m.end():], total - got):
                     out.append(f'FAIL sum: "{m.group(0).strip()}" (doc says {total}, measured '
                                f'{" + ".join(vals)} = {got}) at line {at(blk.find(cell) + m.start())}')
         plain = unquoted(blk)
@@ -182,7 +218,10 @@ def check(doc, root):
             ext = EXT.get(m.group(2).lower(), m.group(2).strip('`.').lower())
             if ext not in counts:
                 counts[ext] = repo_files(root, ext)
-            if num(m.group(1)) != counts[ext]:
+            if num(m.group(1)) != counts[ext] and historical(blk[m.end():], num(m.group(1))):
+                out.append(f'INFO count: "{m.group(0)}" historical figure, not checked against the '
+                           f'live tree (doc says {m.group(1)}, live {counts[ext]}) at line {at(m.start())}')
+            elif num(m.group(1)) != counts[ext]:
                 out.append(f'FAIL count: "{m.group(0)}" (doc says {m.group(1)}, measured '
                            f'{counts[ext]} .{ext} files) at line {at(m.start())}')
         hits = list(INLINE_LINES.finditer(blk))

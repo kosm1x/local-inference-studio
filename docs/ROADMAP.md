@@ -24,8 +24,8 @@ only when its done-check passes on this machine.
   requests from 41 to 11 and wall time from 1,868.7 to 803.8 s. Graded re-run (RUN 4):
   0 classifier requests, 0 timeouts, 162.1 s wall against RUN 3's 341.7 s, but the
   report scored 7 of 14 with 2 false statements, so (15) stayed OPEN. RUN 5 scored 13 of
-  14 with 0 false statements and 8 of 8 Bash decisions by the hook, so (15) is met
-  pending the operator's ruling on the 61.5 vs 61.6 GiB rounding.
+  14 with 0 false statements and 8 of 8 Bash decisions by the hook, so (15) is CLOSED
+  (2026-10-25; the operator ruled the 61.5 GiB figure a rounding imprecision).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -47,10 +47,8 @@ only when its done-check passes on this machine.
   45,417 peak. Real-text and deep-context speed-up UNVERIFIED. Table and placement:
   [bench/summary-2026-10-24.md](../bench/summary-2026-10-24.md) ("Phase 3e").
 - Open rulings: (14) OPEN after the re-run (no compaction, report incomplete on disks
-  and GPU); (15) RUN 5 met the bar pending the operator's ruling on the rounding
-  (report 13 of 14, 0 false statements, 61.5 vs 61.6 GiB RAM; RUN 4: 7 of 14, 2 false
-  statements); (9) Bonsai revisit (a dense 27B now IS
-  the default and VRAM headroom is 1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
+  and GPU); (9) Bonsai revisit (a dense 27B now IS the default and VRAM headroom is
+  1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
   multi-file loop fixture should settle the accuracy question that the 3-test
   fixture could not (every contender passed it).
 
@@ -482,8 +480,8 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
 
 - (15) Permissions, only writes and deletes of critical files block or ask: RULED
   2026-10-25 by the operator, built the same day, OPEN after the graded recon re-run
-  (RUN 4, plan section 6), met after RUN 5 pending the operator's ruling on the rounding
-  (RUN 4 and RUN 5 results end this entry). Plan and measurements:
+  (RUN 4, plan section 6), CLOSED 2026-10-25 after RUN 5 (61.5 GiB ruled a rounding
+  imprecision; RUN 4 and RUN 5 results end this entry). Plan and measurements:
   [docs/permissions-assessment-plan-2026-10-25.md](permissions-assessment-plan-2026-10-25.md)
   (sections 0a and 5a). Built: rule set A in `config/claude-settings.json` (read-only
   allow prefixes, critical-write ask rules; `Bash(*)` cannot be used, auto mode strips it)
@@ -536,8 +534,9 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   "not installed" claim), WSL state, the llama-server PID and model path, VPS uptime.
   The one miss is the repo sweep count, which the policy checklist does not ask for. 0
   false statements, one rounding imprecision (61.5 GiB RAM against 61.64 in the tool
-  output). RUN 5 met the bar (>= 13 of 14, 0 false statements) pending the operator's
-  ruling on the rounding. Variance UNVERIFIED.
+  output). RUN 5 met the bar (>= 13 of 14, 0 false statements); the operator ruled the
+  61.5 GiB figure a rounding imprecision and closed (15) on 2026-10-25. Variance
+  UNVERIFIED.
 
 ## Phase 3 part A 2026-10-24
 

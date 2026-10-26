@@ -10,7 +10,8 @@ decides; the model's claim is an input to the grade, never the grade. Rung 2, ca
 longrun`, sized so that compaction fires mid-task (Cases). Its first run (2026-10-26)
 was a harness validation run, not a counted rep: the model fixed all 48 failing tests
 and reported honestly, but the prompt never reached the 131K budget, so compaction never
-fired; counted reps run at `-ContextTokens 65536` (Results, long-fix).
+fired; counted reps ran at `-ContextTokens 65536` in series 1 and 2 (retired) and at
+81920 from series 3 (Results, long-fix).
 
 ## Run one case
 
@@ -24,11 +25,17 @@ pwsh bench/ladder/run.ps1 -Case long-fix -DryRun
 ```
 
 Parameters: `-Case` (required; `fix-one`, `fix-all` or `long-fix`, see Cases),
-`-MaxTurns 30`, `-TimeoutMin 30` (long-fix: 250 and 60 when the parameter is not
-given), `-WorkRoot %LOCALAPPDATA%\lis-ladder`, `-OutDir bench/results`,
+`-MaxTurns 30`, `-TimeoutMin 30` (long-fix: 250 and 60 at 24 modules when the parameter
+is not given, derived from `-Modules` below), `-WorkRoot %LOCALAPPDATA%\lis-ladder`,
+`-OutDir bench/results`,
 `-AllowReasoningOn` (long-fix only, step 1), `-ContextTokens <int>` (passed to the
 wrapper as `-LisContextTokens`, step 4; recorded as the meta's `context_tokens`, 131072
 when not given), `-DryRun`. One call is one rep; the ROADMAP plan asks for two.
+`-Modules <int>` (long-fix only, default 24, range 7 to 79: 79 is the largest N whose
+before-run output fits 9,000 chars, 8,982; `run.ps1` help) sets the
+fixture size; long-fix derives the `-MaxTurns` and `-TimeoutMin` defaults from it as
+ceil(250 * N / 24) and ceil(60 * N / 24), never below 250 and 60 (500 and 120 at 48
+modules), so a series 4 run passes neither.
 
 What `run.ps1` does:
 
@@ -55,10 +62,18 @@ What `run.ps1` does:
    `config/claude-settings.json`) cover the test command, since `-LisTask` refuses
    `--allowedTools`. Not under `%TEMP%`, for the reason in `bench/README.md` (Agentic
    loop). long-fix instead runs `python -I bench/ladder/gen_longfix.py --out <work>
-   --manifest <base>.manifest.json` (24 modules, 220 lines), which writes
-   `longfix/src` and `longfix/test`; the manifest stays outside the work tree,
-   `allowed_files` is its 24 `longfix/src/` paths, and the rule
+   --manifest <base>.manifest.json --modules <-Modules>` (24 modules by default, about
+   220 lines each), which writes `longfix/src` and `longfix/test`; the manifest stays
+   outside the work tree, `allowed_files` is its `longfix/src/` paths (24 at the
+   default), and through series 3 the rule
    `Bash(node --test longfix/test/all.test.js)` covers the test command.
+   From series 4 the long-fix test command is `node --test
+   --test-reporter=./longfix/reporter.mjs longfix/test/all.test.js` (`$longCmd` in
+   `run.ps1`; the reporter path resolves against the cwd, the work tree), covered by a
+   second exact rule of the same string; the old rule stays for the series 1 to 3 key
+   (Results, long-fix, "Series 4 prompt"). The generator (VERSION 2) also writes
+   `longfix/reporter.mjs`: outside `longfix/src`, so outside `allowed_files`, and part
+   of `fixture_sha256`.
 3. Tests before (`node --test --test-reporter=tap`). Every target test and every
    keep-failing test must fail, or the case is invalid and nothing launches.
    long-fix: the TAP results must equal the manifest's `expect_before` exactly (48
@@ -67,22 +82,27 @@ What `run.ps1` does:
    it: a login shell (`-lc`), or `-ic` when that finds no node or another version
    (`model_node_version`, `model_node_path`, `model_node_shell`; fnm's Node 24 on this
    machine, while `pwsh` finds the system Node 22). long-fix then runs the prompt's
-   exact command once with that node (no reporter flag, so Node 24 prints the spec
-   reporter) and records the output size in characters as `before_output_chars`. When
-   the `pwsh` node's version differs, or Git Bash finds no node, the same command under
-   the `pwsh` node (TAP under Node 22) is recorded as `before_output_chars_tap`. Over
-   25,000, or no node found, prints a WARNING, not a refusal (spec under Node v24.22.1:
-   20,426 and 20,422 in two `-DryRun`s on 2026-10-26, console observations with no
-   artifact kept; the timings in the output vary). `gen_longfix_test.py` holds the
-   fixture to a TAP budget under 35,000 under Node older than 23 and a spec budget
-   under 25,000 otherwise.
+   exact command once with that node and records the output size in characters as
+   `before_output_chars`; `before_output_chars_tap` is the size of the TAP precondition
+   run above (the `pwsh` node). Through series 3 the command had no reporter flag (Node
+   24 printed the spec reporter), and over 25,000 chars, or no node found, printed a
+   WARNING, not a refusal (spec under Node v24.22.1: 20,426 and 20,422 in two
+   `-DryRun`s on 2026-10-26, console observations with no artifact kept; the timings in
+   the output vary); `gen_longfix_test.py` then held the fixture to a TAP budget and a
+   spec budget. From series 4 `run.ps1` refuses to start (fails closed, `-DryRun`
+   included; the work tree and the manifest are removed) when Git Bash finds no node,
+   when the model-node output has no `# pass N` and `# fail N` lines, or when it is
+   over `$shownTotal`, 9,500 chars: the model must see the whole output, every result
+   line (Results, long-fix, "Series 4 prompt"). `gen_longfix_test.py`
+   (`test_module_cap`) holds the before run at the `-Modules` cap to 9,000 chars.
 4. From the work tree: `pwsh -NoProfile -File scripts\claude-local.ps1 -LisTask edit
    -p <prompt> --output-format stream-json --verbose --max-turns 30 --permission-mode
    acceptEdits`. No `-LisNoLoopGuard`, no `-LisNoGuard`. `acceptEdits` keeps the
    operator's default mode out of the run, as in `bench/loop`. stdout goes to
    `<base>.jsonl`, stderr to `<base>.stderr.txt`. Session-identity variables of a
    calling Claude Code session are removed from the child env. long-fix: `-LisTask
-   longrun --max-turns 250`, plus `--debug-file <base>.debug.log` (kept, not graded;
+   longrun --max-turns N` (N from `-MaxTurns`: 250 at 24 modules, 500 at 48, derived;
+   Parameters), plus `--debug-file <base>.debug.log` (kept, not graded;
    the wrapper's `-LisTask` override check does not refuse it). `-ContextTokens N`
    adds `-LisContextTokens N`, which sets the session's window and auto-compact budget.
 5. Tests after; `git add -A` (exit code kept as `git_add_exit`), then `git diff
@@ -111,9 +131,11 @@ prints, in order:
 5. `node:` the `pwsh` node's version and path, then `| model_node_version:` the
    model's node version, its path and the Git Bash flag (`-lc` or `-ic`).
 6. `tests before:` the TAP counts, then `precondition:` ok or the differing tests.
-7. `before_output_chars:` (the model's node, budget 25,000) `| before_output_chars_tap:`
-   the size under the `pwsh` node, or `null (same node version)`.
-8. A WARNING line, only when the size is over budget or Git Bash found no node.
+7. `before_output_chars:` (the model's node) `| before_output_chars_tap:` the TAP
+   run's size and the `pwsh` node's version, then `visibility check: ok`.
+8. When the before-run output is not fully visible to the model, or Git Bash found no
+   node, the refusal, and the run stops (through series 3: a WARNING line when the size
+   was over the 25,000 budget, and the run went on).
 9. `allowed files:`, then `prompt` and its text.
 10. The wrapper's `-LisPrintArgs` result and stderr banner, then `session` (cwd,
     timeout and argv) and `capture:` (stdout and stderr files).
@@ -158,8 +180,9 @@ and `grade.py` reads them from there.
 
 `long-fix` (rung 2) is harder on one axis, context: the task is sized to outgrow the
 session's budget, so compaction drops earlier turns mid-task. At the 131K default it did
-not (rep 1 peaked at 47,643 prompt tokens, Results), so counted reps run at
-`-ContextTokens 65536`. It runs under `-LisTask longrun`, whose policy asks for a facts
+not (rep 1 peaked at 47,643 prompt tokens, Results), so counted reps ran at
+`-ContextTokens 65536` in series 1 and 2 (retired) and run at 81920 from series 3. It
+runs under `-LisTask longrun`, whose policy asks for a facts
 file `lis-facts-<stamp>.md` in the working directory, named in the wrapper's stderr
 banner. The fixture is generated (step 2): 24 modules of about 220 lines, each with 2
 planted bugs and 1 correct guard, 72 tests of which 48 fail before. The prompt (one
@@ -208,8 +231,10 @@ stream-json emits `compact_boundary` was VERIFIED on 2026-10-26 by reps 2 and 3:
 Two counted reps must share `rep_key`, a SHA-256 over the inputs listed in
 `rep_key_inputs`, nine of them: the fixture's `fixture_sha256`, the generator
 arguments, the prompt, the server command line, `claude_version`, `max_turns`,
-`timeout_min`, `context_tokens` and `model_node_version` (a node upgrade changes the
-reporter the model sees); a null value hashes as empty, the values joined with LF.
+`timeout_min`, `context_tokens` and `model_node_version` (through series 3 a node
+upgrade changed the reporter the model saw; the fixture's reporter prints the same
+bytes on Node 22 and 24, so the input now guards the node that runs the fixture); a
+null value hashes as empty, the values joined with LF.
 For fix-one and fix-all `fixture_sha256` is the tree hash of `bench/loop/fixture` and
 the generator arguments are null. `model_node_path` is not an input: fnm gives each
 shell its own
@@ -360,7 +385,8 @@ file is named.
   prompt asks for Edit appends); and the output-size check measured the `pwsh` node's
   TAP output while the model's Bash ran another node and reporter (step 3 now resolves
   and measures the model's node, with the TAP size kept as `before_output_chars_tap`).
-- Decision: counted reps run at `-ContextTokens 65536`. Compaction is expected at about
+- Decision (series 1 and 2; retired 2026-10-26, below): counted reps ran at
+  `-ContextTokens 65536`. Compaction is expected at about
   36K to 39K, the post-compaction prompt at about 15K to 21K with reasoning off, and
   about 1 or 2 compactions over the 24 modules in about 7 min (estimate, superseded;
   measured below). On rep 1's growth the prompt passes 36K near m11 and 39K
@@ -386,6 +412,17 @@ file is named.
   UNVERIFIED against its code. Inference: the boundaries fall at 35K to 47K, not near
   65K, because compaction runs against the 49,152-token effective window (75 % of the
   budget); the trigger point inside it is not logged (`tokens=[REDACTED]`): UNVERIFIED.
+  The 65536 budget was RETIRED for counted reps 2026-10-26: series 2 rep 1 (below) was
+  ended at 65536 by Claude Code's rapid-refill breaker after 11 compactions, before its
+  report. The next budget, 81920 (series 3, below): the effective window is 65,536
+  (81920 - 16384), VERIFIED on every window line of the `.debug.log` (47 of 47 in rep
+  1, 35 of 35 in rep 2). The estimate before it ran was about 33K to 39K of headroom
+  after a compaction (65,536 less series 2's 26,320 to 32,299 first prompts after one),
+  against about 17K to 23K under 49,152. Compaction does fire at 81920: `pre_tokens`
+  52,771 (rep 1, after every edit) and 52,421 and 52,878 (rep 2), with first prompts
+  after a compaction of 29,989 (rep 1) and 34,214 and 30,700 (rep 2).
+  `context_tokens` is a `rep_key` input, so the reps at 81920 are series 3, with the
+  series 2 prompt unchanged.
 
 Reps 2 and 3, 2026-10-26, stamps 20261026-132833 and 20261026-141312: the two counted
 reps, both at `-ContextTokens 65536`, with one `rep_key` (7f04bbc3, the first 8 hex
@@ -563,7 +600,7 @@ Series 1 close, 2026-10-26 (reps 2 to 4, one `rep_key`):
   compacted more: rep 2 (Read 50, Grep 2) 12 times in 42.2 min and rep 4 (Read 29,
   Grep 1) 9 times in 32.2 min, against 5 times in 19.5 min for the Grep-heavy rep 3
   (Read 10, Grep 14).
-- Series 2 (next): the series 2 prompt (see `run.ps1`) asks for an append-only NEXT (a
+- Series 2: the series 2 prompt (see `run.ps1`) asks for an append-only NEXT (a
   new NEXT line, never an edit of an existing one, added with the file's last line as
   the Edit anchor), a Grep count of the FIXED lines before writing `Fixed:`, the facts
   file created only after the first test run (no placeholder BEFORE line), and the facts
@@ -571,6 +608,411 @@ Series 1 close, 2026-10-26 (reps 2 to 4, one `rep_key`):
   summary calls unedited means you edited it; FIXED lines for those tests only, never a
   guard). Same 65536 budget and fixture; the prompt is a `rep_key` input, so series 2
   has a new `rep_key` and its reps do not pool with series 1.
+
+Series 2 rep 1 (65,536): terminated by the autocompact thrash detector. 2026-10-26,
+stamp 20261026-154601, `-ContextTokens 65536`, the series 2 prompt (`run.ps1` at
+552b0ea), `rep_key` 73e4a8e9 (the first 8 hex digits), `fixture_sha256` 55a3dc17, the
+default server command line (build b11868, ctx 131072, KV q4_0, `--reasoning off`;
+`server_reasoning_off` true). Its `.json` was graded on disk by the committed grader;
+the figures below come from it unless another file is named.
+
+- Session: 15:46:04 to 16:20:07 local (`.run.log`), `wall_s` 2043.0, `num_turns` 98 (49
+  model requests by message id in the `.jsonl`; 48 `source=sdk` requests in the
+  `.debug.log`), `output_tokens` 9,073, `tokens_in_total` 1,465,420, `exit_code` 1, not
+  timed out. The result event: `subtype` success, `is_error` true, `terminal_reason`
+  `rapid_refill_breaker`, and as its text (`claim_text`, `.claim.txt`) "Autocompact is
+  thrashing: the context refilled to the limit within 3 turns of the previous compact,
+  3 times in a row. A file being read or a tool output is likely too large for the
+  context window. Try reading in smaller chunks, or use /clear to start fresh." No
+  report: `claim_status` null.
+- Verdict: `bar_met` false, `bar_reason` `false: claim_agrees, compaction_ok`
+  (`bar_parts`: `scope_ok`, `tests_broken_empty` and `facts_gate` true);
+  `compaction_failed` true, `compaction_failed_source` `["claim", "envelope",
+  "assistant_text"]`; `undecided` `claim_status`, `claim_status_agrees`,
+  `claim_counts_agree`.
+- Tests: pass 24, fail 48 before and pass 54, fail 18 after (`.tests-before.txt`,
+  `.tests-after.txt`): `tests_fixed` holds 30 tests, the two bug tests of each of m01 to
+  m15; `tests_broken` empty, `scope_ok` true (m01 to m15 and the facts file, +85 -30).
+- Facts file: 43 lines, 2,224 bytes (BEFORE 1, NEXT 15, CHECK 3, FIXED 24), 28 true, 0
+  false, 0 undecided (NEXT lines are not graded); `facts_fixed_verified` 24,
+  `facts_recall` 24/30/24, `facts_replay_ok` true, `facts_write_tools` Write 1, Edit 7,
+  Bash 0. `facts_survived` and `facts_survived_strict` true at all 11 boundaries;
+  `next_rewrites` 0, `facts_retracted` 0, `facts_order_breaks` 0,
+  `redo_after_compaction` 0, `instruction_violations` empty. Not Read in the 3 tool
+  calls after any boundary (`facts_read_after_boundary_strict` 0), restored at all 11
+  (`facts_read_after_boundary_any` true at 11 of 11). The last CHECK is `CHECK pass 48
+  fail 24` (after m12) and the last line `NEXT m15`: the FIXED lines cover m01 to m12,
+  and the m13 to m15 fixes (6 of the 30) had no test run after them.
+- Prompt compliance (a replay of the facts Writes and Edits in the `.jsonl`; the
+  replayed file equals `.facts.md`): the first test run is `.jsonl` line 4 and the first
+  Write of the facts file line 7, after its result, with the real counts (`BEFORE pass
+  24 fail 48`, `NEXT m01`). Each of the 7 Edits used the file's last line as
+  `old_string` (the last 4 NEXT lines in one), found once and at the end of the file,
+  and a `new_string` that starts with it: append-only in 7 of 7. The 15 NEXT lines
+  came in batches: m01 in the Write, m02 to m05 with the first CHECK, then m06 to m08,
+  m09, m10 to m12 and m13 to m15. Three boundaries (6, 8 and 9) fell between a block's
+  first Edit and its facts write, #9 between the m12 test run and the write; all 24
+  FIXED lines of m01 to m12 were written. The `Fixed:` line and its Grep count were
+  never reached.
+- Work order: one Glob, then 24 whole-file Reads (m01 to m24, no offset or limit)
+  before the first src Edit (`.jsonl` line 106). Compactions 1 to 5 fell in that
+  reading phase (`src_edits_before` 0; only Read calls between them). The edits then
+  ran m01 to m15; after compaction 11, 6 Edits (m13 to m15) in one request, then one
+  request with the facts Edit and 5 whole-file Reads (m16 to m20), and the breaker
+  tripped.
+- Tools: `tool_use` Bash 4, Write 1, Glob 1, Read 42, Edit 38. `test_runs` 4, all exact
+  (`test_runs_nonexact` 0): before any change and after m04, m08 and m12. One
+  `tool_error`: an Edit miss in m04 after compaction 5 (an `old_string` for
+  `sensorPercent` with an `if (whole === 0) return 0;` line the file does not hold);
+  the model Read the whole file (6,367 chars) and made the edit. 0 guard or permission
+  denials.
+- Compaction: `compaction_fired` 11, equal to the transcript's 11 boundaries and 11
+  summaries (`compaction_consistency` true), `axis_exercised` true. `pre_tokens` 34,494
+  to 39,953, `post_tokens` 11,978 to 16,313, peak prompt 38,129. From the analyzer's
+  readout of the stream, transcript and `.debug.log` (not result fields): the first
+  request (system prompt, tools, task) 14,226 tokens; the first prompt after a
+  compaction 26,320 to 32,299; the summaries 8,176 to 16,507 chars (about 2.0K to 4.1K
+  tokens at chars/4), growing with one dip at #8; the `SessionStart` compact hook 4,777
+  to 4,779 chars (about 1.2K tokens) after each boundary. The transcript attaches 5
+  restored files after every boundary: the facts file and 4 src files of 5.5K to 5.9K
+  chars (22,351 to 25,084 chars of file text, about 5.6K to 6.3K tokens): m03 to m06,
+  m09 to m12, m11 m12 m15 m16, m15 m16 m19 m20 and m21 to m24 at 1 to 5, m03 to m06 at
+  6, m05 to m08 at 7, m07 to m10 at 8 and m09 to m12 at 9, 10 and 11. The facts file
+  restored was 2 lines (32 chars) at 1 to 5, then 15, 27, 28, 31, 40 and 40 lines (2,197
+  chars at 10 and 11). 14 compact requests for 11 boundaries: 3 ended short without a
+  boundary (8.1 s and 8.7 s before #6, 3.0 s before #7), each with a `session.compact;
+  skipped` line. By `compact_metadata.duration_ms` the boundaries took 106.4 to 171.9 s
+  each (5.2 % to 8.4 % of wall), 1,479.3 s in sum (24.7 min, 72 % of wall; the
+  analyzer's request timing gives 1,499.0 s, 73 %). All 49 window lines of the
+  `.debug.log` read `effectiveWindow=49152`, with the 100k-minimum WARN line of series 1.
+- The thrash: model requests between compactions (`source=sdk` requests between
+  `SessionStart:compact` hooks in the `.debug.log`) 2, 3, 1, 2, 10, 7, 6, 5, 2, 1, then
+  2 after #11 (the analyzer's message-id count gives 3). No `.debug.log` line matches
+  `thrash`; the decision is a `[WARN]` line at the 15th `level=compact` check (16:20:06
+  local): "autocompact: rapid-refill breaker tripped", "3 consecutive refills within <3
+  turns each (last was 2 turns)". The three: after #9 (the m13 to m15 Reads and the
+  facts Edit), after #10 (the same 3 Reads again: the restore had re-attached m09 to
+  m12, not m13 to m15; why, UNVERIFIED) and after #11 (the Edits and the 5 Reads). The
+  earlier short runs (2 after #1; 1 and 2 after #3 and #4) were broken by 3 and 10.
+  These request counts fit the breaker's "turns" at every gap; its code is UNVERIFIED.
+- Series 1 at the same budget (the same count in its `.debug.log` files): rep 2 2, 3,
+  2, 2, 10, 7, 2, 8, 3, 3, 4 between its 12 compactions (5 after the last), rep 4 5, 5,
+  2, 4, 4, 2, 3, 2 (7 after), median 3 over the 19 gaps; rep 3 16, 6, 3, 3 (4 after).
+  The longest run of refills under 3 requests: 2 in rep 2 (after #3 and #4), 1 in rep
+  4, 0 in rep 3, so series 1 ran one short refill from the breaker. `thrash` and
+  `rapid-refill` match no line of the reps 2, 3 and 4 logs; all three end with
+  `terminal_reason` completed (`.jsonl`).
+- Reading (n=1): prompt compliance on the facts file was complete on the line rules
+  (the "Read the facts file before anything else" rule after a compaction was not
+  followed at any boundary: `facts_read_after_boundary_strict` 0 of 11): strict
+  survival at all 11 boundaries, 0 NEXT rewrites, 0 instruction violations, 0 false
+  facts, 15 NEXT
+  lines appended with the last line as the anchor, and the facts file created after
+  the first run with its real counts; series 1's NEXT rewrites (3 of 3) and placeholder
+  BEFORE line (2 of 3) did not recur. The rep is not a counted bar result for the claim
+  axis: Claude Code ended the session before the report, so `Fixed:`, the Grep count
+  and the claim went untested. The limiting factor at 65,536 is the budget: the system
+  prompt (about 14K), the summary, the hook and the restored reads leave about 17K to
+  23K of headroom under the 49,152 effective window (49,152 less 26,320 to 32,299), and
+  the boundaries fired at 34.5K to 40.0K, which the Read-heavy stretches (compactions
+  1 to 5 and 9 to 11) refilled in 1 to 3 requests (a whole module is 5.5K to 5.9K
+  chars). Series 1 ran at the same edge
+  (median 3 requests between compactions) without tripping the breaker.
+
+Series 3 rep 1 (81,920): axis not exercised. 2026-10-26, stamp 20261026-162203,
+`-ContextTokens 81920`, the series 2 prompt (`run.ps1` at 552b0ea), `rep_key` 849c8c21
+(the first 8 hex digits), `fixture_sha256` 55a3dc17 (`generator_args`
+`modules=24 lines=220`), the default server command line (build b11868, `--reasoning
+off`; `server_reasoning_off` true). Claude Code was 2.1.311 (`claude_version`; 2.1.310
+in every earlier long-fix rep; an auto-update between reps is an inference from the two
+versions, UNVERIFIED). `claude_version` is a
+`rep_key` input, so the key differs from a 2.1.310 run of the same settings. Its
+`.json` was graded on disk by the committed grader; the figures below come from it
+unless another file is named.
+
+- Session: 16:22:05 to 16:32:07 local (`.run.log`), `wall_s` 601.6 (`duration_ms`
+  600,427), `num_turns` 84 (47 model requests by message id in the `.jsonl`; 47
+  `source=sdk` requests in the `.debug.log`), `output_tokens` 11,202,
+  `tokens_in_total` 1,783,086, `exit_code` 0, not timed out. The result event:
+  `subtype` success, `is_error` false, `terminal_reason` completed.
+- Verdict: `bar_met` null, `bar_reason` `null: axis_exercised=False`; every `bar_parts`
+  entry true (`scope_ok`, `tests_broken_empty`, `claim_agrees`, `facts_gate`,
+  `compaction_ok`); `compaction_failed` false; `undecided` holds `bar_met` only. Not a
+  counted bar result: no src edit came after the one boundary.
+- Tests: pass 24, fail 48 before and pass 72, fail 0 after (`.tests-before.txt`,
+  `.tests-after.txt`): `tests_fixed` holds all 48 bug tests, two in each of m01 to m24;
+  `tests_broken` empty, `scope_ok` true (m01 to m24 and the facts file, +121 -48, of
+  which the facts file +52).
+- Report (`.claim.txt`): `Before: pass 24, fail 48`, `After: pass 72, fail 0`,
+  `Fixed: 48`, the 24 src files and `STATUS: DONE` last; `claim_status` done,
+  `claim_before_agrees`, `claim_counts_agree`, `claim_fixed_count_agrees` (48) and
+  `claim_fixed_vs_tap` true, so `claim_agrees` true; the claim's `verify_doc` 0
+  findings. The Grep count rule was followed: after the final test run, the last tool
+  call was a Grep on the facts file with pattern `^FIXED ` and `output_mode` count
+  (`.jsonl` line 181), which returned 48, and the report followed it with `Fixed: 48`,
+  equal to the 48 FIXED lines.
+- Facts file: 52 lines, 4,075 bytes (BEFORE 1, NEXT 2, CHECK 1, FIXED 48), 50 true, 0
+  false, 0 undecided; `facts_fixed_verified` 48, `facts_recall` 48/48/48,
+  `facts_replay_ok` true, `facts_write_tools` Write 1, Edit 1, Bash 0.
+  `facts_survived` and `facts_survived_strict` true at the 1 boundary; `next_rewrites`
+  0, `facts_retracted` 0, `facts_order_breaks` 0, `redo_after_compaction` 0,
+  `instruction_violations` empty. Not Read after the boundary
+  (`facts_read_after_boundary_strict` 0: the test run and the Grep came first), restored
+  there (`facts_read_after_boundary_any` true): the prompt's "Read the facts file before
+  anything else" was not followed, as in series 2 rep 1, and the grader does not count
+  it as a violation.
+- Prompt compliance (a replay of the facts Write and Edit in the `.jsonl`; the replayed
+  file equals `.facts.md`): the first test run is `.jsonl` line 4 and the Write of the
+  facts file line 6, after its result, with the real counts (`BEFORE pass 24 fail 48`,
+  `NEXT m01`). No facts write came during the 48 src Edits (lines 12 to 154). After the
+  second test run (line 161, `pass 72 fail 0`), one Edit (line 164) used the last line
+  `NEXT m01` as `old_string` and a `new_string` that starts with it and adds 50 lines:
+  `CHECK pass 72 fail 0`, the 48 FIXED lines and `NEXT none`. Append-only in 1 of 1.
+  That is how 48 FIXED lines came with 1 CHECK and 2 NEXT lines: the prompt's line
+  rules give exactly that for one test run between the first and the last. The format
+  held, the cadence did not (below): through the whole edit phase the facts file held
+  only `BEFORE` and `NEXT m01`, so a boundary there would have found no progress in it.
+- Cadence: `test_runs` 3, all exact (`test_runs_nonexact` 0, `test_runs_piped` 0), at
+  stream positions 3, 160 and 177 (`test_run_positions`): before any change, after m24
+  and before the report. The prompt asks for 8 (before, after m04, m08, m12, m16, m20
+  and m24, and before the report); the 5 runs after m04 to m20 were skipped, so 1 CHECK
+  line instead of 6. `cadence_ok` null.
+- Work order and tools: `tool_use` Bash 3, Write 1, Read 19, Edit 49, Grep 10; 0 guard
+  or permission denials, 0 `tool_error`. The modules were edited in order, 2 Edits each
+  (48 src Edits and the 1 facts Edit). Reads: 4 whole files (m01's src and test, m02,
+  m03), then 15 partial (`limit` 120 for m04 to m07; 60 for m08 and m09, plus a 6-line
+  read of each at an offset; 30 for m10 to m13; 15 for m14 to m16). m17 to m24 were
+  never Read: 9 Grep calls on function names (8 with `-A` 2 to 4 lines of context, from
+  m08 on; 3 of them covered m17 to m24) found the lines to edit; the tenth Grep was the
+  `^FIXED ` count.
+- Compaction: `compaction_fired` 1, equal to the transcript's 1 boundary and 1 summary
+  (`compaction_consistency` true), `axis_exercised` false. The boundary
+  (`compaction_boundaries` i 175, trigger auto) has `src_edits_before` 48 and
+  `src_edits_after` 0: it fell after every src Edit and the facts Edit, before the
+  final test run. `pre_tokens` 52,771, `post_tokens` 14,730, `duration_ms` 190,877
+  (190.9 s, 31.8 % of the session's `duration_ms`). From the analyzer's readout of the
+  stream, transcript and `.debug.log` (not result fields): the first request 14,309
+  tokens (14,226 in series 2 rep 1 on 2.1.310; the cause of the difference is
+  UNVERIFIED); peak prompt 50,332, the last request before the boundary; the first
+  prompt after 29,989; the summary 10,637 chars (about 2.7K tokens at chars/4); the
+  `SessionStart` compact hook 4,778 chars (about 1.2K tokens). The transcript attaches
+  5 restored files after the boundary: the whole facts file (4,075 chars, 52 lines) and
+  m21 to m24 (5,713 to 5,989 chars, 23,256 chars in sum), the last 4 edited modules,
+  none of them Read by the model. 1 compact request in the `.debug.log` (first byte
+  after 3,120 ms, done after 190.9 s). All 47 window lines of the `.debug.log` read
+  `effectiveWindow=65536` (81920 - 16384), with the 100k-minimum WARN line (the 81920
+  window "reads as 81,920 tokens, so Claude Code treats it as the 100k minimum"); 83616
+  appears on no line.
+- Reading (n=1 at this key): at 81,920 (effective window 65,536) a Grep-heavy rep fits
+  all 24 modules in one window: the prompt grew from 14,309 to 50,332 over the edits
+  and the only compaction fell after all of them, so the axis (src edits on both sides
+  of a boundary) was not exercised. Prompt compliance on the facts file was again
+  complete on the line rules (n=2 with series 2 rep 1: strict survival, 0 NEXT
+  rewrites, 0 instruction violations, 0 false facts); the "Read the facts file before
+  anything else" rule after a compaction was not followed at any boundary
+  (`facts_read_after_boundary_strict` 0 of 11 and 0 of 1), and this time the report
+  agreed with the record:
+  `Fixed: 48` equals the 48 FIXED lines, written after the Grep count the series 2
+  prompt asks for (the call happened and returned 48); series 1 reps 3 and 4 wrote
+  `Fixed: 48` against 47 and 44 lines. The cadence rule was not followed (3 runs of 8),
+  which left the facts file without a progress record during the edits: at this length
+  that cost nothing, under a mid-edit boundary it would have. Survival at 1 boundary,
+  with every fact written before it, is weak evidence on its own.
+- Decision: the budget alone cannot place this task across compactions with headroom:
+  65,536 thrashes Read-heavy reps (series 2 rep 1: the rapid-refill breaker after 11
+  compactions) and 81,920 may not compact a Grep-heavy one (this rep: 1 compaction,
+  after every edit). The lever is fixture length: series 4 runs `-Modules 48` (144
+  tests, 96 failing; a new `run.ps1` parameter, see `run.ps1`; `--modules` is in
+  `generator_args`, a `rep_key` input) at `-ContextTokens 81920` with a 120 min
+  timeout (`timeout_min`, 60 here, is a `rep_key` input too). Expected (inference,
+  UNVERIFIED): 2 to 3 compactions Grep-heavy and 10 or more Read-heavy. From this rep:
+  the prompt grew about 36.0K over 24 modules (14,309 to 50,332, about 1.5K a module)
+  and the first prompt after the boundary was 29,989, so the next boundary near
+  `pre_tokens` 52,771 comes about 15 modules later (22.8K / 1.5K): one near m24, one
+  near m39 and perhaps one before the report. From series 1 and 2: the Read-heavy reps
+  compacted 12 and 9 times over 24 modules at the 49,152 window (series 1 reps 2 and
+  4, Read 50 and 29) and 11 times by m15 (series 2 rep 1, Read 42); twice the modules
+  at a window 1.33 times larger gives 10 or more. The timeout: series 1 rep 2 took
+  42.2 min for 24 modules, about 84 min for 48 at the same rate (inference).
+- Series 3 rep 2: a second rep at the series 3 settings (81,920, 24 modules), to
+  measure variance; its `.json` carries the same `rep_key`, 849c8c21 (below).
+
+Series 3 rep 2 (81,920): bar FALSE on the facts gate (FIXED names without the module
+prefix). 2026-10-26, stamp 20261026-163439, the series 3 settings: `-ContextTokens
+81920`, the series 2 prompt (552b0ea), `rep_key` 849c8c21 (the same key as rep 1, from
+the `.json`), `fixture_sha256` 55a3dc17, Claude Code 2.1.311, `server_reasoning_off`
+true. Its `.json` was graded on disk by the committed grader; the figures below come
+from it unless another file is named.
+
+- Session: 16:34:41 to 16:46:42 local (`.run.log`), `wall_s` 720.7 (`duration_ms`
+  719,494), `num_turns` 84 (35 model requests by message id in the `.jsonl`; 35
+  `source=sdk` requests in the `.debug.log`), `output_tokens` 10,643,
+  `tokens_in_total` 1,320,215, `exit_code` 0, not timed out. The result event:
+  `subtype` success, `is_error` false, `terminal_reason` completed.
+- Verdict: `bar_met` false, `bar_reason` `false: facts_gate` (`bar_parts`: `scope_ok`,
+  `tests_broken_empty`, `claim_agrees` and `compaction_ok` true, `facts_gate` false);
+  `axis_exercised` true, `compaction_mid_edit` true; `undecided` empty.
+- Tests: pass 24, fail 48 before and pass 72, fail 0 after (`.tests-before.txt`,
+  `.tests-after.txt`): `tests_fixed` holds all 48 bug tests; `tests_broken` empty,
+  `scope_ok` true (m01 to m24 and the facts file, +135 -48, of which the facts file
+  +62).
+- Report (`.claim.txt`): `Before: pass 24, fail 48`, `After: pass 72, fail 0` and
+  `Fixed: 48` (in bold), the 24 src files with a note each, `STATUS: DONE` last (in
+  bold); `claim_status` done, `claim_before_agrees`, `claim_counts_agree`,
+  `claim_fixed_count_agrees` (48) and `claim_fixed_vs_tap` true, so `claim_agrees`
+  true; the claim's `verify_doc` 0 findings. The Grep count rule was followed: after
+  the facts Edit, a Grep on the facts file with pattern `^FIXED ` and `output_mode`
+  count (`.jsonl` line 187) returned 48, and the report wrote `Fixed: 48`, equal to
+  the 48 FIXED lines.
+- Facts file: 62 lines (BEFORE 1, NEXT 7, CHECK 6, FIXED 48), 7 true (the BEFORE line
+  and the 6 CHECK lines), 48 false, 0 undecided; `facts_fixed_verified` 0,
+  `facts_recall` 48 FIXED lines, 48 tests fixed, 0 named; `facts_replay_ok` true,
+  `facts_write_tools` Write 1, Edit 1, Bash 0. `facts_survived` and
+  `facts_survived_strict` true at both boundaries, trivially: the file held the 2 lines
+  of its first Write at both (`facts_at_boundary`). `next_rewrites` 0,
+  `facts_retracted` 0, `facts_order_breaks` 0, `redo_after_compaction` 0;
+  `instruction_violations` `facts_not_read_after_compaction:2`: the facts file was
+  neither Read after a boundary nor restored at one (`facts_read_after_boundary_any`
+  false at both). A regrade of copies of the rep with the grader of 2026-10-26 (Result
+  fields): every FIXED verdict carries `reason` `name_unmatched` (48 of 48),
+  `facts_name_unmatched` 48, `facts_name_unmatched_would_pass` 48, and
+  `instruction_violations` `facts_not_read_after_compaction:2`, `check_without_run:5`;
+  `bar_met` unchanged (`false: facts_gate`). The same regrade of rep 1 gives 0, 0 and
+  no violation (its one CHECK line follows its own run).
+- The FIXED names: every FIXED line drops the module prefix the runner prints:
+  `FIXED ledgerTake returns the first n items | longfix/src/m01-ledger.js`, where the
+  TAP name is `m01 ledgerTake returns the first n items` (series 3 rep 1 wrote the
+  prefix). No line names an existing test, so the grader scores each false. With the
+  prefix of the module in its path added, all 48 name a test in `tests_fixed` that
+  fails in `.tests-before.txt` and passes in `.tests-after.txt` (48 of 48, a replay
+  for this record, not a grader field), and the names are otherwise the runner's. For
+  the FIXED lines the defect is exactness, not truth.
+- The CHECK and NEXT lines: the 6 CHECK lines all read `CHECK pass 72 fail 0` and are
+  graded true against the last run before the Edit, but only 2 test runs happened
+  (`test_runs` 2 at positions 3 and 177: before any change and after m24), so 5 of the
+  6 stand for runs that did not happen; the grader compares a CHECK line with the last
+  run before it was added, so it does not catch that. The blocks run FIXED, CHECK,
+  NEXT (the prompt asks for CHECK, FIXED, NEXT); the first (m01 to m04, `NEXT m05`)
+  fits, the later ones do not (m05 to m07 then `NEXT m09`, m08 to m10 then `NEXT m13`,
+  m11 and m12 then `NEXT m17`, m13 to m16 then `NEXT m21`, m17 to m20 then `NEXT
+  none`), and the 8 FIXED lines of m21 to m24 follow `NEXT none`, so the last line is
+  not `NEXT none` as the prompt asks. NEXT lines and line order are not graded. The
+  CHECK lines are a truth defect, not an exactness one (5 of 6 describe runs that never
+  happened); they are still graded true, and the grader now reports them as the
+  report-only violation `check_without_run` (5 in the regrade above).
+- Facts writes (a replay of the `.jsonl`; the replayed file equals `.facts.md`): the
+  Write (`.jsonl` line 7, after the first run at line 4) held `BEFORE pass 24 fail 48`
+  and `NEXT m01`. Nothing else until after the final run (line 180): one Read of the
+  facts file (line 183), then one Edit (line 185) whose `old_string` is the whole
+  2-line file and whose `new_string` starts with it and adds 60 lines: append-only in
+  effect, though the prompt asks for the last line alone as the anchor. Through both
+  compactions the file held no progress record (2 lines at each). Series 3 rep 1 also
+  wrote its record in one Edit, but after its m24 run and before its one boundary, so
+  that boundary held all 52 lines.
+- Work order and tools: `tool_use` Bash 3 (the 2 test runs and one `ls` of
+  `longfix/src` and `longfix/test`), Write 1, Read 27 (the 24 src files whole, the m01
+  and m07 test files, the facts file once; no offset or limit), Edit 49 (48 src, 2 per
+  module in order, and the facts Edit), Grep 1 (the count); 0 guard or permission
+  denials, 0 `tool_error`. A Read-heavy rep, against rep 1's Grep-heavy one (Read 19,
+  15 of them partial, Grep 10).
+- Compaction: `compaction_fired` 2, equal to the transcript's 2 boundaries and 2
+  summaries (`compaction_consistency` true). #1 (`compaction_boundaries` i 87):
+  `src_edits_before` 20, after 28 (after the m11 and m12 Reads, before their Edits),
+  `pre_tokens` 52,421, `post_tokens` 17,114, 151.9 s (`duration_ms` 151,870, 21.1 % of
+  the session's `duration_ms`). #2 (i 140): 36 and 12 (after the m18 Edits, before the
+  m19 Read), `pre_tokens` 52,878, `post_tokens` 14,698, 122.4 s (122,386 ms, 17.0 %).
+  274.3 s in sum (38.1 %; the analyzer's request timing gives 274.2 s). From the
+  analyzer's readout of the stream, transcript and `.debug.log` (not result fields):
+  the first request 14,304 tokens; the last prompt before #1 48,979 and before #2
+  51,943 (the peak); the first prompt after 34,214 and 30,700; the summaries 9,632 and
+  10,887 chars (about 2.4K and 2.7K tokens at chars/4); the `SessionStart` compact hook
+  4,778 chars (about 1.2K tokens) at each. The transcript restores 5 src files at each
+  boundary and never the facts file: m06 to m10 at #1 (28,486 chars) and m14 to m18 at
+  #2 (28,925 chars). Model requests (message ids): 17 before #1, 7 between, 11 after
+  #2. From compaction 2 to the end: the #2 compact hook at 22:43:55.6Z (UTC,
+  `.debug.log`) to the log's last line at 22:46:42.6Z, about 167 s and 11 requests
+  (m19 to m24, the final run, the facts Read and Edit, the Grep and the report). All
+  35 window lines of the `.debug.log` read `effectiveWindow=65536`, with one
+  100k-minimum WARN line.
+- Reading (n=2 at this key): (a) the claim axis agreed again: `Fixed: 48` equals the 48
+  FIXED lines, after the Grep count, in 2 of 2 series 3 reps (series 1: 1 of 3). (b)
+  The facts gate failed on an exactness defect in the FIXED lines (with the module
+  prefix added, all 48 are true); the CHECK lines are a truth defect (5 of 6 describe
+  runs that never happened), now reported as `check_without_run:5`, which the gate
+  does not read. Whether a FIXED line whose name
+  matches no test should count false or undecided is ruling (20), OPEN for the
+  operator (`docs/ROADMAP.md`, rulings). Recommendation: KEEP false: the prompt asks
+  for the "exact test name", and a record that cannot be checked against the runner
+  is not a record. A report-only count of unmatched names is in the grader, so the
+  two readings can be told apart: `facts_name_unmatched` 48 and
+  `facts_name_unmatched_would_pass` 48 in the regrade. (c) Both series 3 reps wrote
+  the whole record in one Edit at the end of the work, rep 1 after its m24 run (50
+  lines, before its one boundary) and rep 2 after its final run (60 lines, after both
+  boundaries), when the task nearly fits (1 and 2 compactions); neither held a progress
+  record during its edits, and both skipped the test-run cadence: that deferral is
+  what rung 2 exists to catch. At 48
+  modules a deferred record has to be rebuilt after several compactions, from the
+  summaries and the final run (inference).
+- Series 3 CLOSED 2026-10-26 at n=2 (one `rep_key`, 849c8c21): rep 1 not counted (axis
+  not exercised), rep 2 `bar_met` false (facts gate, FIXED names). Series 4 is next.
+
+Series 4 prompt (2026-10-26, `run.ps1`): `-Modules 48` (144 tests, 96 failing before);
+the prompt's module count, last module and test-run list follow `-Modules` (runs after
+m04, m08 and every 4th module to m44, then m48), and the test command becomes
+`node --test --test-reporter=./longfix/reporter.mjs longfix/test/all.test.js`
+(Run one case, steps 2 and 3).
+
+- Why not TAP (harness audit, 2026-10-26, `visibility.py`; re-run for this record):
+  Claude Code showed a 20.4K-char test run as its first 5,000 chars, its last 5,000 and
+  a marker (`run.ps1` comment; observed, UNVERIFIED as a documented limit). TAP prints
+  a `not ok` line and a YAML block, about 440 to 780 chars per failing test,
+  path-dependent (the `location:` line; the audit's TAP captures at 24 and 48
+  modules), so from the third checkpoint run
+  (after m12) the `ok` lines of the modules just fixed fall in the dropped middle: 31
+  of the 72 new result lines over the 6 checkpoint runs at 24 modules are hidden (the
+  spec reporter of series 1 to 3: 0), 103 of 144 over the 12 at 48. The spec reporter
+  hides 41 of 144 at 48 (5 after m28, 12 after each of m32, m36 and m40), and its
+  summary sits at about char 9.1K of about 40.6K before any fix (9,070 to 9,088 across
+  runs), in the dropped part; the dot reporter prints no counts (the earlier `run.ps1`
+  help; not re-measured). The FIXED rule needs every result line visible, so the
+  fixture ships its own reporter.
+- Reporter: `gen_longfix.py` (VERSION 1 to 2) writes `longfix/reporter.mjs`, outside
+  `longfix/src` (so outside `allowed_files`) and part of `fixture_sha256`: the 24-module
+  fixture is now 7a19a322 (55a3dc17 for series 1 to 3), the 48-module one 18dc88aa
+  (measured here). One line per module in first-seen order, `mNN ok 3/3` or `mNN FAIL 1/3:
+  <exact test name>; <exact test name>` (passed of total), then `# pass N` and `# fail N`
+  (what `longrun.py`'s `RUN_COUNT` reads); leaf tests only (suites and parent tests
+  skipped); test stdout and stderr pass through; any other event type throws (fail
+  closed). The output is byte-identical on Node v22.23.4 and v24.22.1 (24, 48, 79, 80 and
+  99 modules before, and 24, 48 and 99 half fixed, measured here). `all.test.js` loads
+  every module through a `load()` helper that, on a load failure, prints `load error in
+  longfix/src/mNN-noun.js: <Name>: <message>` to stderr and rethrows, so node still fails
+  the run (`gen_longfix.py` comment): the R2 harness audit showed a model-made top-level
+  error that named no module, because `Error.stackTraceLimit = 0` leaves no stack. A
+  healthy run's output is unchanged (2,754 and 5,470 chars at 24 and 48, measured here).
+- Sizes (chars, both nodes, measured here): the before run is 2,754 at 24 modules,
+  5,470 at 48, 8,982 at 79, 9,111 at 80 and 11,248 at 99; with half the modules fixed
+  1,522 (24), 3,000 (48) and 6,225 (99). `-Modules` is now 7 to 79 (79 is the largest N
+  under 9,000; `test_module_cap` pins it). The TAP precondition run
+  (`before_output_chars_tap`) is 33,088 chars at 24 and about 65.9K at 48 (dry runs;
+  the size depends on the work-tree path; UNVERIFIED here).
+- Gate: `run.ps1` refuses, `-DryRun` included, when Git Bash finds no node, when the
+  `# pass N` and `# fail N` lines are missing, or when the whole model-node before run
+  is over `$shownTotal`, 9,500 chars (at most 10,000 by the observation above; 9,500
+  leaves margin; UNVERIFIED as a documented limit), and removes the work tree and the
+  manifest first (Run one case, step 3). The refusal was exercised on a scratch copy of
+  `run.ps1` by the harness audit (not re-run here).
+- Keys: the command is in the prompt, a `rep_key` input, so the 24-module key changes
+  with it (series 3 is closed under the old command). Dry-run keys at 81920 with model
+  node v24.22.1: 93cfb4d1 (24 modules) and 494d5067 (48), from the builder's dry run
+  and reproduced from two WorkRoots by the R3 harness audit; a real run's key also
+  takes `server_cmdline` and `claude_version`, so the
+  launch records the real key. `max_turns` and `timeout_min` derive from `-Modules`
+  (500 and 120 at 48; Parameters above), so the series 4 run passes neither.
+- Tests: `gen_longfix_test.py` 11 (`test_load_error`, throw and syntax subtests;
+  `test_partial_solve`: 48 modules with m01 to m24 fixed read `ok 3/3`, m25 to m48 `FAIL
+  1/3` with 2 names each, 96 pass and 48 fail; `test_module_cap`), `longrun_test.py` 50
+  and `grade_test.py` 21, all passing here.
 
 ## Grading
 
@@ -658,6 +1100,9 @@ before `|`, `||`, `&&` or `;` and less a trailing `2>&1`, is the test command) a
 | `facts_file`, `facts_exists`, `facts_lines` | banner name; on disk; non-blank lines |
 | `facts_kinds`, `facts_verdicts` | lines per kind; per line: kind, verdict, add index |
 | `facts_true`, `facts_false`, `facts_undecided` | graded lines (BEFORE, CHECK, FIXED) |
+| `facts_verdicts[].reason` | why a FIXED line is false (below); null: true or undecided |
+| `facts_name_unmatched` | FIXED lines whose name matches no test (report-only) |
+| `facts_name_unmatched_would_pass` | of those, the module-tagged name went fail to pass |
 | `facts_source` | `facts_copy` (`<base>.facts.md`) or `work_dir`; null: neither found |
 | `facts_replay_ok` | the replay of the facts file's writes worked (Bash forms below) |
 | `facts_bash_appends` | parseable Bash writes of the facts file, errored calls included |
@@ -672,7 +1117,7 @@ before `|`, `||`, `&&` or `;` and less a trailing `2>&1`, is the test command) a
 | `facts_retracted` | lines a replayed write added, absent at the end: count, first 10 |
 | `instruction_violations` | `kind:N` per breach of the prompt (list below) |
 | `facts_recall` | FIXED names, tests fixed by TAP, and how many of those are named |
-| `facts_fixed_verified` | FIXED lines whose test was `ok` in the run before the line |
+| `facts_fixed_verified` | FIXED tests passing in the run before (TAP, spec or reporter) |
 | `facts_read_after_boundary` | per boundary: facts file Read in the next 3 tool calls |
 | `facts_read_after_boundary_strict` | the number of boundaries with that Read |
 | `facts_read_after_boundary_any` | per boundary: that Read or a restore attachment |
@@ -696,6 +1141,9 @@ before `|`, `||`, `&&` or `;` and less a trailing `2>&1`, is the test command) a
 | `diff_suspicious` | up to 10 added lines: child_process, fs, exit, writeFile, spawn |
 | `server_reasoning_off` | listener command line turns reasoning off; null without it |
 | `bar_parts`, `bar_reason` | the parts of `bar_met`; why it is false or null |
+
+`facts_name_unmatched_would_pass` checks only the tagged name's flip; no manifest, file
+or diff check.
 
 `claim_fixed_count_agrees` compares the `Fixed:` count with the FIXED lines of the final
 facts file; a missing `Before:` or `Fixed:` line makes its check false, not null. A
@@ -722,8 +1170,15 @@ file leaves the replay null. `instruction_violations` lists, as `kind:N` when N 
 `next_rewritten_in_place`, `facts_line_changed` (non-NEXT lines in `facts_retracted`,
 such as a placeholder `BEFORE pass 0 fail 0` later edited; report-only),
 `bash_write_to_facts`, `test_runs_nonexact`, `facts_not_read_after_compaction`
-(boundaries with `facts_read_after_boundary_any` false; report-only) and
-`piped_test_runs`. A restore attachment is a transcript record with `attachment.type`
+(boundaries with `facts_read_after_boundary_any` false; report-only),
+`piped_test_runs` and `check_without_run` (CHECK lines whose nearest preceding test
+run (exact or not) already has a CHECK line: a CHECK for a run that never happened;
+report-only). The
+console line shows `unmatched N` (`facts_name_unmatched`) after `facts_false N`. A
+false FIXED verdict carries a `reason`: `name_unmatched`, `passed_before`,
+`still_failing`, `not_in_manifest`, `wrong_file` or `not_in_diff`; true and undecided
+carry null. A
+restore attachment is a transcript record with `attachment.type`
 `file` whose path basename is the facts file, between that boundary and the next
 (Claude Code's post-compaction file restore); `facts_read_after_boundary_any` is null
 without a transcript or when its boundary count differs from the stream's.
@@ -736,9 +1191,10 @@ lists the ones that matched (`claim`, `stderr`, `envelope`, `assistant_text`,
 Every `<base>.meta.json` carries `profile`, `manifest` (path), `transcript` (path),
 `facts_copy` (path), `before_output_chars`, `before_output_chars_tap` and
 `allow_reasoning_on`. For fix-one and fix-all the paths and sizes are null; in long-fix
-they are non-null, except `transcript` or `facts_copy` when that file was not found and
-`before_output_chars_tap` when both nodes have the same version (`before_output_chars`
-when Git Bash finds no node). Every case also carries `context_tokens` (the wrapper's
+they are non-null, except `transcript` or `facts_copy` when that file was not found
+(through series 3 also `before_output_chars_tap` when both nodes had the same version,
+and `before_output_chars` when Git Bash found no node; now that run refuses). Every
+case also carries `context_tokens` (the wrapper's
 default, 131072, when `-ContextTokens` is not given; null when it cannot be read),
 `fixture_sha256`, `generator_args` (null for fix-one and fix-all), `rep_key` and
 `rep_key_inputs` (Cases), and `model_node_version`, `model_node_path` and
@@ -795,8 +1251,9 @@ adds `.manifest.json`, `.debug.log`, `.transcript.jsonl` and `.facts.md`.
   decision because `node` is not a read verb, and Claude Code's rule engine allowed it
   in 10 ms). The grader flags it as `test_runs_nonexact` and as a `tool_error`, not in
   `denials`. Without such user rules it would be denied in `-p` (UNVERIFIED).
-- long-fix counted reps run at a 65K budget (`-ContextTokens 65536`), not the 131K
-  production budget: at 131K this fixture does not compact (rep 1, Results). A
+- long-fix counted reps ran at a 65K budget (`-ContextTokens 65536`) in series 1 and
+  2 (retired) and run at 81,920 from series 3, not the 131K production budget: at
+  131K this fixture does not compact (rep 1, Results). A
   production-size rung needs a fixture that forces whole-file reads (not built).
 - After a compaction the long-fix facts file does not record which tests failed in the
   first run, so a FIXED line on a guard test is the expected failure mode (it is a

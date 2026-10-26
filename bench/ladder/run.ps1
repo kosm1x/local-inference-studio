@@ -5,8 +5,8 @@
   named failing tests pass, change only the allowed file and report a ledger the harness
   can check. The harness grades it (bench/ladder/grade.py), never the model.
   Cases: fix-one (one test, two stay failing), fix-all (all three tests), long-fix
-  (rung 2: a generated 24-module fixture under `-LisTask longrun`, long enough that
-  compaction fires; bench/ladder/README.md).
+  (rung 2: a generated fixture of -Modules modules, default 24, under `-LisTask longrun`,
+  long enough that compaction fires; bench/ladder/README.md).
 .DESCRIPTION
   One case per call (the server has one slot). Steps:
   1. Refuses to start if a /slots entry (slot 0 included) is processing, or, as a
@@ -18,9 +18,9 @@
      of config/claude-settings.json (rule set A) runs the test command without a prompt;
      git init + one commit, so scope is a git diff. WorkRoot is not %TEMP% (bench/loop:
      Git Bash shows it as /tmp/..., which the Write tool misreads). long-fix instead
-     runs bench/ladder/gen_longfix.py into the work tree (longfix/src, longfix/test),
-     manifest to <base>.manifest.json, outside the work tree; the allow rule is
-     `Bash(node --test longfix/test/all.test.js)`.
+     runs bench/ladder/gen_longfix.py --modules <-Modules> into the work tree (longfix/src,
+     longfix/test), manifest to <base>.manifest.json, outside the work tree; the allow rule is
+     `Bash(node --test --test-reporter=./longfix/reporter.mjs longfix/test/all.test.js)`.
   3. Tests BEFORE (node --test, TAP): every target and keep-failing test must fail,
      or the case is invalid and nothing launches. After that run it resolves the node the
      model's Bash tool will run (Git Bash as a login shell, -lc; -ic when that finds none or
@@ -28,9 +28,14 @@
      long-fix: the TAP results must equal the manifest's expect_before exactly (every bug
      test fails, every guard passes).
      long-fix also runs the prompt's exact test command once through that Git Bash, from
-     the work tree, and records its output size (before_output_chars; over 25,000 prints
-     a WARNING, no refusal), plus the size with this shell's node when its version differs
-     (before_output_chars_tap: Node 22 off a TTY prints TAP).
+     the work tree, and records its output size (before_output_chars), plus the size of the
+     TAP run above (before_output_chars_tap, this shell's node; it grows with the
+     work-tree path, varies by a few chars between runs with the TAP durations, and is not
+     a rep_key input). The command uses the fixture's reporter, longfix/reporter.mjs: one
+     line per module, then '# pass N' and '# fail N' (spec and TAP output gets cut by
+     Claude Code, hiding result lines). It refuses to start, -DryRun included, unless that
+     whole output is visible: at most $shownTotal (9,500) chars, with the '# pass N' and
+     '# fail N' lines; also when Git Bash finds no node.
   4. From the work tree: pwsh -NoProfile -File scripts\claude-local.ps1 -LisTask edit -p
      <prompt> --output-format stream-json --verbose --max-turns N --permission-mode
      acceptEdits (acceptEdits keeps the operator's default mode, which may call a
@@ -54,6 +59,20 @@
   Never starts or stops the server. -DryRun prepares the work tree, runs the BEFORE
   tests, runs the wrapper with -LisPrintArgs (which never starts claude), prints the
   exact wrapper argv and deletes the work tree; it sends no request to the server.
+.PARAMETER Modules
+  long-fix only (refused for the other cases): passed to gen_longfix.py as --modules N. The
+  fixture has 3*N tests, 2*N of them failing before (2 planted bugs + 1 guard per module).
+  Range 7..79: 7 plants every bug kind (the bug pairs repeat every 7 modules); 79 is the
+  largest N whose before-run output fits 9,000 chars (8,982), 500 under the step 3 limit;
+  80 to 83 would still pass step 3 (9,111 to 9,442 chars); 84 and up would be refused there
+  (84: 9,555; 99: 11,248).
+  The prompt names N, the last module (mNN) and a test run after every 4th module and the
+  last; with 24 it renders the fixed 24-module wording. generator_args (a rep_key
+  input) records N. Unbound -MaxTurns and -TimeoutMin scale with N: 250 and 60 per 24
+  modules, never below them (series 1 reps at 24 modules took up to 133 turns and 42 min).
+  Series 4 design: 48 modules at -ContextTokens 81920, where a Grep-heavy 24-module rep did
+  the whole task in one window. Before-run output with the fixture's reporter: 2,754 chars
+  at 24 modules, 5,470 at 48 (no paths, same on Node 22 and 24); fixing tests shortens it.
 .EXAMPLE
   pwsh bench/ladder/run.ps1 -Case fix-one -DryRun
 .EXAMPLE
@@ -62,15 +81,19 @@
   pwsh bench/ladder/run.ps1 -Case fix-all -DryRun
 .EXAMPLE
   pwsh bench/ladder/run.ps1 -Case long-fix -DryRun
+.EXAMPLE
+  pwsh bench/ladder/run.ps1 -Case long-fix -Modules 48 -ContextTokens 81920 -DryRun
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('fix-one', 'fix-all', 'long-fix')][string]$Case,
-    # Defaults when not bound: 30 and 30; long-fix 250 and 60 (its case entry).
+    # Defaults when not bound: 30 and 30; long-fix 250 and 60 per 24 modules (-Modules).
     [int]$MaxTurns = 30,
     [ValidateRange(1, 600)][int]$TimeoutMin = 30,
     # Passed as -LisContextTokens; unbound, the wrapper's default applies.
     [ValidateRange(1024, [int]::MaxValue)][int]$ContextTokens,
+    # long-fix only: gen_longfix.py --modules (.PARAMETER Modules).
+    [ValidateRange(7, 79)][int]$Modules = 24,
     [string]$WorkRoot = (Join-Path $env:LOCALAPPDATA 'lis-ladder'),
     [string]$OutDir = (Join-Path $PSScriptRoot '..\results'),
     [switch]$AllowReasoningOn,
@@ -79,7 +102,16 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $testCmd = 'node --test bench/loop/fixture/test/text.test.js'
-$longCmd = 'node --test longfix/test/all.test.js'
+# The fixture's reporter (gen_longfix.py REPORTER): one line per module, then '# pass N'
+# and '# fail N'; the path resolves against the cwd (the work tree).
+$longCmd = 'node --test --test-reporter=./longfix/reporter.mjs longfix/test/all.test.js'
+# Claude Code showed a 20.4K-char result as its first 5,000 + last 5,000 chars + a marker
+# (rep 1 of 2026-10-26), so an output it shows whole is at most 10,000 chars; 9,500 leaves
+# margin. UNVERIFIED as a documented limit.
+$shownTotal = 9500
+# long-fix prompt: the last module, and the test runs after every 4th module and the last.
+$mLast = 'm{0:D2}' -f $Modules
+$mRuns = (@(for ($i = 4; $i -lt $Modules; $i += 4) { 'm{0:D2}' -f $i }) -join ', ') + " and $mLast"
 # targets must pass after; keep_failing must still fail after, and is part of the bar
 # only when require_others_failing is set (grade.py).
 $cases = [ordered]@{
@@ -114,20 +146,25 @@ $cases = [ordered]@{
         test_cmd               = $longCmd
         test_dir               = 'longfix/test'
         test_file              = 'longfix/test/all.test.js'
-        max_turns              = 250
-        timeout_min            = 60
+        # 250 and 60 per 24 modules, never below them (.PARAMETER Modules).
+        max_turns              = [int][math]::Ceiling(250 * [math]::Max($Modules, 24) / 24)
+        timeout_min            = [int][math]::Ceiling(60 * [math]::Max($Modules, 24) / 24)
         targets                = @()
         keep_failing           = @()
         require_others_failing = $false
         allowed                = @()
+        # Module count, last module and test-run list follow -Modules (24: the fixed prompt).
         # series 2 prompt (2026-10-26): append-only NEXT with an Edit anchor, Grep-counted Fixed:, no placeholder BEFORE, file over summary; series 1 prompt = f599107..11afac5
-        prompt                 = "This is a Node.js project of 24 modules, longfix/src/m01-*.js to longfix/src/m24-*.js, with their tests under longfix/test/. Many tests fail. The test command is exactly: $longCmd (run it from this directory, without cd, and do not pipe it); no other command runs the tests. Make every failing test pass. You may change only files under longfix/src/, plus your facts file; do not edit, add, rename or delete anything under longfix/test/. The task is longer than your context window, so compaction will drop earlier turns: the facts file your task profile names is your record. Work through the modules in order, m01 to m24. Run the test command once before any change, then after m04, m08, m12, m16, m20 and m24, and once more before your report. Create the facts file only after your first test run has finished, with the real counts in its BEFORE line; never write a placeholder line, even if other guidance says to create it first. Write the facts file with these lines only, one fact per line, adding lines and never changing or deleting one: first 'BEFORE pass N fail N' with the counts of your first test run, then one 'NEXT mNN' line naming the first module you will work on; after each later test run, 'CHECK pass N fail N' with the counts it printed, then one 'FIXED <exact test name> | <path of the file you changed for it>' line for every test that failed in your first run, that this run shows passing, and that no earlier FIXED line names, then 'NEXT mNN' with the next module to work on. Each 'NEXT mNN' is a new line added at the end of the file: never edit or remove an existing NEXT line; the last NEXT line in the file is the current one. To add lines with Edit, use the current last line of the file as old_string and that same line followed by the new lines as new_string, so no existing line changes. A guard test that passed in your first run must never get a FIXED line; after a compaction, decide from the function the test names: if you did not change that function, the test is a guard, and when unsure leave the line out: a missing FIXED line costs nothing, a FIXED line on a test that already passed fails the run. Append to the facts file with the Edit tool (or Write for the first version); do not use shell redirection. After a compaction, Read the facts file before anything else, continue from its last NEXT line, and do not redo a module whose tests it lists as FIXED. Trust the facts file over the summary: if the summary says a module is not yet edited but a test of it that failed in your first run now passes, you edited it: add FIXED lines for those tests only, never for a guard. Only these four line kinds go in the facts file; any other guidance about what to record there does not apply to this task. The last line of the facts file at the end is 'NEXT none'. Before you write the 'Fixed: N' line, count the lines that start with 'FIXED ' in the facts file with the Grep tool (pattern '^FIXED ', output_mode count) and write that number, even if it differs from the number of tests that now pass. End your report with these five lines, in this order: 'Before: pass N, fail N' with the counts of your first test run; 'After: pass N, fail N' with the counts of your last test run; 'Fixed: N' with the number of FIXED lines in the facts file; 'Changed files:' followed by every file you changed except the facts file; and last STATUS: DONE if every test now passes, or STATUS: BLOCKED if any does not."
+        prompt                 = "This is a Node.js project of $Modules modules, longfix/src/m01-*.js to longfix/src/$($mLast)-*.js, with their tests under longfix/test/. Many tests fail. The test command is exactly: $longCmd (run it from this directory, without cd, and do not pipe it); no other command runs the tests. Make every failing test pass. You may change only files under longfix/src/, plus your facts file; do not edit, add, rename or delete anything under longfix/test/. The task is longer than your context window, so compaction will drop earlier turns: the facts file your task profile names is your record. Work through the modules in order, m01 to $($mLast). Run the test command once before any change, then after $($mRuns), and once more before your report. Create the facts file only after your first test run has finished, with the real counts in its BEFORE line; never write a placeholder line, even if other guidance says to create it first. Write the facts file with these lines only, one fact per line, adding lines and never changing or deleting one: first 'BEFORE pass N fail N' with the counts of your first test run, then one 'NEXT mNN' line naming the first module you will work on; after each later test run, 'CHECK pass N fail N' with the counts it printed, then one 'FIXED <exact test name> | <path of the file you changed for it>' line for every test that failed in your first run, that this run shows passing, and that no earlier FIXED line names, then 'NEXT mNN' with the next module to work on. Each 'NEXT mNN' is a new line added at the end of the file: never edit or remove an existing NEXT line; the last NEXT line in the file is the current one. To add lines with Edit, use the current last line of the file as old_string and that same line followed by the new lines as new_string, so no existing line changes. A guard test that passed in your first run must never get a FIXED line; after a compaction, decide from the function the test names: if you did not change that function, the test is a guard, and when unsure leave the line out: a missing FIXED line costs nothing, a FIXED line on a test that already passed fails the run. Append to the facts file with the Edit tool (or Write for the first version); do not use shell redirection. After a compaction, Read the facts file before anything else, continue from its last NEXT line, and do not redo a module whose tests it lists as FIXED. Trust the facts file over the summary: if the summary says a module is not yet edited but a test of it that failed in your first run now passes, you edited it: add FIXED lines for those tests only, never for a guard. Only these four line kinds go in the facts file; any other guidance about what to record there does not apply to this task. The last line of the facts file at the end is 'NEXT none'. Before you write the 'Fixed: N' line, count the lines that start with 'FIXED ' in the facts file with the Grep tool (pattern '^FIXED ', output_mode count) and write that number, even if it differs from the number of tests that now pass. End your report with these five lines, in this order: 'Before: pass N, fail N' with the counts of your first test run; 'After: pass N, fail N' with the counts of your last test run; 'Fixed: N' with the number of FIXED lines in the facts file; 'Changed files:' followed by every file you changed except the facts file; and last STATUS: DONE if every test now passes, or STATUS: BLOCKED if any does not."
     }
 }
 $c = $cases[$Case]
 if (-not $PSBoundParameters.ContainsKey('MaxTurns') -and $c.max_turns) { $MaxTurns = $c.max_turns }
 if (-not $PSBoundParameters.ContainsKey('TimeoutMin') -and $c.timeout_min) { $TimeoutMin = $c.timeout_min }
 $isLong = $Case -eq 'long-fix'
+if (-not $isLong -and $PSBoundParameters.ContainsKey('Modules')) {
+    throw '-Modules is for -Case long-fix only'
+}
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $fixture = Join-Path $repo 'bench\loop\fixture'
@@ -234,15 +271,15 @@ function Get-ModelNode {
     if ($lc -and (-not $ic -or $lc.version -eq $ic.version)) { return $lc }
     return $ic
 }
-# Output size of a command run from the work tree: code points, newlines as one char each
-# (gen_longfix_test.py measures the same way).
+# Output of a command run from the work tree, each line ended by one newline; its Length is
+# the size (gen_longfix_test.py measures the same way).
 function Measure-Output([scriptblock]$Run) {
     $enc = [Console]::OutputEncoding
     [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
     Push-Location -LiteralPath $work
     try { $lines = @(& $Run | ForEach-Object { "$_" }) }
     finally { Pop-Location; [Console]::OutputEncoding = $enc }
-    return [int](($lines | ForEach-Object { $_.Length + 1 } | Measure-Object -Sum).Sum)
+    return (@($lines | ForEach-Object { "$_`n" }) -join '')
 }
 function Remove-WorkTree {
     $leaf = Split-Path -Leaf $runDir
@@ -304,7 +341,8 @@ $genArgs = $null
 if ($isLong) {
     # Work tree: the generated fixture (longfix/src, longfix/test), committed.
     New-Item -ItemType Directory -Force -Path $work, (Split-Path -Parent $manifestPath) | Out-Null
-    $genOut = (& python -I $genPy --out $work --manifest $manifestPath 2>&1 | Out-String).Trim()
+    $genOut = (& python -I $genPy --out $work --manifest $manifestPath --modules $Modules 2>&1 |
+        Out-String).Trim()
     if ($LASTEXITCODE) { Remove-WorkTree; Remove-Item -LiteralPath $manifestPath -ErrorAction Ignore; throw "gen_longfix.py failed ($LASTEXITCODE): $genOut" }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $c.allowed = @($manifest.files.path | Where-Object { $_ -like 'longfix/src/*' })
@@ -332,25 +370,37 @@ $nodeVersion = ("$(& node --version 2>&1)").Trim()
 $nodePath = (Get-Command node -CommandType Application -ErrorAction Ignore |
     Select-Object -First 1).Source
 $modelNode = Get-ModelNode
-$warn = $null
+$visibleText = $null
 if ($isLong) {
     # The TAP results must equal the manifest's expect_before: no test missing, extra or flipped.
     $want = [ordered]@{}
     foreach ($t in $manifest.tests) { $want[$t.name] = $t.expect_before -eq 'pass' }
     $bad = @(@($want.Keys | Where-Object { -not $before.Contains($_) -or $before[$_] -ne $want[$_] }) +
         @($before.Keys | Where-Object { -not $want.Contains($_) }))
-    # Output size of the prompt's exact command (no reporter flag), as the model will see it:
-    # through Git Bash with the model's node; also with this shell's node when it differs.
+    # Output of the prompt's exact command, as the model will see it: through Git Bash with
+    # the model's node. _tap: the TAP run above (this shell's node), LF newlines.
+    $beforeOut = $null
     if ($modelNode) {
-        $beforeChars = Measure-Output { & $gitBash $modelNode.shell "$longCmd 2>&1" 2>$null }
+        $beforeOut = Measure-Output { & $gitBash $modelNode.shell "$longCmd 2>&1" 2>$null }
+        $beforeChars = $beforeOut.Length
     }
-    if (-not $modelNode -or $modelNode.version -ne $nodeVersion) {
-        $beforeCharsTap = Measure-Output { & node --test longfix/test/all.test.js 2>&1 }
-    }
-    $warn = if (-not $modelNode) { 'WARNING: Git Bash found no node: before_output_chars is null' }
-    elseif ($beforeChars -gt 25000) {
-        "WARNING: before_output_chars $beforeChars > 25,000: Claude Code shows the model only " +
-        'the first and last 5,000 chars of a test run (bench/ladder/gen_longfix.py)'
+    $beforeCharsTap = ($tapBefore -replace "`r`n", "`n").Length
+    # Fail closed: the model must see every result line, so the whole output must be shown.
+    $hasSum = [regex]::IsMatch("$beforeOut", '(?m)^# pass \d+\r?$') -and
+        [regex]::IsMatch("$beforeOut", '(?m)^# fail \d+\r?$')
+    $visibleText = "whole output $beforeChars chars <= $shownTotal, '# pass' and '# fail' present"
+    if (-not $modelNode -or -not $hasSum -or $beforeChars -gt $shownTotal) {
+        Remove-WorkTree
+        if (-not $DryRun) { Remove-Item -LiteralPath $manifestPath -ErrorAction Ignore }
+        throw ('long-fix refused: ' + $(if (-not $modelNode) {
+                    'Git Bash found no node: the model-node run to check does not exist' }
+                elseif (-not $hasSum) {
+                    "the model-node run of $longCmd ($beforeChars chars) has no '# pass N' and " +
+                    "'# fail N' lines" }
+                else {
+                    "the model-node run of $longCmd is $beforeChars chars, over the " +
+                    "$shownTotal that Claude Code shows whole: the model could not see every " +
+                    'result line' }))
     }
 }
 $modelNodeText = if (-not $modelNode) { 'not found (Git Bash)' }
@@ -376,11 +426,9 @@ if ($DryRun) {
         Write-Host "tests before: pass $nPass, fail $nFail of $($before.Count) (TAP)"
         Write-Host ("precondition: " + $(if ($bad.Count) { "FAIL, TAP differs from the manifest's expect_before for: $(@($bad | Select-Object -First 5) -join ' | ')" }
                 else { "ok, fail $nFail of $($want.Count) (every bug test not ok, every guard ok, as the manifest expects)" }))
-        $tapNote = if ($null -ne $beforeCharsTap) { "$beforeCharsTap (node $nodeVersion)" }
-        else { 'null (same node version)' }
-        Write-Host ("before_output_chars: $beforeChars ($longCmd via Git Bash, model node; " +
-            "budget 25,000) | before_output_chars_tap: $tapNote")
-        if ($warn) { Say $warn }
+        Write-Host ("before_output_chars: $beforeChars ($longCmd via Git Bash, model node) | " +
+            "before_output_chars_tap: $beforeCharsTap (TAP run, node $nodeVersion)")
+        Write-Host "visibility check: ok, $visibleText"
         Write-Host "allowed files: $($c.allowed.Count) ($($c.allowed[0]) .. $($c.allowed[-1])), plus the facts file the banner names"
         Write-Host "prompt ($($c.prompt.Length) chars, one argv string):"
         Write-Host "  $($c.prompt)"
@@ -440,8 +488,7 @@ Say ("ladder $Case | $claudeVersion | node $nodeVersion | model node $modelNodeT
 Say "tests before: pass $nPass, fail $nFail | rep_key $repKey"
 if ($isLong) {
     Say ("generated: $genOut | manifest $manifestPath | before_output_chars $beforeChars | " +
-        "before_output_chars_tap $beforeCharsTap")
-    if ($warn) { Say $warn }
+        "before_output_chars_tap $beforeCharsTap | visibility check ok: $visibleText")
 }
 
 $proc = $null

@@ -319,7 +319,7 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `Bash(powershell -NoProfile -Command \"Get-*)`. The matcher sees the raw command string,
   so a PowerShell rule carries the opening quote of the `-Command` payload, and every
   `;` / `&&` / `|` segment of a command must match. An allowed command skips the auto-mode
-  classifier (about 60 s per decision on the local model). Nine exact rules run
+  classifier (about 60 s per decision on the local model). Ten exact rules run
   tests: eight run this repo's tests from its root,
   `Bash(python -I scripts/hooks/tests/lis-guard_test.py)`,
   `Bash(python -I scripts/hooks/tests/loop-guard_test.py)`,
@@ -329,12 +329,15 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `Bash(python -I scripts/tests/verify-doc_test.py)`,
   `Bash(python -I scripts/tests/verify_claims_report_test.py)` and
   `Bash(node --test bench/loop/fixture/test/text.test.js)` (TEST 6 in docs/ROADMAP.md),
-  and `Bash(node --test longfix/test/all.test.js)` runs the generated fixture's tests
-  from a `bench/ladder` long-fix work tree (`bench/ladder/README.md`); its path is
-  relative, so the rule matches in any cwd that holds such a file. An exact rule
+  and two run the generated fixture's tests from a `bench/ladder` long-fix work tree
+  (`bench/ladder/README.md`): `Bash(node --test longfix/test/all.test.js)`, the
+  series 1 to 3 command, kept for that key, and one exact rule for the current long-fix
+  test command (`$longCmd` in `bench/ladder/run.ps1`); their paths are relative, so
+  the rules match in any cwd that holds such a file. An exact rule
   stays in auto mode; a wildcard after `node` or `python` is dropped. An exact rule
   trusts the file it names: neither the hook nor the classifier scans that file, so
-  editing one of the nine test files changes what its rule allows.
+  editing one of the nine test files or `longfix/reporter.mjs` (the long-fix rule
+  also trusts and executes the reporter) changes what its rule allows.
   `ask`: `Edit(...)` rules for the critical paths
   (`~/.claude`, `~/.ssh`, `.curlrc`/`_curlrc`, Windows, Program Files,
   ProgramData, `.env*`, `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs

@@ -3,8 +3,9 @@
 Usage (from the repo root):
   python -I bench/ladder/gen_longfix.py --out <work> --manifest <file>
                                         [--modules 24] [--lines 220]
-Writes <work>/longfix/src/mNN-<noun>.js, <work>/longfix/test/mNN-<noun>.test.js and
-<work>/longfix/test/all.test.js (the one entry point: node --test longfix/test/all.test.js).
+Writes <work>/longfix/src/mNN-<noun>.js, <work>/longfix/test/mNN-<noun>.test.js,
+<work>/longfix/test/all.test.js (the one entry point) and <work>/longfix/reporter.mjs; the
+test command is node --test --test-reporter=./longfix/reporter.mjs longfix/test/all.test.js.
 Module i plants bug kinds K[(2i-2) % 14] and K[(2i-1) % 14], adds guard G[i % 5] (correct,
 its test passes before any fix) and correct documented filler helpers until the source is
 --lines +-5 lines. The bug pairs repeat every 7 modules (m01, m08, m15 and m22 plant the
@@ -16,16 +17,17 @@ Refuses a non-empty <work>/longfix. Stdlib only.
 
 all.test.js sets Error.stackTraceLimit = 0, not 1: on Node 24 the spec reporter prints one
 absolute-path stack line per failure, and at 48 failures under a lis-ladder work path that
-put the before run at ~27.4K chars, over the 25,000 budget (0 gives ~20.6K). The reporter
-still names each failing test's file:line ("test at longfix\\test\\...").
-Node 22 off a TTY (what the model's Bash tool gets when its node is 22) defaults to the TAP
-reporter instead: ~29.5K chars for the before run, also path-length dependent (run.ps1
-measured 29,491 with its own node 22 for rep 1 of 2026-10-26). Claude Code cuts a long
-tool result to its first 5,000 and last 5,000 chars around a "... [N characters truncated]
-..." marker (rep 1: 20.4K chars of spec output shown as 10,040). The spec reporter prints
-one line per test, then the summary ("pass N", "fail N"), then the failure details, so the
-summary is in the first 5,000 only while the per-test lines fit before it: more modules
-would push it into the cut.
+put the before run at ~27.4K chars (0 gives ~20.6K). The reporter still names each failing
+test's file:line ("test at longfix\\test\\..."). With no stack, all.test.js loads each
+module through load(), which names a module that fails to load on stderr ("load error in
+longfix/src/mNN-noun.js: <name>: <message>") and rethrows.
+Claude Code cuts a long tool result to its first 5,000 and last 5,000 chars around a "...
+[N characters truncated] ..." marker (rep 1 of 2026-10-26: 20.4K chars of spec output shown
+as 10,040), so a cut run hides some result lines (spec: its summary past about 26 modules;
+TAP: the ok lines between long failure blocks). reporter.mjs (REPORTER) prints one line per
+module, 'mNN ok 3/3' or 'mNN FAIL 1/3: <name>; <name>' with each failing test's exact name
+and no diagnostics, then '# pass N' and '# fail N': 5,470 chars for the 48-module before
+run, path independent. run.ps1 refuses a run whose before-run output would be cut.
 
 TEST AID: generate(..., solve=True) writes each buggy function's correct body instead (the
 'fix' entries of K). Only gen_longfix_test.py uses it, to prove every planted bug is real
@@ -38,7 +40,7 @@ import json
 import os
 import sys
 
-VERSION = '1'
+VERSION = '2'  # 2: longfix/reporter.mjs
 CATALOG_VERSION = '1'
 MAX_LINES = 290  # the wrapper's "file over 300 lines" advice must never apply
 
@@ -157,6 +159,69 @@ G = [
               "assert.strictEqual(@(['a'], 1), undefined);"),
 ]
 
+# The fixture's test entry point, before one load('mNN-noun') line per module. A module
+# that fails to load (a syntax error, a top-level throw) is named on stderr, then the error
+# is rethrown, so node still fails the run; stackTraceLimit = 0 leaves no stack to name it.
+ALL_TEST = r"""'use strict';
+Error.stackTraceLimit = 0;
+function load(stem) {
+  try {
+    require(`../src/${stem}.js`);
+  } catch (e) {
+    const what = (e instanceof Error ? `${e.name}: ${e.message}` : String(e)).split('\n')[0];
+    console.error(`load error in longfix/src/${stem}.js: ${what.replace(/[^ -~]/g, '?')}`);
+    throw e;
+  }
+  require(`./${stem}.test.js`);
+}
+"""
+
+# The fixture's node --test reporter (longfix/reporter.mjs; event types checked on Node 22
+# and 24). Outside longfix/src, so outside the files the model may change.
+REPORTER = r"""// node --test reporter: one line per module (mNN from the test name, else ?),
+// in first-seen order, then '# pass N' and '# fail N'. Counts leaf tests only (not suites,
+// not a test with subtests). Test stdout and stderr pass through. Any other event type stops
+// the run.
+const IGNORED = new Set(['test:enqueue', 'test:dequeue', 'test:start', 'test:complete',
+  'test:plan', 'test:diagnostic', 'test:summary']);
+
+export default async function* compact(source) {
+  const modules = new Map();
+  const ended = []; // tests ended per nesting level since their parent's start
+  let pass = 0;
+  let fail = 0;
+  for await (const { type, data } of source) {
+    if (type === 'test:stdout' || type === 'test:stderr') {
+      yield data.message;
+    } else if (type === 'test:pass' || type === 'test:fail') {
+      const n = data.nesting;
+      const parent = (ended[n + 1] || 0) > 0;
+      ended[n + 1] = 0;
+      ended[n] = (ended[n] || 0) + 1;
+      if (parent || data.details.type === 'suite') continue;
+      const tag = (/^m\d\d\b/.exec(data.name) || ['?'])[0];
+      if (!modules.has(tag)) modules.set(tag, { total: 0, failed: [] });
+      const mod = modules.get(tag);
+      mod.total += 1;
+      if (type === 'test:pass') {
+        pass += 1;
+      } else {
+        fail += 1;
+        mod.failed.push(data.name);
+      }
+    } else if (!IGNORED.has(type)) {
+      throw new Error(`longfix/reporter.mjs: unverified event type ${type}`);
+    }
+  }
+  for (const [tag, mod] of modules) {
+    const ok = `${mod.total - mod.failed.length}/${mod.total}`;
+    const names = mod.failed.join('; ');
+    yield names ? `${tag} FAIL ${ok}: ${names}\n` : `${tag} ok ${ok}\n`;
+  }
+  yield `# pass ${pass}\n# fail ${fail}\n`;
+}
+"""
+
 # Filler helpers: correct, documented, untested (base, args, doc, body); <= 8 lines each.
 H = [
     ('padLeft', 's, width, ch', 'String(s) left-padded with ch to at least width characters.',
@@ -261,9 +326,10 @@ def generate(out, manifest, modules=24, lines=220, solve=False):
         tests += [dict(name=name, module=f'm{i:02d}', file=tf, kind=kind,
                        expect_before='fail' if kind == 'bug' else 'pass')
                   for name, kind in names]
-    requires = ''.join(f"require('./{p[len('longfix/test/'):]}');\n"
-                       for p in sorted(files) if p.startswith('longfix/test/'))
-    files['longfix/test/all.test.js'] = "'use strict';\nError.stackTraceLimit = 0;\n" + requires
+    loads = ''.join(f"load('{p[len('longfix/src/'):-3]}');\n"
+                    for p in sorted(files) if p.startswith('longfix/src/'))
+    files['longfix/test/all.test.js'] = ALL_TEST + loads
+    files['longfix/reporter.mjs'] = REPORTER
     whole, listing = hashlib.sha256(), []
     for path in sorted(files):
         data = files[path].encode('ascii')

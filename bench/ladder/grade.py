@@ -340,7 +340,8 @@ def grade(base):
     if lr:
         print(f"longrun: axis {r['axis_exercised']} | fired {r['compaction_fired']} | "
               f"survived {r['facts_survived']} (strict {r.get('facts_survived_strict')}, "
-              f"next_rewrites {r.get('next_rewrites')}) | facts_false {r['facts_false']} | "
+              f"next_rewrites {r.get('next_rewrites')}) | facts_false {r['facts_false']} "
+              f"unmatched {r.get('facts_name_unmatched')} | "
               f"bar_reason {r['bar_reason']} | violations {r.get('instruction_violations')}")
 
 

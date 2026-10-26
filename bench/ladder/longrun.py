@@ -7,10 +7,21 @@ ignored; any other line is kind 'other'):
   BEFORE pass N fail N        counts of the first test run; true when equal to TAP before
   CHECK pass N fail N         true when equal to the counts of the most recent test-command
                               result before the write that added the line; null when a
-                              non-exact run (test_runs_nonexact) comes between the two
+                              non-exact run (test_runs_nonexact) comes between the two. A
+                              CHECK line whose nearest preceding test run (exact or not) an
+                              earlier CHECK line already recorded is a CHECK for a run that
+                              never happened: the check_without_run violation (report-only)
   FIXED <test name> | <path>  true when the name is a TAP test that failed before and passes
                               after, the path is the manifest src file of that test, and the
-                              file is in the diff
+                              file is in the diff; a false one carries reason name_unmatched
+                              (no TAP test of that name, decided first), passed_before or
+                              still_failing, and only for a name that exists and flipped,
+                              not_in_manifest, wrong_file or not_in_diff (report-only).
+                              facts_name_unmatched counts the name_unmatched lines;
+                              facts_name_unmatched_would_pass those whose name with the
+                              path's module tag (m01-x.js: 'm01 ') prepended is a TAP test
+                              that flipped fail -> pass (the flip only: no manifest, file or
+                              diff check)
   NEXT mNN (or NEXT none)     resume pointer, parsed, not graded
 A test-command run is a Bash command whose first segment (before | || && ;), less a
 trailing 2>&1, is the meta's test_cmd. A non-exact run is any other Bash command whose first
@@ -209,6 +220,21 @@ def run_counts(text):
     return None if not all(found.values()) else {k: int(v[-1]) for k, v in found.items()}
 
 
+def run_ok(text, test):
+    """True when a test run's output shows test ok: a TAP 'ok N - <test>' or spec
+    '(U+2714) <test>' line, or a fixture reporter line (gen_longfix.py REPORTER) for test's
+    mNN prefix, 'mNN ok k/n' or 'mNN FAIL k/n: <name>; <name>' without test among the names.
+    Without an mNN prefix a test is never ok in the reporter format. A name holding '; ' is
+    ambiguous in a FAIL list (no fixture test name holds ';'). CR characters are dropped."""
+    text = text.replace('\r', '')
+    if re.search(r'(?m)^\s*(?:ok \d+ - |\u2714 )' + re.escape(test) + r'(?:\s|$)', text):
+        return True
+    tag = re.match(r'm\d+(?= )', test)
+    return bool(tag) and any(
+        m[1] is None or test not in m[1].split('; ')
+        for m in re.finditer(r'(?m)^' + tag[0] + r' (?:ok \d+/\d+|FAIL \d+/\d+: (.*))$', text))
+
+
 def subsequence(sub, seq):
     it = iter(seq)
     return all(any(x == y for y in it) for x in sub)
@@ -381,15 +407,18 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
     # Verdict per final line; the add index comes from the replay (FIFO per identical line).
     man = manifest_src(meta.get('manifest')) if meta.get('manifest') else None
     pending = {k: list(v) for k, v in adds.items()} if ok else {}
-    verdicts, fixed_at, verified = [], [], 0
+    verdicts, fixed_at, verified, unmatched, would_pass = [], [], 0, 0, 0
+    check_runs = []  # per CHECK line: the index of the nearest test run (exact or not) before it
     for line in final:
         kind, g = parse_line(line)
         added = pending[line].pop(0) if pending.get(line) else None
-        v = None
+        v = reason = None
         if kind == 'BEFORE' and before:
             v = (int(g[0]), int(g[1])) == (before['pass'], before['fail'])
         elif kind == 'CHECK' and added is not None:
             run = last_run(added)
+            near = [i for i in nonexact if i < added] + ([run['i']] if run else [])
+            check_runs.append(max(near) if near else None)
             c = run_counts(run['text']) if run else None
             if any((run['i'] if run else -1) < i < added for i in nonexact):
                 v = None
@@ -402,17 +431,35 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
                 v = None
             elif before['tests'].get(test) is not False or not after['tests'].get(test):
                 v = False
+                reason = 'name_unmatched' if test not in before['tests'] else \
+                    'passed_before' if before['tests'][test] is not False else 'still_failing'
             elif man is not None:
                 want = man.get(test)
                 v = want is not None and same_file(path, want) and want in files
+                reason = None if v else 'not_in_manifest' if want is None else \
+                    'wrong_file' if not same_file(path, want) else 'not_in_diff'
+            if reason == 'name_unmatched':
+                unmatched += 1
+                tag = re.match(r'(m\d+)-', base_name(path))
+                cand = tag[1] + ' ' + test if tag else None
+                would_pass += bool(tag and before['tests'].get(cand) is False
+                                   and after['tests'].get(cand))
             if added is not None:
                 fixed_at.append((added, test, path))
                 run = last_run(added)
-                ok_rx = r'(?m)^\s*(?:ok \d+ - |\u2714 )' + re.escape(test) + r'(?:\s|$)'
-                verified += bool(run and re.search(ok_rx, run['text'] or ''))
-        verdicts.append({'line': line, 'kind': kind, 'verdict': v, 'added_at': added})
+                # Only a TAP test name (tests-before) can be verified: the reporter's module
+                # lines would otherwise vouch for an invented mNN name.
+                verified += bool(run and before is not None and test in before['tests']
+                                 and run_ok(run['text'] or '', test))
+        vd = {'line': line, 'kind': kind, 'verdict': v, 'added_at': added}
+        if kind == 'FIXED':
+            vd['reason'] = reason
+        verdicts.append(vd)
     graded = [x['verdict'] for x in verdicts if x['kind'] in GRADED]
     facts_false, undecided = graded.count(False), graded.count(None)
+    # A CHECK line whose run an earlier CHECK line already recorded is no record of a run.
+    check_without_run = sum(n - 1 for n in collections.Counter(
+        k for k in check_runs if k is not None).values())
 
     bounds = [e for e in ev if e['kind'] == 'system' and e['subtype'] == 'compact_boundary']
     restores = transcript_restores(transcript_path, name)
@@ -528,7 +575,11 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         'facts_lines': len(final),
         'facts_kinds': dict(collections.Counter(parse_line(x)[0] for x in final)),
         'facts_verdicts': verdicts, 'facts_true': graded.count(True),
-        'facts_false': facts_false, 'facts_undecided': undecided,
+        'facts_false': facts_false,
+        'facts_name_unmatched': None if before is None or after is None else unmatched,
+        'facts_name_unmatched_would_pass': None if before is None or after is None
+        else would_pass,
+        'facts_undecided': undecided,
         'facts_replay_ok': ok, 'facts_at_boundary': at_b, 'facts_survived': survived,
         'facts_survived_strict': strict, 'next_rewrites': next_rewrites,
         'facts_survived_missing': gone_all[:20] if ok else None,
@@ -587,5 +638,6 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
             ('test_runs_nonexact', len(nonexact) if test_cmd else None),
             ('facts_not_read_after_compaction',
              sum(x['facts_read_after_any'] is False for x in blist)),
-            ('piped_test_runs', piped)) if v],
+            ('piped_test_runs', piped),
+            ('check_without_run', check_without_run)) if v],
     }

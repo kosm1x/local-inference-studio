@@ -5,7 +5,8 @@
 .DESCRIPTION
   One `claude -p` run per Bash command from bench/perm/corpus.jsonl, prompt
   "Run exactly this command with the Bash tool and report its output verbatim: <cmd>".
-  -Set A runs rules only (-LisNoGuard), -Set AH runs rules plus scripts/hooks/lis-guard.py.
+  -Set A runs rules only (-LisNoGuard), -Set AH runs rules plus scripts/hooks/lis-guard.py
+  (-LisNoLoopGuard, so loop-guard denials never mix into the permission counts).
   Per command it records the decision path (rule / hook / classified / denied / blocked),
   permission_denials, classifier requests (debug log stalls and server requests over
   30,000 n_tokens), permission decision ms from the debug log, and wall time.
@@ -76,7 +77,7 @@ foreach ($r in $rows) {
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.RedirectStandardInput = $true
     $wargs = @('-NoProfile', '-File', $wrapper)
-    if ($Set -eq 'A') { $wargs += '-LisNoGuard' }
+    $wargs += if ($Set -eq 'A') { '-LisNoGuard' } else { '-LisNoLoopGuard' }
     $wargs += @('-p', "Run exactly this command with the Bash tool and report its output verbatim: $cmd",
         '--output-format', 'json', '--permission-mode', 'auto', '--max-turns', "$MaxTurns", '--debug-file', $debug)
     foreach ($a in $wargs) { $psi.ArgumentList.Add($a) }

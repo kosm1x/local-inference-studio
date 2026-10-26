@@ -76,7 +76,9 @@ $caseVars = @($cases.Values | ForEach-Object { $_.Keys }) | Sort-Object -Unique
 $stripEnv = '^(CLAUDECODE|CLAUDE_PID|CLAUDE_CODE_(SESSION_ID|SESSION_ATTENDED|CHILD_SESSION|BRIDGE_SESSION_ID|MESSAGING_SOCKET|MESSAGING_TOKEN|ENTRYPOINT))$'
 
 $proxyArgv = @($proxyJs, "$ProxyPort", $capture)
-$sessionArgv = @('-NoProfile', '-File', $treeWrapper, '-p', $prompt, '--max-turns', "$MaxTurns",
+# -LisNoLoopGuard: the cases measure raw compaction and loop behaviour, as in the
+# 2026-10-26 captures (loop-guard would deny their repeated calls).
+$sessionArgv = @('-NoProfile', '-File', $treeWrapper, '-LisNoLoopGuard', '-p', $prompt, '--max-turns', "$MaxTurns",
     '--output-format', 'json', '--permission-mode', 'auto', '--disallowedTools', $disallowed,
     '--debug-file', "$base.debug.log")
 $wrapperLines = @($caseEnv.Keys | ForEach-Object { "`$set['$_'] = '$($caseEnv[$_])'" })

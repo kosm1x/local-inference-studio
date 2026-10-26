@@ -853,18 +853,59 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   classifier requests. Final answer 31 files and 7,664 lines, against 7,661 by `wc -l`
   on the same tree.
 - Reading: compaction CAN survive on the baseline; the failure is probabilistic (the
-  summary turn calls a tool or spends its budget thinking). Cases `effort-low`,
-  `effort-low-forced`, `nothink`, `pct50`, `out32k` and `pct50-effort-low`: RUNNING,
-  results to follow in the bench README. Operator-only levers (server restart):
-  `--chat-template-kwargs '{"enable_thinking": false}'`, and a flag of the
+  summary turn calls a tool or spends its budget thinking).
+- Remaining cases (2026-10-26, one sample each, `effort-low-forced` two; the tree was
+  archived from `727fd07`, `5b01d75` or `3f8c942` as HEAD moved; tables and per-run
+  notes in the bench README). Summary-shaped of fired: baseline 2 of 4, `effort-low`
+  1 of 3, `pct50` 6 of 15, `pct50-effort-low` 2 of 4, `effort-low-forced` sample 2
+  2 of 3; `effort-low-forced` sample 1, `nothink` and `out32k` never compacted. Two
+  runs finished: the baseline and `effort-low-forced` sample 2 (1,468 s; 39 files
+  right, 9,864 lines against 9,857 at `3f8c942`). The other six ended on
+  `--max-turns` or the thrash guard without an answer.
+- What reached the wire: `CLAUDE_CODE_EFFORT_LEVEL=low` yes, alone (effort "low");
+  `CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1` is a no-op (both forced samples send what
+  `effort-low` sends). `MAX_THINKING_TOKENS=0` removes the thinking key, but the
+  server template still reasons (7,553 thinking chars against 127 of text).
+  `CLAUDE_CODE_MAX_OUTPUT_TOKENS=32768` yes. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`
+  sends nothing; it moved the trigger to a 12,043- and a 13,336-token prompt, far
+  below 50 % of the 114,688 effective window in the debug log (cause UNVERIFIED).
+- No case makes compaction reliable: every case that compacted had at least one
+  non-summary response. The failure has one shape: the model ignores "TEXT ONLY" and
+  keeps working (a progress line plus Read or Glob calls) while the compaction request
+  still offers the 3 tools (cause UNVERIFIED: no run had the tools removed); once
+  (`pct50-effort-low`) it reasoned to
+  max_tokens instead, 54,981 thinking chars at effort low. `pct50` is harmful here:
+  15 compactions in 4,993 s and `--max-turns` (`pct50`), or the thrash guard after 4
+  (`pct50-effort-low`).
+- Loops: 5 of 8 runs repeated an identical call, Read x32 (`effort-low`), Grep x30
+  (`pct50`), Grep x59 (`out32k`) and the same batch of 4 Globs x14
+  (`effort-low-forced` sample 1) and x56 (`nothink`); a 6th ended on the thrash
+  guard. In each loop the thinking wants a disallowed tool: `wc -l` without Bash, or
+  creating the session's `MEMORY.md` without Write. One sample per case cannot rank
+  the cases: `effort-low-forced` sample 1 looped and sample 2 finished on identical
+  wire parameters.
+- Envelope counts: `num_turns` does not match the `/v1/messages` requests on the wire
+  (baseline 65 against 39, `pct50-effort-low` 45 against 11, `effort-low-forced`
+  sample 2 101 against 59, compaction requests included); the harness count is
+  UNVERIFIED.
+- Decision: effort low stays the wrapper candidate, PENDING a second sample: session
+  output tokens 21,728 (`effort-low`, looped), 7,575 (`effort-low-forced` sample 1,
+  looped) and 36,852 (sample 2, finished) against 67,471 at baseline (345, 126 and 625
+  per request against 1,730); thinking share (thinking chars / (thinking + text
+  chars)) 74.0 %, 100 % and 72.4 % against 85.7 %; and sample 2 is the faster of the
+  two finished runs (1,468 s vs 2,467 s; lines +7 vs +3). The loop guard (Trust ladder
+  status) is the lever that matters (replay only, not verified live); with it on,
+  reproducing these captures needs `-LisNoLoopGuard`. Next test: the server-side
+  `--chat-template-kwargs '{"enable_thinking": false}'`, which needs an operator
+  restart; NOT run yet. Other operator-only levers: a flag of the
   `--no-reasoning-preserve` class so the server stops keeping reasoning in the
   history; `--reasoning-budget` on b11868 UNVERIFIED.
 
 ### Trust ladder (plan)
 
-PLAN, nothing below is built. Operator direction (2026-10-25): the goal is the
-trustworthiness of the harness and of the model; each test is harder than the last on
-a named axis, and the rules adapt to the task type.
+PLAN; what is built is in the status line at the end. Operator direction
+(2026-10-25): the goal is the trustworthiness of the harness and of the model; each
+test is harder than the last on a named axis, and the rules adapt to the task type.
 
 1. A code change that makes a real failing test pass, run under the edit profile: two
    reps, the rubric held out of the repo until both finish, both verifiers
@@ -878,6 +919,12 @@ a named axis, and the rules adapt to the task type.
   policy sentences, allowed tools, exact allow rules and verifier. The person
   launching the session picks the profile; the model never widens its own
   permissions. Every test record states its profile.
+- Status 2026-10-26: S3 (task profiles) BUILT: `-LisTask review|edit|longrun` on the
+  wrapper picks one (deny rules only, no per-profile allow rules; verifier lines
+  printed, not run). S4 (loop guard) BUILT: a PreToolUse hook that denies a tool call
+  identical to 3 or more of the last 12 counted calls; re-measured 2026-10-26: 0 false
+  denies over 7,803 ordinary calls from 261 past sessions (local transcripts, not
+  reproducible from the repo).
 
 ## Phase 3 part A 2026-10-24
 

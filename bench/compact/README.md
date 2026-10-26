@@ -166,9 +166,50 @@ env var; it would need a patched CLAUDE.md in the tree). The five case variables
 
 ## Results
 
-| case | fired | accepted | summary-shaped | empty | max_tokens hits | finished | notes |
+All runs 2026-10-26, pad 0, in run order; one sample per case except
+`effort-low-forced` (two). HEAD is the commit the tree was archived from. Truth under
+the four dirs (`git archive`, newline count), files / lines: `727fd07` 31 / 7,661,
+`5b01d75` 39 / 9,725, `3f8c942` 39 / 9,857. Turns = the envelope's `num_turns`;
+shaped = summary-shaped; mt = compaction requests that stopped on max_tokens.
+
+| case (sample, HEAD) | wall s | turns | fired | accepted | shaped | empty | mt |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `baseline` | 4 | 3 | 2 | 1 | 0 | yes, 65 turns | note 1 |
+| `baseline` (1, `727fd07`) | 2467 | 65 | 4 | 3 | 2 | 1 | 0 |
+| `effort-low` (1, `727fd07`) | 1047 | 61 | 3 | 3 | 1 | 0 | 0 |
+| `effort-low-forced` (1, `727fd07`) | 203 | 61 | 0 | 0 | 0 | 0 | 0 |
+| `nothink` (1, `727fd07`) | 504 | 61 | 0 | 0 | 0 | 0 | 0 |
+| `pct50` (1, `5b01d75`) | 4993 | 61 | 15 | 12 | 6 | 3 | 0 |
+| `out32k` (1, `5b01d75`) | 531 | 61 | 0 | 0 | 0 | 0 | 0 |
+| `pct50-effort-low` (1, `3f8c942`) | 2466 | 45 | 4 | 3 | 2 | 1 | 1 |
+| `effort-low-forced` (2, `3f8c942`) | 1468 | 101 | 3 | 3 | 2 | 0 | 0 |
+
+On the wire (one value per run: every `/v1/messages` request sent the same) and
+session totals over all `/v1/messages` responses:
+
+| case (sample) | effort | thinking | max_tokens | output tok | thinking ch | text ch |
+| --- | --- | --- | --- | --- | --- | --- |
+| `baseline` (1) | high | adaptive | 16384 | 67471 | 162644 | 27084 |
+| `effort-low` (1) | low | adaptive | 16384 | 21728 | 37693 | 13215 |
+| `effort-low-forced` (1) | low | adaptive | 16384 | 7575 | 10700 | 0 |
+| `nothink` (1) | high | absent | 16384 | 18508 | 7553 | 127 |
+| `pct50` (1) | high | adaptive | 16384 | 147778 | 349033 | 76816 |
+| `out32k` (1) | high | adaptive | 32768 | 18882 | 43688 | 5222 |
+| `pct50-effort-low` (1) | low | adaptive | 16384 | 65128 | 166412 | 21046 |
+| `effort-low-forced` (2) | low | adaptive | 16384 | 36852 | 62215 | 23750 |
+
+| case (sample) | finished: answer (truth) | degenerate loop: tool, repeats |
+| --- | --- | --- |
+| `baseline` (1) | yes: 31 / 7,664 (31 / 7,661) | none |
+| `effort-low` (1) | no: `--max-turns` | Read of one missing file, 32 |
+| `effort-low-forced` (1) | no: `--max-turns` | Glob, the same 4-call batch x14 |
+| `nothink` (1) | no: `--max-turns` | Glob, the same 4-call batch x56 |
+| `pct50` (1) | no: `--max-turns` | Grep, 30 (then left it) |
+| `out32k` (1) | no: `--max-turns` | Grep, 59 |
+| `pct50-effort-low` (1) | no: thrash guard | none |
+| `effort-low-forced` (2) | yes: 39 / 9,864 (39 / 9,857) | none |
+
+A repeat is a tool call with the same name and the same input. Reading and decision:
+`docs/ROADMAP.md`, "Compaction on this backend 2026-10-26".
 
 1. `baseline`, 2026-10-26, pad 0, wall 2,467 s. The four compaction requests sent
    adaptive thinking, effort high, max_tokens 16,384, three tools. Request 1 (prompt
@@ -180,6 +221,35 @@ env var; it would need a patched CLAUDE.md in the tree). The five case variables
    `effect:` max_tokens 16384, effort high, thinking adaptive; `consistency:` accepted
    3 vs compact_boundary 3. num_turns 65 exceeds `--max-turns 60`; the envelope count
    is not bounded by the cap as passed (cause UNVERIFIED).
+2. `effort-low`, wall 1,047 s. Requests 1 (prompt 100,128) and 3 (103,730) got
+   per-file lines plus 2 and 4 Read calls, taken as the summary; request 2 (95,558) a
+   summary. Of 88 Read calls, 32 were the same Read of the session's own auto-memory
+   `MEMORY.md`, which does not exist; 31 of 63 thinking blocks say `MEMORY.md` does
+   not exist and mention creating it (Write is disallowed). Ended on `--max-turns`, no
+   answer.
+3. `effort-low-forced` sample 1, `nothink`, `out32k`: no compaction (peak prompt
+   21,955, 45,866 and 57,802 tokens), 0 Read calls. After listing the files the model
+   wanted exact line counts from `wc -l`, which needs Bash (disallowed), and repeated
+   the same Glob or Grep calls until `--max-turns`; 59 of 60 thinking blocks in each
+   run mention `wc -l`. `-Pad` cannot help a run with no Reads.
+4. `pct50`, wall 4,993 s. Fifteen compaction requests at 12,043 to 83,725 prompt
+   tokens: 6 summaries, 6 progress lines plus tool calls taken as the summary, 3
+   empty. The debug log shows `thresholdSource=env` and `effectiveWindow=114688`; 50 %
+   of that is 57,344, yet the first compaction fired at a 12,043-token prompt (cause
+   UNVERIFIED). The model also ran one Grep count 30 times (17 thinking blocks say it
+   kept calling Grep), then went back to reading. Ended on `--max-turns`.
+5. `pct50-effort-low`, wall 2,466 s. First compaction at 13,336 tokens; request 2
+   (114,927, above the 114,688 effective window) a progress line plus 5 Reads; request
+   3 reasoned to max_tokens (54,981 thinking chars at effort low, no text); request 4
+   a summary. Claude Code then ended the session: "Autocompact is thrashing: the
+   context refilled to the limit within 3 turns of the previous compact, 3 times in a
+   row." (is_error true, subtype success). num_turns 45 against 11 `/v1/messages`
+   requests on the wire.
+6. `effort-low-forced` sample 2, wall 1,468 s, the same wire parameters as sample 1
+   and `effort-low`. Requests 1 (95,032) and 3 (104,288) got summaries, request 2
+   (102,391) a progress line plus a Read. It counted lines with Grep `^` (40 calls)
+   and finished: 39 files right, lines +7. num_turns 101 against 59 `/v1/messages`
+   requests.
 
 ## Rules
 

@@ -242,14 +242,15 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `Bash(powershell -NoProfile -Command \"Get-*)`. The matcher sees the raw command string,
   so a PowerShell rule carries the opening quote of the `-Command` payload, and every
   `;` / `&&` / `|` segment of a command must match. An allowed command skips the auto-mode
-  classifier (about 60 s per decision on the local model). Four exact rules run this
+  classifier (about 60 s per decision on the local model). Five exact rules run this
   repo's tests from its root, `Bash(python -I scripts/hooks/tests/lis-guard_test.py)`,
+  `Bash(python -I scripts/hooks/tests/loop-guard_test.py)`,
   `Bash(python -I scripts/tests/verify-doc_test.py)`,
   `Bash(python -I scripts/tests/verify_claims_report_test.py)` and
   `Bash(node --test bench/loop/fixture/test/text.test.js)` (TEST 6 in docs/ROADMAP.md;
   an exact rule stays in auto mode, a wildcard after `node` or `python` is dropped).
   An exact rule trusts the file it names: neither the hook nor the classifier scans
-  that file, so editing one of the four test files changes what its rule allows.
+  that file, so editing one of the five test files changes what its rule allows.
   `ask`: `Edit(...)` rules for the critical paths
   (`~/.claude`, `~/.ssh`, `.curlrc`/`_curlrc`, Windows, Program Files,
   ProgramData, `.env*`, `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs
@@ -375,6 +376,35 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   Text in double quotes is treated as a quotation and not checked for sums or file counts.
   Line counts are read only for files inside the working directory and under 8 MB; the
   reply is capped near 9,000 characters with FAIL lines first.
+- PreToolUse hook `scripts/hooks/loop-guard.py` (Python 3, stdlib, `python -I`; matcher
+  `*`, added with lis-guard, dropped by `-LisNoGuard` or `-LisNoLoopGuard`). It denies a
+  tool call identical (tool name and canonical input) to 3 or more of the session's last
+  12 counted calls, so the first and second repeat always run. Write, Edit, MultiEdit and
+  NotebookEdit are never counted; a new Write/Edit/MultiEdit/NotebookEdit clears the
+  window, so a re-read or a re-run test after an edit passes; edits made through Bash or
+  PowerShell (sed -i, scripts, git) do not. Bash and PowerShell commands with a wait
+  word at command position (`sleep`, `until`, `timeout`, `Start-Sleep`, `Wait-Process`,
+  `Wait-Job`, `Wait-Event`) are polls and are not counted, nor are `BashOutput` and
+  `TaskOutput` calls (tool names UNVERIFIED on 2.1.310). A quoted wait word also exempts
+  a command, so `grep -rn 'timeout' src/` is never counted (a miss in the safe direction).
+  The deny reason tells the model to use the earlier result, change approach or report
+  what blocks it, and to say so when the tool it wants is not in its tool set; after 2
+  denials of the same call it says to stop and answer. It stays a deny, never an ask: in
+  `-p` an ask is a hard denial whose reason the model does not see. State lives in
+  `%TEMP%\lis-loop-guard\<session_id>.json` (atomic write, pruned after 24 h). Bad
+  input, input over 1 MB or a missing session_id give no decision; corrupt state is
+  discarded (the window restarts); a lock left by a crashed hook means no decision for
+  about 10 s, until it is broken as stale. The hook is registered without
+  `onFailure: block`, so its failure never blocks a call.
+  Why: one identical call repeated on the 27B model is the loop seen in 5 of the 8
+  bench/compact runs (2026-10-26), 4 of which it held until `--max-turns`; replayed
+  through the hook, the first deny fires at call 8 to 63, and 28 to 55 of 61 turns would
+  have been saved had the model then answered (not verified live). bench/compact/run.ps1
+  passes `-LisNoLoopGuard` so its cases stay comparable with those captures, and
+  bench/loop/run.ps1 so its runs stay comparable with the 2026-10-24 baselines. Tests:
+  `python -I scripts/hooks/tests/loop-guard_test.py`; replay of the effort-low-forced
+  capture: `python -I scripts/hooks/tests/loop-guard_replay.py` (prints SKIP when the
+  gitignored capture is absent, as in a fresh clone).
 - Verifier pass (verify-claims), by hand, not a hook: `pwsh scripts/verify-claims.ps1
   -Document <file.md> [-Root <repo>] [-Batch 1] [-MaxTurns 8] [-MaxClaims 0]
   [-OutDir <dir>] [-DryRun]` (Root defaults to the current directory, OutDir to this
@@ -467,10 +497,34 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   guarded: the hook allows `cat` of any file (ruling 15), and the classifier never sees a
   tool's output or a script's content.
 
-All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The three
+All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The
 wrapper options are `-LisContextTokens N` (default 131072, minimum 1024; set it to the
-server's `-Ctx` when that is smaller), `-LisFull` and `-LisNoGuard`. Success: Claude Code answers and the server log
-shows the requests. A `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
+server's `-Ctx` when that is smaller), `-LisFull`, `-LisNoGuard`, `-LisNoLoopGuard`,
+`-LisTask NAME` and `-LisPrintArgs`. Success: Claude Code answers and the server log
+shows the requests. A `[claude-code:unrecognized_model] {"model":"local"}` line is
+harmless.
+
+Task profiles (trust ladder): `-LisTask review|edit|longrun`. You pick the profile when
+you launch; nothing in the session can change it, and every test record states it.
+Results are never compared across profiles. A profile sets the tools, appends a policy
+block that names it (so the transcript carries "Task profile: <name>"), may add deny
+rules, and prints to stderr, before launch and after exit, the checks to run when the
+session ends:
+
+- review: Bash, Read, Glob, Grep, Skill; Edit, Write and NotebookEdit also denied. The
+  report is the final answer; save it and run verify-doc.py and verify-claims.ps1 on
+  it; `git status --porcelain` must show nothing else.
+- edit: the lean set; change only the files the task names, test before and after.
+  Checks: the repo tests (CLAUDE.md), `git diff --stat` against the named files, then
+  verify-doc and verify-claims on the report.
+- longrun: as edit, plus a facts file `lis-facts-<stamp>.md` in the working directory
+  that the model appends verified figures to, so a compaction cannot lose them.
+
+Without `-LisTask` no profile applies; stderr shows `profile: none`. `-LisTask` refuses
+`-LisFull`, `-LisNoGuard`, `--tools`, `--settings`, system-prompt options, permission
+bypass, `--allowedTools`, `--mcp-config`, `--plugin-dir` and `--add-dir`.
+`-LisPrintArgs` prints the claude arguments and settings JSON and exits without
+starting claude.
 
 fnm note: if your shell profile runs `fnm env --use-on-cd`, a Bash tool command like
 `cd X && node ...` fails inside Claude Code when `X` has a `package.json` ("We can't

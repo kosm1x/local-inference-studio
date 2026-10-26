@@ -116,6 +116,14 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
   after a task: short fresh read-only local sessions check a document's claims (one
   claim per session by default) against the repo and the harness prints an honest
   count (docs/SETUP.md step 8)
+- [scripts/claude-local.ps1](scripts/claude-local.ps1) task profiles
+  (`-LisTask review|edit|longrun`) set the tools, policy, rules and the checks you run
+  at the end; `-LisPrintArgs` prints the claude arguments and settings JSON without
+  launching (docs/SETUP.md step 8)
+- [scripts/hooks/loop-guard.py](scripts/hooks/loop-guard.py) - PreToolUse hook on every
+  tool that denies a call identical to 3 or more of the session's last 12 counted calls,
+  the loop seen in 5 of the 8 bench/compact runs (2026-10-26), 4 of which it held until
+  `--max-turns` (`-LisNoLoopGuard` drops it; docs/SETUP.md step 8)
 - [bench/README.md](bench/README.md) — P3 bench result schema
 
 ## Rules

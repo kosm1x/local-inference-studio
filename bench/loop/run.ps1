@@ -6,9 +6,10 @@
 .DESCRIPTION
   Per repetition: copy bench/loop/fixture to a fresh <WorkRoot>/<stamp>-<Label>/r<N>/work
   (git init + one commit, as the P2 sandbox), hash every file, then run from that dir
-    pwsh -NoProfile -File <Launcher> [-LisContextTokens N] -p <bench/loop/prompt.txt>
-      --output-format json --max-turns <MaxTurns> --permission-mode acceptEdits
-      --allowedTools Bash(node:*) Bash(npm:*) --debug-file <r<N>/out/debug.log>
+    pwsh -NoProfile -File <Launcher> -LisNoLoopGuard [-LisContextTokens N]
+      -p <bench/loop/prompt.txt> --output-format json --max-turns <MaxTurns>
+      --permission-mode acceptEdits --allowedTools Bash(node:*) Bash(npm:*)
+      --debug-file <r<N>/out/debug.log>
   with a -TimeoutMin limit (the process tree is killed when it is reached). Afterwards it
   runs the fixture's tests (node --test, TAP reporter), re-hashes the files and reads:
   the JSON result (stdout), stderr (unrecognized_model and other lines), the debug log
@@ -119,7 +120,8 @@ for ($r = 1; $r -le $Reps; $r++) {
     $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
     $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
     foreach ($k in @($psi.Environment.Keys)) { if ($k -match $stripEnv) { $null = $psi.Environment.Remove($k) } }
-    $argv = @('-NoProfile', '-File', $Launcher)
+    # -LisNoLoopGuard: no loop-guard, so runs stay comparable with the 10-24 baselines.
+    $argv = @('-NoProfile', '-File', $Launcher, '-LisNoLoopGuard')
     if ($LisContextTokens) { $argv += '-LisContextTokens', "$LisContextTokens" }
     $argv += '-p', $prompt, '--output-format', 'json', '--max-turns', "$MaxTurns", '--permission-mode', 'acceptEdits',
         '--allowedTools', 'Bash(node:*)', 'Bash(npm:*)', '--debug-file', $debugFile
@@ -166,7 +168,9 @@ for ($r = 1; $r -le $Reps; $r++) {
 
     $stderrLines = @($stderr -split "`r?`n" | Where-Object { $_.Trim() })
     $unrecognized = @($stderrLines | Where-Object { $_ -match 'unrecognized_model' }).Count
-    $stderrOther = @($stderrLines | Where-Object { $_ -notmatch 'unrecognized_model' -and $_ -notmatch 'claude\.ai connectors are disabled' })
+    $stderrOther = @($stderrLines | Where-Object {
+            $_ -notmatch 'unrecognized_model' -and $_ -notmatch '^claude-local: ' -and
+            $_ -notmatch 'claude\.ai connectors are disabled' })
 
     $dispatch = [ordered]@{}
     $errCodes = [ordered]@{}

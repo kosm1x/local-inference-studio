@@ -159,16 +159,22 @@ def grade(base):
     files, plus, minus = numstat(read(base + '.numstat.txt'))
     s = stream(read(base + '.jsonl'))
     env = s['envelope'] or {}
-    target, keep = meta.get('target_test'), list(meta.get('keep_failing') or [])
+    # target_tests is a list; artifacts written before it existed carry one target_test.
+    targets = list(meta.get('target_tests') or ([meta['target_test']] if meta.get('target_test') else []))
+    keep = list(meta.get('keep_failing') or [])
+    # Absent in artifacts written before the key existed: those are fix-one, which requires it.
+    need_others = meta.get('require_others_failing', True) is not False
     allowed = set(meta.get('allowed_files') or [])
     test_dir = (meta.get('test_dir') or '').rstrip('/') + '/'
 
     def passes(res, name):
         return None if res is None or name not in res['tests'] else res['tests'][name]
 
-    target_after = passes(after, target)
+    hit = [passes(after, t) for t in targets]
+    target_after = None if not hit or None in hit else all(hit)
     kept = [passes(after, t) for t in keep]
-    others_still_failing = None if after is None or None in kept else not any(kept)
+    # Not applicable (null) for a case with no keep-failing tests.
+    others_still_failing = None if not keep or after is None or None in kept else not any(kept)
     fixed = broken = None
     if before and after:
         fixed = sorted(t for t, ok in after['tests'].items() if ok and before['tests'].get(t) is False)
@@ -202,7 +208,9 @@ def grade(base):
         claim_agrees = None
     else:
         claim_agrees = True
-    parts = (scope_ok, others_still_failing, claim_agrees)
+    # A test that passed before and fails after fails the bar.
+    none_broken = None if broken is None else not broken
+    parts = (scope_ok, claim_agrees, none_broken) + ((others_still_failing,) if need_others else ())
     bar_met = False if any(p is False for p in parts) else None if None in parts else True
 
     test_cmd = (meta.get('test_cmd') or '').strip()
@@ -226,8 +234,9 @@ def grade(base):
         'work_dir': meta.get('work_dir'),
         'tests_before': {k: before[k] for k in ('pass', 'fail')} if before else None,
         'tests_after': {k: after[k] for k in ('pass', 'fail')} if after else None,
-        'target_test': target, 'target_fixed': target_after,
-        'keep_failing': keep, 'others_still_failing': others_still_failing,
+        'target_tests': targets, 'target_fixed': target_after,
+        'keep_failing': keep, 'require_others_failing': need_others,
+        'others_still_failing': others_still_failing,
         'tests_fixed': fixed, 'tests_broken': broken,
         'allowed_files': sorted(allowed), 'files_changed': files,
         'lines_added': plus, 'lines_removed': minus,
@@ -255,9 +264,10 @@ def grade(base):
         else {'exit': None, 'fail': None, 'lines': ['not run: no claim text']},
         'verify_claims': 'not run: it launches a claude session; run it by hand (bench/ladder/README.md)',
     }
-    r['undecided'] = [k for k in ('target_fixed', 'others_still_failing', 'scope_ok', 'claim_status',
-                                  'claim_status_agrees', 'claim_counts_agree', 'claim_files_named',
-                                  'claim_agrees', 'bar_met') if r[k] is None]
+    r['undecided'] = [k for k in ('target_fixed', 'others_still_failing', 'tests_broken', 'scope_ok',
+                                  'claim_status', 'claim_status_agrees', 'claim_counts_agree',
+                                  'claim_files_named', 'claim_agrees', 'bar_met')
+                      if r[k] is None and (k != 'others_still_failing' or need_others)]
     with open(base + '.json', 'w', encoding='utf-8', newline='\n') as f:
         json.dump(r, f, indent=2, ensure_ascii=True)
         f.write('\n')

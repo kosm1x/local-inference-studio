@@ -167,9 +167,11 @@ env var; it would need a patched CLAUDE.md in the tree). The five case variables
 ## Results
 
 All runs 2026-10-26, pad 0, in run order; one sample per case except
-`effort-low-forced` (two). HEAD is the commit the tree was archived from. Truth under
-the four dirs (`git archive`, newline count), files / lines: `727fd07` 31 / 7,661,
-`5b01d75` 39 / 9,725, `3f8c942` 39 / 9,857. Turns = the envelope's `num_turns`;
+`effort-low-forced` (two). The last row is case `baseline` against the server
+restarted with thinking off (note 7), not a plain baseline. HEAD is the commit the
+tree was archived from. Truth under the four dirs (`git archive`, newline count),
+files / lines: `727fd07` 31 / 7,661, `5b01d75` 39 / 9,725, `3f8c942` 39 / 9,857,
+`6da27d9` 46 / 11,668. Turns = the envelope's `num_turns`;
 shaped = summary-shaped; mt = compaction requests that stopped on max_tokens.
 
 | case (sample, HEAD) | wall s | turns | fired | accepted | shaped | empty | mt |
@@ -182,6 +184,7 @@ shaped = summary-shaped; mt = compaction requests that stopped on max_tokens.
 | `out32k` (1, `5b01d75`) | 531 | 61 | 0 | 0 | 0 | 0 | 0 |
 | `pct50-effort-low` (1, `3f8c942`) | 2466 | 45 | 4 | 3 | 2 | 1 | 1 |
 | `effort-low-forced` (2, `3f8c942`) | 1468 | 101 | 3 | 3 | 2 | 0 | 0 |
+| `baseline` + server thinking off (1, `6da27d9`) | 1061 | 60 | 3 | 3 | 3 | 0 | 0 |
 
 On the wire (one value per run: every `/v1/messages` request sent the same) and
 session totals over all `/v1/messages` responses:
@@ -196,6 +199,7 @@ session totals over all `/v1/messages` responses:
 | `out32k` (1) | high | adaptive | 32768 | 18882 | 43688 | 5222 |
 | `pct50-effort-low` (1) | low | adaptive | 16384 | 65128 | 166412 | 21046 |
 | `effort-low-forced` (2) | low | adaptive | 16384 | 36852 | 62215 | 23750 |
+| `baseline` + server thinking off (1) | high | adaptive | 16384 | 17128 | 0 | 45146 |
 
 | case (sample) | finished: answer (truth) | degenerate loop: tool, repeats |
 | --- | --- | --- |
@@ -207,6 +211,7 @@ session totals over all `/v1/messages` responses:
 | `out32k` (1) | no: `--max-turns` | Grep, 59 |
 | `pct50-effort-low` (1) | no: thrash guard | none |
 | `effort-low-forced` (2) | yes: 39 / 9,864 (39 / 9,857) | none |
+| `baseline` + server thinking off (1) | yes: 46 / 11,112 (46 / 11,668) | none |
 
 A repeat is a tool call with the same name and the same input. Reading and decision:
 `docs/ROADMAP.md`, "Compaction on this backend 2026-10-26".
@@ -250,6 +255,30 @@ A repeat is a tool call with the same name and the same input. Reading and decis
    (102,391) a progress line plus a Read. It counted lines with Grep `^` (40 calls)
    and finished: 39 files right, lines +7. num_turns 101 against 59 `/v1/messages`
    requests.
+7. `baseline` + server thinking off, wall 1,061.1 s (43 % of the first baseline's
+   2,467, on a larger tree: 46 files / 11,668 lines against 31 / 7,661 for run 1).
+   Case `baseline`, client env unchanged and `-LisNoLoopGuard` (runs 1 to 8 predate
+   the guard, so no run had it on), against the server restarted by the operator at
+   11:02:25 local with `--chat-template-kwargs {"enable_thinking": false}` (start line in
+   `logs/llama-server.log`, which also warns that the kwarg is deprecated in favour
+   of `--reasoning off`). The operator's `/apply-template` check rendered the
+   assistant turn as a closed empty `<think>` block (not in the run files). Claude
+   Code still sent adaptive thinking, effort high, max_tokens 16,384. Three
+   compaction requests at 100,443, 103,346 and 98,639 prompt tokens, each still with
+   the 3 tools and "CRITICAL: Respond with TEXT ONLY", all ended on end_turn with
+   `<analysis>` summaries of 12,016, 14,904 and 15,397 chars in 211, 168 and 162 s;
+   0 thinking chars in these and in the whole session. 56 tool calls (Read 48, Glob
+   6, Grep 2), no two identical; the transcript holds 59 tool_result records because
+   3 Read results appear twice. Answer: 46 files, 11,112 lines against 46 / 11,668,
+   so files exact and lines 556 (4.8 %) under; per dir it says bench 3,686, docs
+   2,259, config 550, scripts 4,617 against 3,669, 2,555, 546 and 4,898 (cause
+   UNVERIFIED). An aside adds the `.gitkeep` files in `bench/results/` (already in
+   the truth's 46) and `logs/` (outside the four dirs): "would bring it to 48
+   files". Output tokens 17,128 on the wire, equal to the envelope's `modelUsage`
+   outputTokens; the transcript's usage records sum to 7,719 and the envelope's
+   `usage.output_tokens` is 4,462. num_turns 60 against 55 `/v1/messages` requests
+   (75 in all: 19 count_tokens and one `/health`); `consistency:` accepted 3 vs
+   compact_boundary 3; permission_denials 0.
 
 ## Rules
 

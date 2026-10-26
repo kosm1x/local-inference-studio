@@ -27,8 +27,9 @@
   value with spaces stays whole; use it from inside pwsh. `pwsh -File` hands
   -ExtraArgs 'a','b' over as the single string "a,b", so from `pwsh -File` use
   -ExtraArgLine, which is split on whitespace (no quoting; values with spaces need
-  -ExtraArgs). -LogFile appends the command line and llama-server stdout/stderr to
-  that file (its folder is created) instead of the console, renames a log over 50 MB to
+  -ExtraArgs). -LogFile (relative to the current filesystem location) appends the
+  command line and llama-server stdout/stderr to that file (its folder is created)
+  instead of the console, renames a log over 50 MB to
   <name>.1 first (replacing an older .1), and appends "llama-server exited <code>" when
   llama-server exits; the logon task from scripts/register-task.ps1 uses
   logs/llama-server.log. Stop with scripts/stop.ps1.
@@ -112,7 +113,10 @@ $cmdArgs += $ExtraArgLine -split '\s+' | Where-Object { $_ }
 
 $cmdLine = "$exe $($cmdArgs -join ' ')"
 if ($LogFile) {
-    $logDir = Split-Path -Parent ([IO.Path]::GetFullPath($LogFile))
+    # Relative to the current filesystem location, not the process cwd (which
+    # Set-Location does not change); $PWD can be a non-filesystem drive (HKCU:, Env:).
+    $LogFile = [IO.Path]::GetFullPath($LogFile, (Get-Location -PSProvider FileSystem).ProviderPath)
+    $logDir = Split-Path -Parent $LogFile
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
     if ((Test-Path -LiteralPath $LogFile) -and (Get-Item -LiteralPath $LogFile).Length -gt 50MB) {
         Move-Item -LiteralPath $LogFile -Destination "$LogFile.1" -Force

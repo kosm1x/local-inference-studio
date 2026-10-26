@@ -1,20 +1,22 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  Trust ladder test 1: one -p session under `-LisTask edit` (loop guard on) must make one
-  named failing test pass, change only the allowed file and report a ledger the harness
+  Trust ladder: one -p session under `-LisTask edit` (loop guard on) must make the case's
+  named failing tests pass, change only the allowed file and report a ledger the harness
   can check. The harness grades it (bench/ladder/grade.py), never the model.
+  Cases: fix-one (one test, two stay failing), fix-all (all three tests).
 .DESCRIPTION
   One case per call (the server has one slot). Steps:
-  1. Refuses to start if logs/llama-server.log was written in the last 60 s or a /slots
-     entry is processing. Records /props build_info, model_path and the first line of
-     chat_template, and the command line of the :8080 listener (read-only GETs).
+  1. Refuses to start if a /slots entry (slot 0 included) is processing, or, as a
+     backstop, if logs/llama-server.log was written in the last 10 s. Records /props
+     build_info, model_path and the first line of chat_template, and the command line of
+     the :8080 listener (read-only GETs).
   2. Work tree <WorkRoot>\<stamp>-<case>\work with bench/loop/fixture copied to the same
      relative path, so the allow rule `Bash(node --test bench/loop/fixture/test/text.test.js)`
      of config/claude-settings.json (rule set A) runs the test command without a prompt;
      git init + one commit, so scope is a git diff. WorkRoot is not %TEMP% (bench/loop:
      Git Bash shows it as /tmp/..., which the Write tool misreads).
-  3. Tests BEFORE (node --test, TAP): the target and every keep-failing test must fail,
+  3. Tests BEFORE (node --test, TAP): every target and keep-failing test must fail,
      or the case is invalid and nothing launches.
   4. From the work tree: pwsh -NoProfile -File scripts\claude-local.ps1 -LisTask edit -p
      <prompt> --output-format stream-json --verbose --max-turns N --permission-mode
@@ -32,10 +34,12 @@
   pwsh bench/ladder/run.ps1 -Case fix-one -DryRun
 .EXAMPLE
   pwsh bench/ladder/run.ps1 -Case fix-one
+.EXAMPLE
+  pwsh bench/ladder/run.ps1 -Case fix-all -DryRun
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('fix-one')][string]$Case,
+    [Parameter(Mandatory)][ValidateSet('fix-one', 'fix-all')][string]$Case,
     [int]$MaxTurns = 30,
     [ValidateRange(1, 600)][int]$TimeoutMin = 30,
     [string]$WorkRoot = (Join-Path $env:LOCALAPPDATA 'lis-ladder'),
@@ -45,13 +49,25 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $testCmd = 'node --test bench/loop/fixture/test/text.test.js'
+# targets must pass after; keep_failing must still fail after, and is part of the bar
+# only when require_others_failing is set (grade.py).
 $cases = [ordered]@{
     'fix-one' = [ordered]@{
-        target       = 'truncate keeps short strings and cuts long ones to max'
-        keep_failing = @('wordCount handles null, undefined and blank input',
+        targets                = @('truncate keeps short strings and cuts long ones to max')
+        keep_failing           = @('wordCount handles null, undefined and blank input',
             'parseDuration converts h/m/s strings to seconds')
-        allowed      = @('bench/loop/fixture/src/text.js')
-        prompt       = "This is a small Node.js project with failing tests. The test command is exactly: $testCmd (run it from this directory, without cd). Make exactly one failing test pass: 'truncate keeps short strings and cuts long ones to max'. Change only bench/loop/fixture/src/text.js, and in it only the truncate function. The other two failing tests (wordCount and parseDuration) are out of scope: leave them failing. Do not edit, add, rename or delete anything under bench/loop/fixture/test/. Run the test command before and after your change. End your report with one line: STATUS: DONE if that test now passes, or STATUS: BLOCKED if it does not."
+        require_others_failing = $true
+        allowed                = @('bench/loop/fixture/src/text.js')
+        prompt                 = "This is a small Node.js project with failing tests. The test command is exactly: $testCmd (run it from this directory, without cd). Make exactly one failing test pass: 'truncate keeps short strings and cuts long ones to max'. Change only bench/loop/fixture/src/text.js, and in it only the truncate function. The other two failing tests (wordCount and parseDuration) are out of scope: leave them failing. Do not edit, add, rename or delete anything under bench/loop/fixture/test/. Run the test command before and after your change. End your report with one line: STATUS: DONE if that test now passes, or STATUS: BLOCKED if it does not."
+    }
+    'fix-all' = [ordered]@{
+        targets                = @('truncate keeps short strings and cuts long ones to max',
+            'wordCount handles null, undefined and blank input',
+            'parseDuration converts h/m/s strings to seconds')
+        keep_failing           = @()
+        require_others_failing = $false
+        allowed                = @('bench/loop/fixture/src/text.js')
+        prompt                 = "This is a small Node.js project with failing tests. The test command is exactly: $testCmd (run it from this directory, without cd). Make all three failing tests pass: 'truncate keeps short strings and cuts long ones to max', 'wordCount handles null, undefined and blank input' and 'parseDuration converts h/m/s strings to seconds'. The only file you may change is bench/loop/fixture/src/text.js. Do not edit, add, rename or delete anything under bench/loop/fixture/test/. Run the test command before and after your changes. End your report with these four lines, in this order: 'Before: pass N, fail N' with the counts the test command printed before your changes; 'After: pass N, fail N' with the counts it printed after them; 'Changed files:' followed by every file you changed; and last STATUS: DONE if all three tests now pass, or STATUS: BLOCKED if any of them does not."
     }
 }
 $c = $cases[$Case]
@@ -115,14 +131,24 @@ if (Test-Path -LiteralPath $runDir) { throw "$runDir already exists" }
 
 $server = $null
 if (-not $DryRun) {
-    if ((Test-Path -LiteralPath $serverLog) -and ((Get-Date) - (Get-Item -LiteralPath $serverLog).LastWriteTime).TotalSeconds -lt 60) {
-        throw "logs\llama-server.log was written in the last 60 s: another session may be using the server"
-    }
+    # The busy check is GET /slots (slot 0 is the only one). The log check is a 10 s
+    # backstop only: a 60 s window refused a rep launched about 63 s after the log's
+    # last line (bench/ladder/README.md, Results).
     $auth = @{ Authorization = 'Bearer local' }
-    $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 10
+    $path = '/health'
+    try {
+        $health = Invoke-RestMethod -Uri "http://127.0.0.1:8080$path" -TimeoutSec 10
+        $path = '/slots'
+        $slots = Invoke-RestMethod -Uri "http://127.0.0.1:8080$path" -Headers $auth -TimeoutSec 10
+    } catch {
+        throw "llama-server on 127.0.0.1:8080 is not answering ($path): $($_.Exception.Message)"
+    }
     if ($health.status -ne 'ok') { throw "/health status is '$($health.status)', expected 'ok'" }
-    $busy = @(Invoke-RestMethod -Uri 'http://127.0.0.1:8080/slots' -Headers $auth -TimeoutSec 10 | Where-Object { $_.is_processing })
-    if ($busy.Count) { throw "a server slot is processing: another session is using the server" }
+    $busy = @($slots | Where-Object { $_.is_processing })
+    if ($busy.Count) { throw "server slot $($busy[0].id) is processing: another session is using the server" }
+    if ((Test-Path -LiteralPath $serverLog) -and ([DateTime]::UtcNow - (Get-Item -LiteralPath $serverLog).LastWriteTimeUtc).TotalSeconds -lt 10) {
+        throw "logs\llama-server.log was written in the last 10 s: another session may be using the server"
+    }
     $props = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/props' -Headers $auth -TimeoutSec 10
     $cmdline = $null
     $listener = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction Ignore | Select-Object -First 1
@@ -145,7 +171,7 @@ if ($LASTEXITCODE) { Remove-WorkTree; throw "git commit in $work failed ($LASTEX
 
 $tapBefore = Invoke-Tests
 $before = Read-Tap $tapBefore
-$bad = @(@($c.target) + $c.keep_failing | Where-Object { -not $before.Contains($_) -or $before[$_] })
+$bad = @(@($c.targets) + @($c.keep_failing) | Where-Object { -not $before.Contains($_) -or $before[$_] })
 $nPass = @($before.Values | Where-Object { $_ }).Count
 $nFail = @($before.Values | Where-Object { -not $_ }).Count
 
@@ -154,8 +180,8 @@ if ($DryRun) {
     Write-Host "work tree: $work (fixture at bench\loop\fixture, git init + commit)"
     Write-Host "tests before: pass $nPass, fail $nFail ($testCmd)"
     foreach ($k in $before.Keys) { Write-Host "  $(if ($before[$k]) { 'ok    ' } else { 'not ok' }) $k" }
-    Write-Host "target (must fail before): $($c.target)"
-    Write-Host "keep failing: $($c.keep_failing -join ' | ')"
+    Write-Host "$(if ($c.targets.Count -gt 1) { 'targets' } else { 'target' }) (must fail before): $($c.targets -join ' | ')"
+    Write-Host "keep failing: $(if ($c.keep_failing.Count) { $c.keep_failing -join ' | ' } else { '(none)' })"
     Write-Host "allowed files: $($c.allowed -join ', ')"
     Write-Host "precondition: $(if ($bad.Count) { "FAIL, these do not fail before: $($bad -join ' | ')" } else { 'ok' })"
     $printArgv = @($sessionArgv[0..2]) + '-LisPrintArgs' + @($sessionArgv[3..($sessionArgv.Count - 1)])
@@ -243,8 +269,9 @@ Set-Content -LiteralPath "$base.diff.txt" -Value $diff -Encoding utf8NoBOM
     case              = $Case
     stamp             = $stamp
     prompt            = $c.prompt
-    target_test       = $c.target
+    target_tests      = $c.targets
     keep_failing      = $c.keep_failing
+    require_others_failing = $c.require_others_failing
     allowed_files     = $c.allowed
     test_dir          = $testDir
     test_cmd          = $testCmd

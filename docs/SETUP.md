@@ -134,6 +134,33 @@ server is up (`Get-NetTCPConnection -LocalPort 8080 -State Listen` shows a
 `llama-server` PID); use it and go to step 8. Otherwise see Troubleshooting.
 `Model file not found`: step 4 is not done. Stop with Ctrl+C or `pwsh scripts\stop.ps1`.
 
+**Launching by hand.** The scripts need PowerShell 7 (`#Requires -Version 7.0`);
+Windows PowerShell 5.1 refuses them with a `#requires` error. Start `pwsh` first and
+only then paste the launch line: a paste that begins with `pwsh` followed by more lines
+loses those lines to the shell switch (seen by the operator, not reproduced). Use
+absolute paths: a relative `-LogFile` resolves against the current filesystem
+location, a relative `-Model` or `-ChatTemplateFile` against the repo root. With
+`-LogFile` the console shows nothing, because all llama-server output goes to the log:
+look for `model loaded` in `logs\llama-server.log`. Thinking off, from inside `pwsh`:
+
+```powershell
+& Z:\repos\kosm1x\local-inference-studio\scripts\serve.ps1 -ExtraArgs '--chat-template-kwargs', '{"enable_thinking": false}' -LogFile Z:\repos\kosm1x\local-inference-studio\logs\llama-server.log
+```
+
+`pwsh -File` collapses `-ExtraArgs 'a','b'` into one string, so from `-File` use
+`-ExtraArgLine` in the colon form: `pwsh -File` reads an argument that starts with `-`
+and contains `:` as `-name:value`, and the JSON has a colon (`-ExtraArgLine '-lv 4'`
+binds without the colon form). Write the JSON without spaces, since the line is split
+on whitespace:
+
+```powershell
+pwsh -File Z:\repos\kosm1x\local-inference-studio\scripts\serve.ps1 '-ExtraArgLine:--chat-template-kwargs {"enable_thinking":false}' -LogFile Z:\repos\kosm1x\local-inference-studio\logs\llama-server.log
+```
+
+The server log calls this kwarg deprecated in favour of `--reasoning off` (listed by
+`llama-server --help` on b11868; same effect UNVERIFIED; every 2026-10-26 run used
+the kwarg).
+
 ## 6. Smoke test (`scripts\smoke.ps1`)
 
 It checks `/health`, sends one `/v1/messages` request with a `get_weather` tool, and

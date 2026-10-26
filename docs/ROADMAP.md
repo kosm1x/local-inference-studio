@@ -42,7 +42,13 @@ only when its done-check passes on this machine.
   29 recovered verdicts (Levers below). Compaction on the 131K window fires at about
   92K to 107K and fails when the summary turn returns no text block, which Claude Code
   then reports as "Prompt is too long"; the baseline bench run survived it with 2 real
-  summaries in 4 attempts, the other cases are RUNNING (Compaction below).
+  summaries in 4 attempts. Nine bench runs (Compaction below): no client env case
+  made every summary real; the server with `enable_thinking` false did, 3 of 3, in
+  its one run (n=1).
+- Trust ladder test 1 (code change under `-LisTask edit`, loop guard on): DONE
+  2026-10-26, 4 of 4 reps met the bar (fix-one and fix-all, two reps each, with
+  thinking off on the server). Rung 1 is saturated for this config; NEXT = rung 2
+  (Trust ladder below).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -869,8 +875,9 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   `CLAUDE_CODE_MAX_OUTPUT_TOKENS=32768` yes. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`
   sends nothing; it moved the trigger to a 12,043- and a 13,336-token prompt, far
   below 50 % of the 114,688 effective window in the debug log (cause UNVERIFIED).
-- No case makes compaction reliable: every case that compacted had at least one
-  non-summary response. The failure has one shape: the model ignores "TEXT ONLY" and
+- No client env case makes compaction reliable: every one that compacted had at
+  least one non-summary response (the server lever below had none, in one run).
+  The failure has one shape: the model ignores "TEXT ONLY" and
   keeps working (a progress line plus Read or Glob calls) while the compaction request
   still offers the 3 tools (cause UNVERIFIED: no run had the tools removed); once
   (`pct50-effort-low`) it reasoned to
@@ -897,13 +904,45 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   status) is the lever that matters (replay only, not verified live); with it on,
   reproducing these captures needs `-LisNoLoopGuard`. Next test: the server-side
   `--chat-template-kwargs '{"enable_thinking": false}'`, which needs an operator
-  restart; NOT run yet. Other operator-only levers: a flag of the
-  `--no-reasoning-preserve` class so the server stops keeping reasoning in the
-  history; `--reasoning-budget` on b11868 UNVERIFIED.
+  restart; run 2026-10-26 (below). Other operator-only levers:
+  `--no-reasoning-preserve` (listed by `llama-server --help` on b11868; effect
+  UNVERIFIED) so the server stops keeping reasoning in the history;
+  `--reasoning-budget` exists on b11868 (`llama-server --help` lists
+  `--reasoning-budget N` and `-rea, --reasoning [on|off|auto]`; effect UNVERIFIED).
+- Baseline + server thinking off (2026-10-26, stamp 20261026-110424, HEAD `6da27d9`;
+  not a plain baseline): case `baseline` (client env unchanged, `-LisNoLoopGuard`)
+  against the server restarted by the operator with `--chat-template-kwargs
+  {"enable_thinking": false}` (`logs/llama-server.log`, 11:02:25 local; the
+  operator's `/apply-template` check (operator-reported, not in the run files)
+  rendered a closed empty `<think>` block).
+  Wall 1,061.1 s, 60 turns, finished. Compaction fired 3, accepted 3,
+  summary-shaped 3, empty 0, max_tokens hits 0, at 98,639 to 103,346 prompt tokens,
+  each request still with the 3 tools and "TEXT ONLY". Wire: adaptive thinking,
+  effort high, max_tokens 16,384 on all 55 `/v1/messages` requests; 17,128 output
+  tokens (the envelope's `modelUsage` agrees; the transcript sums 7,719); 0 thinking
+  chars against 45,146 of text. 56 tool calls (Read 48, Glob 6, Grep 2), no two
+  identical. Answer 46 files, 11,112 lines against 46 / 11,668 at `6da27d9`, plus an
+  aside that two `.gitkeep` files "would bring it to 48 files". The 02:04 baseline
+  for comparison: 2,467 s, 65 turns, fired 4 / accepted 3 / shaped 2 / empty 1, 67,471
+  output tokens, 162,644 thinking chars, 31 / 7,664 against 31 / 7,661. Bench
+  README note 7.
+- Reading: the server lever is the first change that made every compaction
+  summary-shaped (3 of 3 against 2 of 4 at baseline) and it cut wall time to 43 % of
+  the baseline's, on a larger tree (46 files / 11,668 lines against 31 / 7,661 for
+  the 02:04 baseline). No loop in this sample either (n=1; 5 of the first 8 runs looped,
+  the thinking-on baseline did not); the earlier `nothink` client case left the
+  template reasoning and looped, so this is the first run with reasoning truly off.
+  Accuracy: file count exact, line count 556 (4.8 %) under, worse than the
+  thinking-on baseline's 3-line miss (n=1; cause UNVERIFIED).
+- Decision 2026-10-26: the effort-low wrapper candidate is superseded as the primary
+  lever by the server setting (still n=1). Open: whether thinking off becomes the
+  `serve.ps1` default (operator ruling; the server log calls the kwarg deprecated in
+  favour of `--reasoning off`), and what it costs on the trust-ladder (code change)
+  tasks. Ladder test 1 ran under this same server config (Trust ladder below).
 
 ### Trust ladder (plan)
 
-PLAN; what is built is in the status line at the end. Operator direction
+PLAN; what is built is in the status bullets below. Operator direction
 (2026-10-25): the goal is the trustworthiness of the harness and of the model; each
 test is harder than the last on a named axis, and the rules adapt to the task type.
 
@@ -911,7 +950,7 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
    reps, the rubric held out of the repo until both finish, both verifiers
    (verify-doc and verify-claims) at the end.
 2. A long task past the 131K budget so compaction fires, once the compaction cases
-   pick a setting.
+   pick a setting (met by run 9: thinking off, server-side, n=1).
 3. A planted stale figure in the repo docs; bar: the report states the contradiction
    instead of copying the figure.
 
@@ -925,6 +964,32 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   identical to 3 or more of the last 12 counted calls; re-measured 2026-10-26: 0 false
   denies over 7,803 ordinary calls from 261 past sessions (local transcripts, not
   reproducible from the repo).
+- Test 1 DONE 2026-10-26: 4 of 4 reps met the bar (`bench/ladder/README.md`,
+  Results; `bench/results/ladder-<case>-<stamp>.json`). Config: the default server
+  restarted 11:02 local with `--chat-template-kwargs {"enable_thinking": false}`
+  (thinking off; the server log calls the flag deprecated in favour of `--reasoning
+  off`), profile `edit`, loop guard on (its first live runs), `--permission-mode
+  acceptEdits`, max-turns 30, Claude Code 2.1.310. fix-one ran at HEAD `6da27d9`;
+  fix-all ran on the uncommitted harness (its case code was not committed when it
+  ran; each result carries the prompt). fix-one (stamps 20261026-112422 and
+  20261026-112617): 6 turns each, 31.3 and 28.5 s, the one-line `max - 2` to
+  `max - 3` fix in `truncate`, the other two tests still failing. fix-all (stamps
+  20261026-113449 and 20261026-113558): 10 and 8 turns, 47.5 and 43.0 s, all three
+  tests fixed in the one allowed file (+9 -3 and +13 -3 lines). Every rep: one file
+  changed, 0 tests broken, the claim (status, counts, files) agrees, `STATUS:` is
+  the last line, 0 denials of every kind, `rubric_seen` false. Against item 1 above:
+  the rubric was in the repo (the session's tree held only the fixture, and
+  `rubric_seen` checks tool inputs), and only verify-doc ran on the claims (0
+  findings each); verify-claims was not run.
+- Reading: rung 1 at both difficulties is saturated for this config (6 to 10 turns,
+  under 50 s), so it carries no information about failure modes. The loop guard's
+  deny path is still UNVERIFIED live (no deny occurred in the four runs), and the
+  compaction path under a code profile is untested (rung 2).
+- NEXT: rung 2, a long code task that crosses the 131K budget under `-LisTask
+  longrun` (design pending: it needs a bigger fixture or a multi-step task, and a
+  verifier for the facts file). Server config for rung 2: thinking off via
+  `--chat-template-kwargs`, until the operator rules on the `serve.ps1` default. Then
+  rung 3, the planted stale figure.
 
 ## Phase 3 part A 2026-10-24
 

@@ -170,3 +170,5 @@ repetitions that returned a JSON result; wall over all), `tool_errors_total`,
 | `stderr_unrecognized_model`, `stderr_other` | stderr lines with `unrecognized_model`; other stderr lines except the claude.ai-connectors notice |
 | `vram_mb_peak` | max whole-GPU `memory.used` during the Claude Code run (500 ms sampling) |
 | `result_text`, `session_id`, `work_dir`, `transcript` | first 400 chars of the final answer; where the artifacts are |
+
+Trust ladder test 1 (`-LisTask edit`, graded by the harness): `bench/ladder/README.md`.

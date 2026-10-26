@@ -339,8 +339,9 @@ def grade(base):
           f"wall {r['wall_s']} s | out {r['output_tokens']} | undecided {r['undecided']} -> {base}.json")
     if lr:
         print(f"longrun: axis {r['axis_exercised']} | fired {r['compaction_fired']} | "
-              f"survived {r['facts_survived']} | facts_false {r['facts_false']} | "
-              f"bar_reason {r['bar_reason']}")
+              f"survived {r['facts_survived']} (strict {r.get('facts_survived_strict')}, "
+              f"next_rewrites {r.get('next_rewrites')}) | facts_false {r['facts_false']} | "
+              f"bar_reason {r['bar_reason']} | violations {r.get('instruction_violations')}")
 
 
 def main():

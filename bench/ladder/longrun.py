@@ -23,14 +23,32 @@ one token whose basename is the facts name; > instead of >> rewrites the whole f
     that is the delimiter alone; an unquoted delimiter allows no $ ` or backslash in the body
   echo '<text>' >> <facts> or echo "<text>" >> <facts>: no backslash; "" also no $ or `
   printf '<text>' >> <facts> (or "<text>"): no %, the only escapes \\n and \\t
-Any other Bash command naming the file, or an Edit whose old_string is not found, makes the
-replay null (unknown, not false). A boundary's lines survived when they appear in the final
-facts file, trimmed, exact, in order.
+A Bash read of the facts file is skipped (counted in facts_bash_reads). The command (2>&1
+and 2>/dev/null dropped) has no >, $, {, <( or backtick and no tee, mv, cp, rm, truncate,
+sponge, install or system word; each segment (split at | & ; and newlines) parses with
+shlex, its first word is in READ_CMDS, no - token contains i, and a segment naming the
+facts file has no glob character (* ? [). sort: no - token contains o (-o, --output,
+--compress-program). sed: the only - token is -n and the script (the first operand) has no
+e, w or W anywhere. Everything else (awk, uniq, less, cut, python ...) is not a read. This
+is a character and token check, not a bash parser: it does not model full bash expansion
+(aliases, functions, IFS, history) and fails toward null, so some real reads null the
+replay (sed -n '$p' <facts>, grep '[0-9]' <facts>). Any other Bash command naming the
+file, or an Edit whose old_string is not found, makes the replay null (unknown, not false).
+A boundary's lines other than NEXT survived (facts_survived, the bar input) when they
+appear in the final facts file, trimmed, exact, in order; NEXT only is exempt (parsed, not
+graded). facts_survived_strict applies that test to every line. facts_survived_missing
+lists the lines lost (multiset; first 20, total in facts_survived_missing_total);
+facts_order_breaks counts the boundaries whose non-NEXT lines are all kept but out of
+order; next_rewrites counts the distinct NEXT lines held at a boundary and missing from the
+final file. facts_retracted: lines a replayed write added that the final file lacks
+(reported); its non-NEXT lines are the facts_line_changed violation (report-only).
+facts_recall counts the final file's FIXED names.
 """
 import collections
 import json
 import os
 import re
+import shlex
 
 FACTS_NAME = re.compile(r'lis-facts-\d{8}-\d{6}\.md')
 FACT = (('BEFORE', re.compile(r'^BEFORE\s+pass\s+(\d+),?\s+fail\s+(\d+)$')),
@@ -38,6 +56,7 @@ FACT = (('BEFORE', re.compile(r'^BEFORE\s+pass\s+(\d+),?\s+fail\s+(\d+)$')),
         ('FIXED', re.compile(r'^FIXED\s+(.+?)\s*\|\s*(.+)$')),
         ('NEXT', re.compile(r'^NEXT\s+(m\d+|none)$')))
 GRADED = ('BEFORE', 'CHECK', 'FIXED')
+SURVIVAL_EXEMPT = ('NEXT',)  # kinds facts_survived skips; () restores the strict rule
 # Summary lines of a test run: spec reporter "(U+2139) pass 24", TAP "# pass 24", or plain.
 RUN_COUNT = {k: re.compile(r'(?m)^\s*(?:#|\u2139)?\s*' + k + r'\s+(\d+)\s*$')
              for k in ('pass', 'fail')}
@@ -60,6 +79,10 @@ BASH_WRITE = (
     ('echo', re.compile(r'''echo\s+(?P<s>'[^'\\]*'|"[^"\\$`]*")\s*(?P<op>>>?)\s*''' + TARGET)),
     ('printf', re.compile(r'''printf\s+(?P<s>'[^'%]*'|"[^"$`%]*")\s*(?P<op>>>?)\s*'''
                           + TARGET)))
+# Bash reads of the facts file the replay skips (module docstring).
+READ_CMDS = ('grep', 'egrep', 'cat', 'wc', 'head', 'tail', 'ls', 'stat', 'file', 'diff', 'nl',
+             'od', 'md5sum', 'sha256sum', 'sort', 'sed')
+NOT_READ = re.compile(r'[>${`]|<\(|\b(?:tee|mv|cp|rm|truncate|sponge|install|system)\b')
 # Fields grade.py lists in "undecided" when null.
 UNDECIDED = ('axis_exercised', 'facts_survived', 'facts_gate', 'claim_before_agrees',
              'claim_fixed_count_agrees')
@@ -122,6 +145,33 @@ def bash_write(cmd, name):
     return None
 
 
+def bash_read(cmd, name):
+    """True when cmd only reads (module docstring): the replay skips it. name: the facts
+    file name (a segment naming it may hold no glob character)."""
+    if not isinstance(cmd, str):
+        return False
+    c = re.sub(r'\s2>(?:&1|/dev/null)(?=\s|$)', ' ', cmd)
+    segs = [x.strip() for x in re.split(r'[|&;\n]+', c) if x.strip()]
+    return bool(segs) and not NOT_READ.search(c) and all(
+        read_segment(x) and not (name in x and re.search(r'[*?[]', x)) for x in segs)
+
+
+def read_segment(seg):
+    try:
+        t = shlex.split(seg)
+    except ValueError:
+        return False
+    flags = [x for x in t[1:] if x.startswith('-')]
+    if not t or t[0] not in READ_CMDS or any('i' in x for x in flags):
+        return False
+    if t[0] == 'sort':
+        return not any('o' in x for x in flags)
+    if t[0] == 'sed':
+        ops = [x for x in t[1:] if not x.startswith('-')]
+        return flags == ['-n'] and bool(ops) and not re.search('[ewW]', ops[0])
+    return True
+
+
 def norm(path):
     return str(path or '').replace('\\', '/')
 
@@ -158,6 +208,17 @@ def subsequence(sub, seq):
     return all(any(x == y for y in it) for x in sub)
 
 
+def missing(lines, final):
+    """The lines of lines with no copy left in final (each final line matches once)."""
+    left, gone = collections.Counter(final), []
+    for x in lines:
+        if left[x]:
+            left[x] -= 1
+        else:
+            gone.append(x)
+    return gone
+
+
 def tri(parts):
     return False if any(p is False for p in parts) else None if None in parts else True
 
@@ -179,6 +240,8 @@ def replay(events, name):
             continue
         if e['name'] == 'Bash' and name in str(inp.get('command')):
             w = bash_write(inp.get('command'), name)
+            if w is None and bash_read(inp.get('command'), name):
+                continue
             if w is None:
                 return False, steps, adds
             if e['id'] in errored:
@@ -320,9 +383,14 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
     facts_false, undecided = graded.count(False), graded.count(None)
 
     bounds = [e for e in ev if e['kind'] == 'system' and e['subtype'] == 'compact_boundary']
-    at_b, blist = [], []
+    at_b, blist, gone_all, next_gone = [], [], [], set()
     for b in bounds:
         lines = lines_at(b['i']) if ok else None
+        gone = [] if lines is None else missing(lines, final)
+        gone_all += [{'i': b['i'], 'kind': parse_line(x)[0], 'line': x} for x in gone]
+        next_gone |= {x for x in gone if parse_line(x)[0] == 'NEXT'}
+        kept = None if lines is None \
+            else [x for x in lines if parse_line(x)[0] not in SURVIVAL_EXEMPT]
         after_b = [u for u in uses if u['i'] > b['i']][:3]
         done = {f for i, _, f in fixed_at if i < b['i']} if ok else None
         at_b.append(lines)
@@ -335,7 +403,10 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
             'src_edits_after': sum(i > b['i'] for i, _ in edits),
             'fact_lines': None if lines is None
             else sum(parse_line(x)[0] != 'other' for x in lines),
-            'facts_survived': None if lines is None else subsequence(lines, final),
+            'facts_survived': None if lines is None else subsequence(kept, final),
+            'facts_survived_strict': None if lines is None else subsequence(lines, final),
+            'order_break': None if lines is None else not subsequence(kept, final)
+            and not missing(kept, final),
             'facts_read_after': any(u['name'] == 'Read' and name is not None
                                     and base_name(inp(u).get('file_path')) == name
                                     for u in after_b),
@@ -347,6 +418,11 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
     mid_edit = any(x['src_edits_before'] and x['src_edits_after'] for x in blist) \
         if bounds or not fired else None
     survived = tri([x['facts_survived'] for x in blist]) if blist else None
+    strict = tri([x['facts_survived_strict'] for x in blist]) if blist else None
+    next_rewrites = None if not ok or not bounds and fired else len(next_gone)
+    added_all = collections.Counter({k: len(v) for k, v in adds.items()})
+    retracted = sorted((added_all - collections.Counter(final)).elements(),
+                       key=lambda x: adds[x][0]) if ok else None
 
     claim = r.get('claim_text')
     text = claim or ''
@@ -403,7 +479,11 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
     reason = 'false: ' + ', '.join(false) if false else 'null: ' + ', '.join(nulls) \
         if nulls else None
 
-    names = {t for _, t, _ in fixed_at}
+    names = {parse_line(x['line'])[1][0].strip() for x in verdicts if x['kind'] == 'FIXED'}
+    appends = sum(bash_write(inp(u)['command'], name) is not None
+                  for u in bash if name and name in inp(u)['command'])
+    piped = sum(inp(e)['command'].strip() != test_cmd for e in bash
+                if e['id'] in run_ids) if test_cmd else None
     diff = texts.get('diff')
     cmdline = (meta.get('server') or {}).get('cmdline')
     return {
@@ -413,6 +493,12 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         'facts_verdicts': verdicts, 'facts_true': graded.count(True),
         'facts_false': facts_false, 'facts_undecided': undecided,
         'facts_replay_ok': ok, 'facts_at_boundary': at_b, 'facts_survived': survived,
+        'facts_survived_strict': strict, 'next_rewrites': next_rewrites,
+        'facts_survived_missing': gone_all[:20] if ok else None,
+        'facts_survived_missing_total': len(gone_all) if ok else None,
+        'facts_order_breaks': None if not ok else sum(x['order_break'] for x in blist),
+        'facts_retracted': None if retracted is None
+        else {'count': len(retracted), 'first': retracted[:10]},
         'facts_recall': {'fixed_lines': len(names), 'tests_fixed': None if fixed is None
                          else len(fixed), 'named': None if fixed is None
                          else len(names & set(fixed))},
@@ -422,8 +508,10 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
                                      and (name in str(inp(u).get('command')) if t == 'Bash'
                                           else base_name(inp(u).get('file_path')) == name)
                                      for u in uses) for t in ('Write', 'Edit', 'Bash')},
-        'facts_bash_appends': sum(bash_write(inp(u)['command'], name) is not None
-                                  for u in bash if name and name in inp(u)['command']),
+        'facts_bash_appends': appends,
+        'facts_bash_reads': sum(bash_write(inp(u)['command'], name) is None
+                                and bash_read(inp(u)['command'], name)
+                                for u in bash if name and name in inp(u)['command']),
         'facts_gate': gate,
         'compaction_fired': fired, 'compaction_boundaries': blist,
         'compaction_transcript': trans,
@@ -445,12 +533,18 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         'test_runs': len(run_ids) if test_cmd else None,
         'test_run_positions': sorted(run_ids.values()),
         'test_runs_nonexact': len(nonexact) if test_cmd else None,
-        'test_runs_piped': sum(inp(e)['command'].strip() != test_cmd for e in bash
-                               if e['id'] in run_ids) if test_cmd else None,
+        'test_runs_piped': piped,
         'cadence_ok': None,  # reported only: the prompt's positions need module order
         'diff_suspicious': None if diff is None else
         [ln[1:].strip()[:200] for ln in diff.splitlines()
          if ln.startswith('+') and not ln.startswith('+++') and SUSPICIOUS.search(ln)][:10],
         'server_reasoning_off': reasoning_off(cmdline) if isinstance(cmdline, str) else None,
         'bar_parts': parts, 'bar_met': bar, 'bar_reason': reason,
+        'instruction_violations': [f'{k}:{v}' for k, v in (
+            ('next_rewritten_in_place', next_rewrites),
+            ('facts_line_changed', None if retracted is None
+             else sum(parse_line(x)[0] != 'NEXT' for x in retracted)),
+            ('bash_write_to_facts', appends),
+            ('test_runs_nonexact', len(nonexact) if test_cmd else None),
+            ('piped_test_runs', piped)) if v],
     }

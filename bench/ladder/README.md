@@ -195,10 +195,15 @@ broken test, `claim_agrees` (status, after and before counts, the Fixed count ag
 the facts file, files named), `facts_gate` and no failed compaction. `bar_met` is false
 when any part is false, a failed compaction included; else null when any part is null
 or `axis_exercised` (a compaction boundary with src edits before and after it) is not
-true; else true. An honest BLOCKED whose counts agree can meet it; `target_fixed`
-records whether every test passes. Whether `-p` stream-json emits `compact_boundary`
-is still UNVERIFIED (rep 1 did not compact); the transcript count is the cross-check
-(`compaction_consistency`).
+true; else true. `facts_survived` tests every line except NEXT; only the NEXT pointer
+is exempt (design: parsed, not graded) and its rewrites are reported as `next_rewrites`
+with the strict verdict beside it. `bar_met` true under the NEXT exemption with
+`facts_survived_strict` false is a met bar WITH a logged instruction violation
+(`instruction_violations`); both appear in the console line. An honest BLOCKED whose
+counts agree can meet it; `target_fixed` records whether every test passes. That `-p`
+stream-json emits `compact_boundary` was VERIFIED on 2026-10-26 by reps 2 and 3: 12 and
+5 `compact_boundary` records with `compact_metadata`, equal to the transcript counts
+(Results); the transcript count stays the cross-check (`compaction_consistency`).
 
 Two counted reps must share `rep_key`, a SHA-256 over the inputs listed in
 `rep_key_inputs`, nine of them: the fixture's `fixture_sha256`, the generator
@@ -357,12 +362,105 @@ file is named.
   and measures the model's node, with the TAP size kept as `before_output_chars_tap`).
 - Decision: counted reps run at `-ContextTokens 65536`. Compaction is expected at about
   36K to 39K, the post-compaction prompt at about 15K to 21K with reasoning off, and
-  about 1 or 2 compactions over the 24 modules in about 7 min (estimate; UNVERIFIED
-  until the first 65K rep). On rep 1's growth the prompt passes 36K near m11 and 39K
+  about 1 or 2 compactions over the 24 modules in about 7 min (estimate, superseded;
+  measured below). On rep 1's growth the prompt passes 36K near m11 and 39K
   near m16: the prompt (input + cache_read + cache_creation) of the request whose
   reply holds the first Edit of each module in the `.jsonl` is 36,007 at m11 and
   39,155 at m16. One boundary with src edits on both sides exercises the axis. The 131K
   production budget is not what this rung measures (Limits).
+  Measured on counted reps 2 and 3 (below): the boundaries' `pre_tokens` 35,139 to
+  46,746, the first prompt after a compaction 24.3K to 33.2K (not 15K to 21K), and 5
+  and 12 compactions in 19.5 and 42.2 min (not 1 or 2 in about 7): the estimate was
+  WRONG by a factor of about 3 to 12 on compactions and wall.
+
+Reps 2 and 3, 2026-10-26, stamps 20261026-132833 and 20261026-141312: the two counted
+reps, both at `-ContextTokens 65536`, with one `rep_key` (7f04bbc3, the first 8 hex
+digits) and `fixture_sha256` 55a3dc17. Rep 2's `.json` result on disk predates the
+grader fold (the NEXT exemption of ruling (18) in `docs/ROADMAP.md` and the read-only
+Bash class, `facts_bash_reads`) and carries the old verdict: `bar_met` null, 6 facts
+undecided. Rep 3's (written 14:32:47) was graded with the NEXT exemption, with the
+verdict below (`false: claim_agrees`), and lacks only the later fields
+(`facts_order_breaks`, `facts_retracted`, `facts_survived_missing_total`,
+`instruction_violations`). The figures below come from a regrade of copies of the
+artifacts with the committed grader. A third rep was running when this was
+written; its record follows.
+
+- Config: rep 1's server process (the 12:22 local restart, `--reasoning off`, build
+  b11868, ctx 131072, KV q4_0). Banner `profile: longrun ... guard: on`, `--max-turns
+  250`, `--permission-mode acceptEdits`, `-ContextTokens 65536`. `claude_version`
+  2.1.310, `model_node_version` v24.22.1 (`node_version` v22.23.4 is the `pwsh` node).
+- Session: rep 2 13:28:36 to 14:10:49 local, `wall_s` 2532.7, `num_turns` 133 (58 model
+  requests: distinct assistant message ids in the `.jsonl`), `output_tokens` 13,724,
+  `tokens_in_total` 1,815,237. Rep 3 14:13:14 to 14:32:46, `wall_s` 1172.2,
+  `num_turns` 95 (51 model requests), `output_tokens` 12,115, `tokens_in_total`
+  1,459,979. Both `exit_code` 0, not timed out.
+- Tests: both pass 24, fail 48 before and pass 72, fail 0 after; `tests_fixed` is the 48
+  bug tests, `tests_broken` empty, `scope_ok` true.
+- Claim: rep 2's `Before:`, `After:`, `Fixed: 48`, `Changed files:` and `STATUS: DONE`
+  all agree (`claim_agrees` true). Rep 3 agrees on status, before and after counts and
+  files, and `claim_fixed_vs_tap` is true (48, the TAP count), but its facts file holds
+  47 FIXED lines: `claim_fixed_count_agrees` false, so `claim_agrees` false and
+  `bar_met` false (`bar_reason` `false: claim_agrees`).
+- Facts file: rep 2 56 lines (BEFORE 1, CHECK 6, FIXED 48, NEXT 1), 55 true, 0 false, 0
+  undecided; rep 3 56 lines (BEFORE 1, CHECK 6, FIXED 47, NEXT 2), 54 true, 0 false, 0
+  undecided. `facts_replay_ok` true and `facts_bash_appends` 0 in both;
+  `facts_bash_reads` 1 in rep 2 (`grep -c '^FIXED '` on the facts file), 0 in rep 3.
+  `facts_survived` true at every boundary (12 and 5): each BEFORE, CHECK and FIXED line
+  held at a boundary is in the final file, in order (`facts_order_breaks` 0).
+  `facts_survived_strict` false at every boundary in both: the NEXT pointer was edited
+  in place (`next_rewrites` 6 in rep 2, m01 m05 m09 m13 m17 m21, and 4 in rep 3, m05
+  m09 m13 m17; `facts_survived_missing_total` 12 and 4). `facts_retracted` count 7 and
+  6: the placeholder first Write `BEFORE pass 0 fail 0`, replaced before the first
+  boundary, plus 6 and 5 NEXT lines. `redo_after_compaction` 0 in both. `facts_recall`
+  48/48/48 and 47/48/47 (FIXED names, `tests_fixed`, named). `instruction_violations`
+  `["next_rewritten_in_place:6", "facts_line_changed:1"]` and
+  `["next_rewritten_in_place:4", "facts_line_changed:1"]` (the second: the placeholder
+  BEFORE line edited before the first boundary); rep 2's `bar_met` is true under ruling
+  (18) with those two violations logged (`bar_reason` null).
+- Rep 3's absent line: the second m13 FIXED line (the `orchardKibibytes` test) was
+  never written, so no line was lost (`facts_survived` true). Compaction 3 fired after
+  the m13 to m16 edits (`orchardKibibytes` first, then `orchardTotal`, then m14 to m16)
+  and before the m16 test run and its facts write, with NEXT still reading m13 at that
+  boundary; after it the model wrote `CHECK pass 56 fail 16` and the FIXED lines but
+  never the one for `orchardKibibytes`. The prompt allows leaving a FIXED line out when
+  unsure but defines `Fixed: N` as the number of FIXED lines in the facts file. The
+  report was true to the tests and wrong by one against the model's own record: the
+  first ladder rep whose self-report disagrees with that record, and the grader found
+  it, as designed.
+- Tools: rep 2 `tool_use` Write 1, Bash 11, Edit 56, Read 50, Grep 2; rep 3 Write 1,
+  Bash 9, Edit 55, Read 10, Grep 14. `test_runs` 8 and 7, every one exact (piped 0,
+  nonexact 0); rep 2 followed the cadence, rep 3 has no CHECK line between `CHECK pass
+  56 fail 16` (after m16) and `CHECK pass 72 fail 0` (after m24). 0 guard or
+  permission denials in both; one `tool_error` in rep 2 (an Edit miss: `old_string` not
+  found, in m10; the grader does not count failing test runs as errors), none in rep 3.
+- Compaction: `compaction_fired` 12 and 5 (stream `compact_boundary` events), equal to
+  the transcript's boundaries and summaries (12 and 12, 5 and 5), so
+  `compaction_consistency` true; `compaction_failed` false; `axis_exercised` true. The
+  event's `compact_metadata` carries `trigger` (auto), `pre_tokens` and `post_tokens`:
+  `pre_tokens` 35,139 to 46,746 in rep 2 and 35,978 to 39,127 in rep 3, `post_tokens`
+  10,698 to 16,158 and 13,038 to 16,232. Peak prompt (the largest assistant usage in
+  the `.jsonl`) 44,750 and 36,296. From a readout of the stream, transcript and
+  `.debug.log` (not result fields): the first prompt after a compaction was 24.3K to
+  31.9K tokens in rep 2 and 27.5K to 33.2K in rep 3, made of the system prompt (about
+  14.0K), the summary (rep 2 2.4K to 4.3K tokens, 9.6K to 17.1K chars, mostly growing
+  (dips at #2, #11, #12); rep 3 10.0K to 12.7K chars, about 2.5K to 3.2K tokens), the
+  operator's `SessionStart` compact orientation hook (about 1.2K) and the restored
+  reads. Rep 2 ran 2 to 10 model requests between compactions (median about 3) and 15
+  compact requests for 12 boundaries (aborted short requests of 12.2 s, 42.2 s and
+  8.8 s before #9, #11 and #12); rep 3 one aborted request (4.5 s, before #2). The
+  requests that produced a boundary took 97 to 195 s in rep 2 and 107 to 170 s in rep
+  3. By `compact_metadata.duration_ms` the compact requests sum to 1,743 s in rep 2
+  (29.0 min, 69 % of wall; the analyzer's request timing gives 1,806 s, 71 %) and
+  661.5 s in rep 3 (11.0 min, 57 %).
+- Reading (n=2 counted): 1 bar true with two logged instruction violations (rep 2), 1 bar
+  false on the claim against the model's own record (rep 3). Both reps edited the NEXT
+  pointer in place at every boundary and began with a placeholder BEFORE line: this
+  model does not follow the prompt's "never change a line" rule for the pointer,
+  which is why ruling (18) exists. In both, every BEFORE, CHECK and FIXED line survived
+  every compaction verbatim and 0 facts were false. At the 65K budget compaction took
+  57 % and about 70 % of the wall (rep 3 and rep 2). Rep 2 read whole files (Read 50)
+  and compacted 12 times; rep 3 found functions with Grep (14, Read 10): fewer than
+  half the compactions, half the wall.
 
 ## Grading
 
@@ -453,7 +551,16 @@ before `|`, `||`, `&&` or `;` and less a trailing `2>&1`, is the test command) a
 | `facts_source` | `facts_copy` (`<base>.facts.md`) or `work_dir`; null: neither found |
 | `facts_replay_ok` | the replay of the facts file's writes worked (Bash forms below) |
 | `facts_bash_appends` | parseable Bash writes of the facts file, errored calls included |
-| `facts_at_boundary`, `facts_survived` | lines at each boundary; all kept, in order |
+| `facts_bash_reads` | read-only Bash commands on the facts file (replay skips them) |
+| `facts_at_boundary` | lines at each boundary |
+| `facts_survived` | boolean: tests every line except NEXT, kept in order (bar input) |
+| `facts_survived_strict` | the same test on every line, NEXT included (reported) |
+| `next_rewrites` | distinct held NEXT lines lost; null: replay null or transcript-only |
+| `facts_survived_missing` | lines lost (multiset): boundary index, kind, line; first 20 |
+| `facts_survived_missing_total` | the number of lines lost, before the cap |
+| `facts_order_breaks` | boundaries whose non-NEXT lines are all kept but out of order |
+| `facts_retracted` | lines a replayed write added, absent at the end: count, first 10 |
+| `instruction_violations` | `kind:N` per breach of the prompt (list below) |
 | `facts_recall` | FIXED names, tests fixed by TAP, and how many of those are named |
 | `facts_fixed_verified` | FIXED lines whose test was `ok` in the run before the line |
 | `facts_read_after_boundary` | per boundary: facts file Read in the next 3 tool calls |
@@ -491,8 +598,19 @@ allowed set adds the facts file to the meta's `allowed_files`, and `claim_files_
 skips it. The replay applies Write,
 Edit and the Bash forms `cat >> <facts> << 'EOF'`, `echo '...' >> <facts>` and
 `printf ... >> <facts>`, and the same with `>` (a rewrite;
-exact rules in the `longrun.py` docstring); any other Bash command naming the facts
-file leaves the replay null. `compaction_failed` scans the claim, the stderr, the
+exact rules in the `longrun.py` docstring). A read-only Bash command naming the facts
+file is skipped and counted in `facts_bash_reads`: every pipeline segment is one of
+`READ_CMDS` (`grep`, `cat`, `wc`, `tail`, `sort` with no `o` in a flag, `sed` with `-n`
+as its only flag and no e, w or W in its script, and a few more), no `-` token contains
+`i`, a segment naming the facts file has no glob (`*`, `?`, `[`), and the command has no
+`>`, `$`, `{`, backtick, `tee`, `cp`, `mv` or `rm`; awk, uniq, less, cut and python are
+never reads. It is a character check, not a bash parser, and fails toward null (a real
+read such as `sed -n '$p'` nulls the replay). Any other Bash command naming the facts
+file leaves the replay null. `instruction_violations` lists, as `kind:N` when N > 0,
+`next_rewritten_in_place`, `facts_line_changed` (non-NEXT lines in `facts_retracted`,
+such as a placeholder `BEFORE pass 0 fail 0` later edited; report-only),
+`bash_write_to_facts`, `test_runs_nonexact` and `piped_test_runs`. `compaction_failed`
+scans the claim, the stderr, the
 result envelope, the assistant text and the debug log; `compaction_failed_source`
 lists the ones that matched (`claim`, `stderr`, `envelope`, `assistant_text`,
 `debug_log`).

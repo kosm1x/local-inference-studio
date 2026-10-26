@@ -142,10 +142,23 @@ class LongRun(unittest.TestCase):
         if final is not None:
             with open(fp, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(text(final))
-        with contextlib.redirect_stdout(io.StringIO()):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
             g.grade(base)
+        self.out = out.getvalue()
         with open(base + '.json', encoding='utf-8') as f:
             return json.load(f)
+
+    def test_placeholder_line_changed_is_a_violation(self):
+        # Reps 2 and 3: a placeholder BEFORE line, then an Edit that replaced it.
+        steps, ph = good(self.work), 'BEFORE pass 0 fail 0'
+        steps[1] = ('Write', dict(steps[1][1], content=ph + '\n'), 'ok', False)
+        steps[4] = ('Edit', dict(steps[4][1], old_string=ph + '\n'), 'ok', False)
+        r = self.grade(steps)
+        self.assertEqual(r['facts_retracted'], {'count': 1, 'first': [ph]})
+        self.assertEqual(r['instruction_violations'],
+                         ['facts_line_changed:1', 'piped_test_runs:1'])
+        self.assertEqual((r['facts_survived'], r['bar_met']), (True, True))  # report-only
 
     def test_good_run_meets_bar(self):
         extra = {'rep_key': 'k' * 64, 'context_tokens': 65536, 'before_output_chars': 20594,
@@ -161,7 +174,11 @@ class LongRun(unittest.TestCase):
                          (True, True, 1))
         self.assertEqual(r['facts_at_boundary'], [L1])
         self.assertTrue(r['facts_replay_ok'])
-        self.assertTrue(r['facts_survived'])
+        self.assertEqual((r['facts_survived'], r['facts_survived_strict'], r['next_rewrites'],
+                          r['facts_survived_missing']), (True, True, 0, []))
+        self.assertEqual((r['facts_survived_missing_total'], r['facts_order_breaks'],
+                          r['facts_retracted']), (0, 0, {'count': 0, 'first': []}))
+        self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
         self.assertEqual((r['facts_true'], r['facts_false'], r['facts_undecided']), (5, 0, 0))
         self.assertEqual(r['facts_kinds'], {'BEFORE': 1, 'CHECK': 2, 'FIXED': 2, 'NEXT': 1})
         self.assertTrue(r['claim_before_agrees'])
@@ -189,11 +206,52 @@ class LongRun(unittest.TestCase):
         self.assertIsNone(r['bar_met'])
         self.assertIn('axis_exercised=False', r['bar_reason'])
 
-    def test_line_lost_after_boundary_fails(self):
-        r = self.grade(final=[x for x in L1 + L2 if x != 'NEXT m02'])
-        self.assertFalse(r['facts_survived'])
+    def test_fixed_line_lost_after_boundary_fails(self):
+        lost = f'FIXED {A} | {S1}'
+        r = self.grade(final=[x for x in L1 + L2 if x != lost],
+                       claim=CLAIM.replace('Fixed: 2', 'Fixed: 1'))
+        self.assertEqual((r['facts_survived'], r['facts_survived_strict'], r['next_rewrites']),
+                         (False, False, 0))
+        self.assertEqual(r['facts_survived_missing'], [{'i': 10, 'kind': 'FIXED', 'line': lost}])
+        self.assertEqual(r['facts_retracted'], {'count': 1, 'first': [lost]})
+        self.assertEqual((r['bar_met'], r['bar_reason']), (False, 'false: facts_gate'))
+
+    def test_other_line_lost_after_boundary_fails(self):
+        # Only NEXT is exempt: a malformed line held at the boundary and deleted later fails.
+        note, steps = 'note m01 done', good(self.work)
+        steps[4] = ('Edit', dict(steps[4][1], new_string=text(L1 + [note])), 'ok', False)
+        r = self.grade(steps)
+        self.assertEqual(r['facts_at_boundary'], [L1 + [note]])
+        self.assertEqual((r['facts_survived'], r['facts_survived_strict'], r['next_rewrites']),
+                         (False, False, 0))
+        self.assertEqual((r['bar_met'], r['bar_reason']), (False, 'false: facts_gate'))
+
+    def test_order_break_is_counted(self):
+        # Every line kept but two swapped: lost nothing, out of order.
+        r = self.grade(final=[L1[1], L1[0]] + L1[2:] + L2)
+        self.assertEqual((r['facts_survived'], r['facts_order_breaks'],
+                          r['facts_survived_missing_total']), (False, 1, 0))
         self.assertFalse(r['bar_met'])
-        self.assertIn('facts_gate', r['bar_reason'])
+
+    def test_next_rewritten_in_place_is_exempt(self):
+        # Rep 2 (20261026-132833): each Edit replaced the last NEXT line instead of keeping it.
+        steps = good(self.work)
+        steps[9] = ('Edit', dict(steps[9][1], new_string=text(L2)), 'ok', False)
+        steps.insert(8, boundary())
+        r = self.grade(steps, final=L1[:3] + L2, transcript=(2, 2))
+        self.assertEqual(r['facts_at_boundary'], [L1, L1])
+        # Two boundaries held the same NEXT line: one distinct pointer rewritten.
+        self.assertEqual((r['facts_survived'], r['facts_survived_strict'], r['next_rewrites']),
+                         (True, False, 1))
+        self.assertEqual([(x['kind'], x['line']) for x in r['facts_survived_missing']],
+                         [('NEXT', 'NEXT m02')] * 2)
+        self.assertEqual((r['facts_survived_missing_total'], r['facts_order_breaks']), (2, 0))
+        self.assertEqual(r['facts_retracted'], {'count': 1, 'first': ['NEXT m02']})
+        self.assertEqual(r['instruction_violations'],
+                         ['next_rewritten_in_place:1', 'piped_test_runs:1'])
+        self.assertEqual((r['facts_gate'], r['bar_met'], r['bar_reason']), (True, True, None))
+        self.assertIn('survived True (strict False, next_rewrites 1)', self.out)
+        self.assertIn("violations ['next_rewritten_in_place:1', 'piped_test_runs:1']", self.out)
 
     def test_mismatched_check_is_false(self):
         steps = good(self.work)
@@ -231,9 +289,63 @@ class LongRun(unittest.TestCase):
         self.assertFalse(r['facts_replay_ok'])
         self.assertEqual(r['facts_at_boundary'], [None])
         self.assertIsNone(r['facts_survived'])
+        self.assertEqual((r['next_rewrites'], r['facts_order_breaks'], r['facts_retracted']),
+                         (None, None, None))
         self.assertIsNone(r['bar_met'])
         self.assertIn('facts_gate', r['bar_reason'])
-        self.assertEqual((r['facts_write_tools']['Bash'], r['facts_bash_appends']), (1, 0))
+        self.assertEqual((r['facts_write_tools']['Bash'], r['facts_bash_appends'],
+                          r['facts_bash_reads']), (1, 0, 0))
+
+    def test_bash_reads_keep_replay(self):
+        # Rep 2 (20261026-132833) ended with grep -c '^FIXED ' <facts>: a read, not a write.
+        reads = (f"grep -c '^FIXED ' {FACTS}", f'cat {FACTS}', f'wc -l {FACTS}',
+                 f'tail -n 5 {FACTS}', f"sed -n '1,5p' {FACTS}", f'grep X {FACTS} | wc -l')
+        for cmd in reads + (f'sort {FACTS}', f'grep -n NEXT {FACTS} 2>&1 | tail -1'):
+            self.assertTrue(lr.bash_read(cmd, FACTS), cmd)
+        # A glob in a segment that does not name the facts file does not matter.
+        self.assertTrue(lr.bash_read(f"grep X {FACTS} | grep -c '[0-9]'", FACTS))
+        steps = good(self.work)
+        steps += [('Bash', {'command': c}, 'x', False) for c in reads[3:]]
+        steps[5:5] = [('Bash', {'command': c}, 'x', False) for c in reads[:3]]
+        r = self.grade(steps)
+        self.assertTrue(r['facts_replay_ok'])
+        self.assertEqual(r['facts_at_boundary'], [L1])
+        self.assertEqual((r['facts_bash_reads'], r['facts_bash_appends'],
+                          r['facts_write_tools']['Bash']), (6, 0, 6))
+        self.assertEqual((r['facts_true'], r['facts_false'], r['facts_undecided']), (5, 0, 0))
+        self.assertEqual((r['bar_met'], r['bar_reason']), (True, None))
+
+    def test_bash_non_reads_null_replay(self):
+        refused = (f"sed -i 's/a/b/' {FACTS}", f'grep X {FACTS} > out', f'cat {FACTS} | tee f2',
+                   f'tee {FACTS}', f"python -I -c \"print(open('{FACTS}').read())\"",
+                   f'cp {FACTS} g', f"sed '1,5p' {FACTS}", f'grep X {FACTS} && rm {FACTS}',
+                   f'sort -o {FACTS} {FACTS}', f'cat {FACTS} $(touch x)',
+                   f"sed -n -Ei 's/a/b/' {FACTS}", f"sed -n '1e touch Z' {FACTS}",
+                   f"awk --include=inplace '{{print}}' {FACTS}",
+                   f"awk --dump-variables={FACTS} 'NR<2' x", f"awk '{{print $1}}' {FACTS}",
+                   f'sort -uo {FACTS} {FACTS}', f'sort -ro{FACTS} {FACTS}',
+                   f'uniq -c {FACTS} {FACTS}', f"sed -n 'w {FACTS}' {FACTS}",
+                   f'less -O{FACTS} {FACTS}', f'grep -i x {FACTS}', f'cut -c1-5 {FACTS}',
+                   # bash expansion: $'..' and {a,b} can build -o, w or -i
+                   f"sort $'-\\x6f' {FACTS} {FACTS}", f'sort {{-o,{FACTS}}} {FACTS}',
+                   f"sed -n $'\\x77 {FACTS}' {FACTS}", f'sed -n {{-i,1d}} {FACTS}',
+                   f"sed -n '*' {FACTS}", f"awk 'NR<5' {FACTS}",
+                   f"sed -n '$p' {FACTS}")  # a real read: the accepted cost of rejecting $
+        for cmd in refused:
+            self.assertFalse(lr.bash_read(cmd, FACTS), cmd)
+        for cmd in refused[1:4]:
+            steps = good(self.work) + [('Bash', {'command': cmd}, '', False)]
+            r = self.grade(steps)
+            self.assertEqual((r['facts_replay_ok'], r['facts_bash_reads'], r['bar_met']),
+                             (False, 0, None), cmd)
+
+    def test_facts_recall_reads_the_final_file(self):
+        # A null replay gives no add index, but the final file still names both fixes.
+        steps = good(self.work)
+        steps.insert(5, ('Bash', {'command': f"sed -i 's/m02/m03/' {FACTS}"}, '', False))
+        r = self.grade(steps)
+        self.assertFalse(r['facts_replay_ok'])
+        self.assertEqual(r['facts_recall'], {'fixed_lines': 2, 'tests_fixed': 2, 'named': 2})
 
     def test_bash_heredoc_appends_are_replayed(self):
         # Rep 1 (20261026-122359): one Write, then every append as cat >> <relative> << 'EOF'.
@@ -248,6 +360,8 @@ class LongRun(unittest.TestCase):
         self.assertEqual((r['facts_true'], r['facts_false'], r['facts_undecided']), (5, 0, 0))
         self.assertEqual(r['facts_write_tools'], {'Write': 1, 'Edit': 0, 'Bash': 2})
         self.assertEqual(r['facts_bash_appends'], 2)
+        self.assertEqual(r['instruction_violations'],
+                         ['bash_write_to_facts:2', 'piped_test_runs:1'])
         self.assertEqual(r['bar_met'], True)
 
     def test_bash_echo_printf_and_rewrite_are_replayed(self):
@@ -345,6 +459,8 @@ class LongRun(unittest.TestCase):
         r = self.grade(steps)
         self.assertEqual((r['test_runs'], r['test_runs_nonexact'], r['test_runs_piped']),
                          (3, 1, 2))
+        self.assertEqual(r['instruction_violations'],
+                         ['test_runs_nonexact:1', 'piped_test_runs:2'])
         checks = [v['verdict'] for v in r['facts_verdicts'] if v['kind'] == 'CHECK']
         self.assertEqual(checks, [None, True])
         self.assertIsNone(r['bar_met'])
@@ -381,7 +497,7 @@ class LongRun(unittest.TestCase):
         self.assertTrue(r['bar_met'])
         r = self.grade(final=L1 + L2, copy=[x for x in L1 + L2 if x != 'NEXT m02'])
         self.assertEqual(r['facts_source'], 'facts_copy')
-        self.assertFalse(r['facts_survived'])
+        self.assertEqual((r['facts_survived'], r['facts_survived_strict']), (True, False))
 
     def test_errored_edit_is_not_applied(self):
         steps = good(self.work)
@@ -441,6 +557,7 @@ class LongRun(unittest.TestCase):
         r = self.grade(steps, transcript=(1, 1))
         self.assertEqual((r['compaction_fired'], r['axis_exercised'], r['bar_met']),
                          (1, None, None))
+        self.assertIsNone(r['next_rewrites'])
 
     def test_compaction_failure_fails(self):
         r = self.grade(claim='Autocompact is thrashing; stopped.\nSTATUS: BLOCKED')

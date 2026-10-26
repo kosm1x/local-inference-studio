@@ -10,6 +10,7 @@ logs/*
 bench/results/*.log
 bench/results/*.jsonl
 bench/results/*.txt
+bench/results/*.facts.md
 .claude/agent-memory/
 bench/results/latest
 __pycache__/

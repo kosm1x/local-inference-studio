@@ -16,7 +16,8 @@ Default (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12's 65536 + 
 the `scripts/serve.ps1` defaults and the logon task): Qwen3.8-27B-Uncensored IQ3_XXS,
 local file `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`, ctx
 131072, KV q4_0, chat template `config/chat-templates/qwen3.8-27b.jinja` REQUIRED
-(`serve.ps1` adds it for this folder), no MTP; measured 45.3 tok/s decode, 66/66 layers
+(`serve.ps1` adds it for this folder), no MTP, server thinking off (`--reasoning off`,
+RULED 2026-10-26); measured 45.3 tok/s decode, 66/66 layers
 on GPU with 1,630 MiB left free (Phase 3d). History: at 65536 + MTP (ruling 12) it
 measured 81.6 tok/s with 1,684 MiB free (Phase 3e), and one lean-set loop rep passed 3/3
 in 6 turns, 40.7 s wall, 0 tool errors (variance UNVERIFIED). The Phase 3d loop (3/3,

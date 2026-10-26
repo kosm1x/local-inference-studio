@@ -13,6 +13,8 @@ Constraints for agents working in this repo:
   `python -I scripts/hooks/tests/lis-guard_test.py`,
   `python -I scripts/hooks/tests/loop-guard_test.py`,
   `python -I bench/ladder/tests/grade_test.py`,
+  `python -I bench/ladder/tests/gen_longfix_test.py`,
+  `python -I bench/ladder/tests/longrun_test.py`,
   `python -I scripts/tests/verify-doc_test.py`,
   `python -I scripts/tests/verify_claims_report_test.py` and
   `node --test bench/loop/fixture/test/text.test.js` (3 fail by design).

@@ -262,7 +262,9 @@ A repeat is a tool call with the same name and the same input. Reading and decis
    11:02:25 local with `--chat-template-kwargs {"enable_thinking": false}` (start line in
    `logs/llama-server.log`, which also warns that the kwarg is deprecated in favour
    of `--reasoning off`). The operator's `/apply-template` check rendered the
-   assistant turn as a closed empty `<think>` block (not in the run files). Claude
+   assistant turn as a closed empty `<think>` block (not in the run files). The same
+   day `--reasoning off` replaced the kwarg as the `serve.ps1` default (restart 12:22
+   local), and `/apply-template` renders the same empty block with it. Claude
    Code still sent adaptive thinking, effort high, max_tokens 16,384. Three
    compaction requests at 100,443, 103,346 and 98,639 prompt tokens, each still with
    the 3 tools and "CRITICAL: Respond with TEXT ONLY", all ended on end_turn with

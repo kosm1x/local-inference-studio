@@ -109,12 +109,22 @@ Invoke-RestMethod http://127.0.0.1:8080/health -Headers @{Authorization='Bearer 
 ```
 
 With no parameters it serves the default file on `127.0.0.1:8080` at ctx 131072, q4_0
-KV, flash attention on, one slot, `--api-key local`, model alias `local`, and (for files
-under `models\qwen3.8-27b-uncensored`) `--chat-template-file config\chat-templates\qwen3.8-27b.jinja`;
-no MTP (ruling 14). MTP (`--spec-type draft-mtp --spec-draft-n-max 2`) is added for the
-default file only at `-Ctx 65536` or below (`-NoMtp` turns it off); an explicit `-Ctx`
-above 65536 skips the flags with a warning so the model stays all-GPU, and `-NoMtp`
-silences the warning.
+KV, flash attention on, one slot, `--api-key local`, model alias `local`, server
+thinking off (`--reasoning off`), and (for files under `models\qwen3.8-27b-uncensored`)
+`--chat-template-file config\chat-templates\qwen3.8-27b.jinja`; no MTP (ruling 14).
+Thinking off is the default by operator ruling of 2026-10-26: the compaction bench got
+a real summary on every compaction request only with it off (3 of 3, against 2 of 4
+with it on; one run each, n=1). `-Reasoning on` forces thinking on; `-Reasoning auto`
+is the server's own default (detect from the template), which is what `serve.ps1` ran
+before this flag. `--reasoning off` replaces the older form
+`--chat-template-kwargs '{"enable_thinking": false}'`, which the server log calls
+deprecated; on b11868 both render the same closed, empty think block for the assistant
+turn (the `/apply-template` check at the end of this section). The effect on output is
+measured only under the older form (one compaction run and ladder test 1).
+MTP (`--spec-type draft-mtp --spec-draft-n-max 2`) is added for the default file only
+at `-Ctx 65536` or below (`-NoMtp` turns it off); an explicit `-Ctx` above 65536 skips
+the flags with a warning so the model stays all-GPU, and `-NoMtp` silences the
+warning.
 
 ```powershell
 pwsh scripts\serve.ps1
@@ -141,25 +151,65 @@ loses those lines to the shell switch (seen by the operator, not reproduced). Us
 absolute paths: a relative `-LogFile` resolves against the current filesystem
 location, a relative `-Model` or `-ChatTemplateFile` against the repo root. With
 `-LogFile` the console shows nothing, because all llama-server output goes to the log:
-look for `model loaded` in `logs\llama-server.log`. Thinking off, from inside `pwsh`:
+look for `model loaded` in `logs\llama-server.log`. Thinking is off by default, so the
+launch line needs no extra argument. From inside `pwsh`:
 
 ```powershell
-& Z:\repos\kosm1x\local-inference-studio\scripts\serve.ps1 -ExtraArgs '--chat-template-kwargs', '{"enable_thinking": false}' -LogFile Z:\repos\kosm1x\local-inference-studio\logs\llama-server.log
+& Z:\repos\kosm1x\local-inference-studio\scripts\serve.ps1 -LogFile Z:\repos\kosm1x\local-inference-studio\logs\llama-server.log
 ```
 
+The same from another shell:
+
+```powershell
+pwsh -File Z:\repos\kosm1x\local-inference-studio\scripts\serve.ps1 -LogFile Z:\repos\kosm1x\local-inference-studio\logs\llama-server.log
+```
+
+Add `-Reasoning on` to either line for thinking on. `--reasoning` is placed before
+`-ExtraArgs` and `-ExtraArgLine`, so a `--reasoning` or `--chat-template-kwargs` passed
+there also reaches llama-server, after the default; which of two such flags the server
+honours is UNVERIFIED, so use `-Reasoning` rather than passing the flag twice.
 `pwsh -File` collapses `-ExtraArgs 'a','b'` into one string, so from `-File` use
-`-ExtraArgLine` in the colon form: `pwsh -File` reads an argument that starts with `-`
-and contains `:` as `-name:value`, and the JSON has a colon (`-ExtraArgLine '-lv 4'`
-binds without the colon form). Write the JSON without spaces, since the line is split
-on whitespace:
+`-ExtraArgLine`. `pwsh -File` reads an argument that starts with `-` and contains `:`
+as `-name:value`, so a value that starts with `-` and contains `:` needs the colon
+form (`-ExtraArgLine '-lv 4'` binds without it); write each argument in it without
+spaces, since the line is split on whitespace. The older thinking-off form follows
+both rules; the server calls it deprecated, and compaction run 9 and ladder test 1
+(docs/ROADMAP.md) ran with it (server start 11:02 local, 2026-10-26). Under today's
+default the line below adds the kwarg on top of `--reasoning off`. Adding `-Reasoning
+auto` comes closer to run 9's settings but does not reproduce them: `serve.ps1` always
+emits the flag, so it gives an explicit `--reasoning auto` where run 9's line had no
+`--reasoning` flag; that `auto` is the server default rests on the b11868 `--help`
+text alone (`default: 'auto' (detect from template)`); whether explicit `auto` plus
+the kwarg behaves like run 9's line is UNVERIFIED; and the server command line, and
+so a ladder `rep_key`, differs from run 9's. The ladder's long-fix preflight refuses a
+line whose last `--reasoning` value is `auto`, and one whose last value is `off` with
+an `"enable_thinking": true` beside it (`bench/ladder/README.md`, step 1).
 
 ```powershell
 pwsh -File Z:\repos\kosm1x\local-inference-studio\scripts\serve.ps1 '-ExtraArgLine:--chat-template-kwargs {"enable_thinking":false}' -LogFile Z:\repos\kosm1x\local-inference-studio\logs\llama-server.log
 ```
 
-The server log calls this kwarg deprecated in favour of `--reasoning off` (listed by
-`llama-server --help` on b11868; same effect UNVERIFIED; every 2026-10-26 run used
-the kwarg).
+**Checking thinking off.** Once `/health` returns `ok`, render a one-message prompt
+through the server's chat template:
+
+```powershell
+(Invoke-RestMethod -Method Post http://127.0.0.1:8080/apply-template -Headers @{Authorization='Bearer local'} -ContentType 'application/json' -Body '{"messages":[{"role":"user","content":"hi"}]}').prompt
+```
+
+With thinking off the prompt ends with the assistant turn and a closed, empty think
+block (seen 2026-10-26 on b11868 after the 12:22 local restart with `--reasoning off`,
+the same as with the older kwarg):
+
+```text
+<|im_start|>assistant
+<think>
+
+</think>
+
+```
+
+With thinking on the assistant turn ends with an open `<think>` and a newline instead
+(`config/chat-templates/qwen3.8-27b.jinja`, the `add_generation_prompt` block).
 
 ## 6. Smoke test (`scripts\smoke.ps1`)
 
@@ -269,16 +319,22 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `Bash(powershell -NoProfile -Command \"Get-*)`. The matcher sees the raw command string,
   so a PowerShell rule carries the opening quote of the `-Command` payload, and every
   `;` / `&&` / `|` segment of a command must match. An allowed command skips the auto-mode
-  classifier (about 60 s per decision on the local model). Six exact rules run this
-  repo's tests from its root, `Bash(python -I scripts/hooks/tests/lis-guard_test.py)`,
+  classifier (about 60 s per decision on the local model). Nine exact rules run
+  tests: eight run this repo's tests from its root,
+  `Bash(python -I scripts/hooks/tests/lis-guard_test.py)`,
   `Bash(python -I scripts/hooks/tests/loop-guard_test.py)`,
   `Bash(python -I bench/ladder/tests/grade_test.py)`,
+  `Bash(python -I bench/ladder/tests/gen_longfix_test.py)`,
+  `Bash(python -I bench/ladder/tests/longrun_test.py)`,
   `Bash(python -I scripts/tests/verify-doc_test.py)`,
   `Bash(python -I scripts/tests/verify_claims_report_test.py)` and
-  `Bash(node --test bench/loop/fixture/test/text.test.js)` (TEST 6 in docs/ROADMAP.md;
-  an exact rule stays in auto mode, a wildcard after `node` or `python` is dropped).
-  An exact rule trusts the file it names: neither the hook nor the classifier scans
-  that file, so editing one of the six test files changes what its rule allows.
+  `Bash(node --test bench/loop/fixture/test/text.test.js)` (TEST 6 in docs/ROADMAP.md),
+  and `Bash(node --test longfix/test/all.test.js)` runs the generated fixture's tests
+  from a `bench/ladder` long-fix work tree (`bench/ladder/README.md`); its path is
+  relative, so the rule matches in any cwd that holds such a file. An exact rule
+  stays in auto mode; a wildcard after `node` or `python` is dropped. An exact rule
+  trusts the file it names: neither the hook nor the classifier scans that file, so
+  editing one of the nine test files changes what its rule allows.
   `ask`: `Edit(...)` rules for the critical paths
   (`~/.claude`, `~/.ssh`, `.curlrc`/`_curlrc`, Windows, Program Files,
   ProgramData, `.env*`, `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs

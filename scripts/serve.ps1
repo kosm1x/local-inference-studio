@@ -8,8 +8,21 @@
   IQ3_XXS at -c 131072 with q4_0 KV,
   --chat-template-file config/chat-templates/qwen3.8-27b.jinja and no MTP,
   plus -fa on, -np 1,
-  Qwen sampling, --host/--port, --reasoning-format auto, --api-key local and
-  --no-mmproj (the vision projector is skipped unless -WithMmproj). -Model is a
+  Qwen sampling, --host/--port, --reasoning-format auto, --reasoning off, --api-key local
+  and --no-mmproj (the vision projector is skipped unless -WithMmproj).
+  -Reasoning (off, on or auto; default off) is passed as --reasoning. The default is off
+  because the 2026-10-26 compaction bench got a real summary on every compaction request
+  only with server thinking off (3 of 3, against 2 of 4 with it on; n=1 run each).
+  -Reasoning auto is the server's own default (detect from the template), which is what
+  the script ran before this flag; with the default template that meant thinking on.
+  -Reasoning on forces thinking on. The server log calls the older form
+  --chat-template-kwargs '{"enable_thinking": false}' deprecated in favour of this
+  flag. That --reasoning off has the same effect on this build is VERIFIED at the
+  template level (2026-10-26: after the 12:22 restart /apply-template rendered an empty
+  think block for the assistant turn); its effect on output quality is unmeasured
+  (compaction run 9 used the kwarg form). --reasoning comes before -ExtraArgs and
+  -ExtraArgLine, so a later '--reasoning', 'on' or the kwarg form there is also passed;
+  which one llama-server honours (last wins?) is UNVERIFIED. -Model is a
   Hugging Face "repo:quant" (passed as -hf, downloaded on first run) or a local .gguf
   path (passed as -m; relative to the repo root; a missing file throws). -KvType
   defaults to q4_0 for the default model file only and to q8_0 for any other -Model
@@ -38,7 +51,7 @@
 .EXAMPLE
   pwsh scripts/serve.ps1 -ExtraArgLine '-lv 4'
 .EXAMPLE
-  & scripts/serve.ps1 -ExtraArgs '--chat-template-kwargs', '{"enable_thinking": false}'
+  pwsh scripts/serve.ps1 -Reasoning on
 #>
 [CmdletBinding()]
 param(
@@ -49,6 +62,8 @@ param(
     [string]$KvType = 'q4_0',
     [string]$Alias = 'local',
     [string]$ChatTemplateFile = '',
+    [ValidateSet('off', 'on', 'auto')]
+    [string]$Reasoning = 'off',
     [switch]$WithMmproj,
     [switch]$NoMtp,
     [string[]]$ExtraArgs = @(),
@@ -95,6 +110,7 @@ $cmdArgs = @(
     '--alias', $Alias,
     '--temp', '0.6', '--top-p', '0.95', '--top-k', '20',
     '--reasoning-format', 'auto',
+    '--reasoning', $Reasoning.ToLowerInvariant(),
     '--api-key', 'local',
     '--host', '127.0.0.1', '--port', "$Port"
 )

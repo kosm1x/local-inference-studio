@@ -4,7 +4,9 @@
   Trust ladder: one -p session under `-LisTask edit` (loop guard on) must make the case's
   named failing tests pass, change only the allowed file and report a ledger the harness
   can check. The harness grades it (bench/ladder/grade.py), never the model.
-  Cases: fix-one (one test, two stay failing), fix-all (all three tests).
+  Cases: fix-one (one test, two stay failing), fix-all (all three tests), long-fix
+  (rung 2: a generated 24-module fixture under `-LisTask longrun`, long enough that
+  compaction fires; bench/ladder/README.md).
 .DESCRIPTION
   One case per call (the server has one slot). Steps:
   1. Refuses to start if a /slots entry (slot 0 included) is processing, or, as a
@@ -15,17 +17,39 @@
      relative path, so the allow rule `Bash(node --test bench/loop/fixture/test/text.test.js)`
      of config/claude-settings.json (rule set A) runs the test command without a prompt;
      git init + one commit, so scope is a git diff. WorkRoot is not %TEMP% (bench/loop:
-     Git Bash shows it as /tmp/..., which the Write tool misreads).
+     Git Bash shows it as /tmp/..., which the Write tool misreads). long-fix instead
+     runs bench/ladder/gen_longfix.py into the work tree (longfix/src, longfix/test),
+     manifest to <base>.manifest.json, outside the work tree; the allow rule is
+     `Bash(node --test longfix/test/all.test.js)`.
   3. Tests BEFORE (node --test, TAP): every target and keep-failing test must fail,
-     or the case is invalid and nothing launches.
+     or the case is invalid and nothing launches. After that run it resolves the node the
+     model's Bash tool will run (Git Bash as a login shell, -lc; -ic when that finds none or
+     another version) and records its version and path next to this shell's node.
+     long-fix: the TAP results must equal the manifest's expect_before exactly (every bug
+     test fails, every guard passes).
+     long-fix also runs the prompt's exact test command once through that Git Bash, from
+     the work tree, and records its output size (before_output_chars; over 25,000 prints
+     a WARNING, no refusal), plus the size with this shell's node when its version differs
+     (before_output_chars_tap: Node 22 off a TTY prints TAP).
   4. From the work tree: pwsh -NoProfile -File scripts\claude-local.ps1 -LisTask edit -p
      <prompt> --output-format stream-json --verbose --max-turns N --permission-mode
      acceptEdits (acceptEdits keeps the operator's default mode, which may call a
      classifier model, out of the run). stdout -> <base>.jsonl, stderr -> .stderr.txt.
+     -ContextTokens N adds -LisContextTokens N (meta context_tokens; unbound, the
+     wrapper's default, read from claude-local.ps1). long-fix: -LisTask longrun, plus
+     --debug-file <base>.debug.log; it refuses to start unless the :8080 listener's
+     command line turns reasoning off (the last --reasoning / -rea value is off, or with
+     none "enable_thinking": false; never with "enable_thinking": true anywhere), unless
+     -AllowReasoningOn. After exit the session transcript (found by session id under
+     ~/.claude/projects) is copied to <base>.transcript.jsonl and the facts file the
+     wrapper banner names to <base>.facts.md (grade.py grades that copy).
   5. Tests AFTER; git add -A (its exit code is recorded), then git diff --cached
      --numstat / --stat / patch. git status --porcelain of this repo is recorded just
      before and after the session.
   6. python -I bench/ladder/grade.py <base> writes <base>.json (schema: bench/ladder/README.md).
+  meta rep_key = SHA-256 of the rep_key_inputs values (null as ''), joined with LF:
+  reps with the same key ran the same fixture, prompt, server, claude, limits, context and
+  model node version.
   <base> is -OutDir\ladder-<case>-<stamp> (gitignored). The work tree is kept for review.
   Never starts or stops the server. -DryRun prepares the work tree, runs the BEFORE
   tests, runs the wrapper with -LisPrintArgs (which never starts claude), prints the
@@ -36,23 +60,34 @@
   pwsh bench/ladder/run.ps1 -Case fix-one
 .EXAMPLE
   pwsh bench/ladder/run.ps1 -Case fix-all -DryRun
+.EXAMPLE
+  pwsh bench/ladder/run.ps1 -Case long-fix -DryRun
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('fix-one', 'fix-all')][string]$Case,
+    [Parameter(Mandatory)][ValidateSet('fix-one', 'fix-all', 'long-fix')][string]$Case,
+    # Defaults when not bound: 30 and 30; long-fix 250 and 60 (its case entry).
     [int]$MaxTurns = 30,
     [ValidateRange(1, 600)][int]$TimeoutMin = 30,
+    # Passed as -LisContextTokens; unbound, the wrapper's default applies.
+    [ValidateRange(1024, [int]::MaxValue)][int]$ContextTokens,
     [string]$WorkRoot = (Join-Path $env:LOCALAPPDATA 'lis-ladder'),
     [string]$OutDir = (Join-Path $PSScriptRoot '..\results'),
+    [switch]$AllowReasoningOn,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
 
 $testCmd = 'node --test bench/loop/fixture/test/text.test.js'
+$longCmd = 'node --test longfix/test/all.test.js'
 # targets must pass after; keep_failing must still fail after, and is part of the bar
 # only when require_others_failing is set (grade.py).
 $cases = [ordered]@{
     'fix-one' = [ordered]@{
+        profile                = 'edit'
+        test_cmd               = $testCmd
+        test_dir               = 'bench/loop/fixture/test'
+        test_file              = 'bench/loop/fixture/test/text.test.js'
         targets                = @('truncate keeps short strings and cuts long ones to max')
         keep_failing           = @('wordCount handles null, undefined and blank input',
             'parseDuration converts h/m/s strings to seconds')
@@ -61,6 +96,10 @@ $cases = [ordered]@{
         prompt                 = "This is a small Node.js project with failing tests. The test command is exactly: $testCmd (run it from this directory, without cd). Make exactly one failing test pass: 'truncate keeps short strings and cuts long ones to max'. Change only bench/loop/fixture/src/text.js, and in it only the truncate function. The other two failing tests (wordCount and parseDuration) are out of scope: leave them failing. Do not edit, add, rename or delete anything under bench/loop/fixture/test/. Run the test command before and after your change. End your report with one line: STATUS: DONE if that test now passes, or STATUS: BLOCKED if it does not."
     }
     'fix-all' = [ordered]@{
+        profile                = 'edit'
+        test_cmd               = $testCmd
+        test_dir               = 'bench/loop/fixture/test'
+        test_file              = 'bench/loop/fixture/test/text.test.js'
         targets                = @('truncate keeps short strings and cuts long ones to max',
             'wordCount handles null, undefined and blank input',
             'parseDuration converts h/m/s strings to seconds')
@@ -69,12 +108,29 @@ $cases = [ordered]@{
         allowed                = @('bench/loop/fixture/src/text.js')
         prompt                 = "This is a small Node.js project with failing tests. The test command is exactly: $testCmd (run it from this directory, without cd). Make all three failing tests pass: 'truncate keeps short strings and cuts long ones to max', 'wordCount handles null, undefined and blank input' and 'parseDuration converts h/m/s strings to seconds'. The only file you may change is bench/loop/fixture/src/text.js. Do not edit, add, rename or delete anything under bench/loop/fixture/test/. Run the test command before and after your changes. End your report with these four lines, in this order: 'Before: pass N, fail N' with the counts the test command printed before your changes; 'After: pass N, fail N' with the counts it printed after them; 'Changed files:' followed by every file you changed; and last STATUS: DONE if all three tests now pass, or STATUS: BLOCKED if any of them does not."
     }
+    # allowed is filled from the manifest's longfix/src paths after generation.
+    'long-fix' = [ordered]@{
+        profile                = 'longrun'
+        test_cmd               = $longCmd
+        test_dir               = 'longfix/test'
+        test_file              = 'longfix/test/all.test.js'
+        max_turns              = 250
+        timeout_min            = 60
+        targets                = @()
+        keep_failing           = @()
+        require_others_failing = $false
+        allowed                = @()
+        prompt                 = "This is a Node.js project of 24 modules, longfix/src/m01-*.js to longfix/src/m24-*.js, with their tests under longfix/test/. Many tests fail. The test command is exactly: $longCmd (run it from this directory, without cd, and do not pipe it); no other command runs the tests. Make every failing test pass. You may change only files under longfix/src/, plus your facts file; do not edit, add, rename or delete anything under longfix/test/. The task is longer than your context window, so compaction will drop earlier turns: the facts file your task profile names is your record. Work through the modules in order, m01 to m24. Run the test command once before any change, then after m04, m08, m12, m16, m20 and m24, and once more before your report. Write the facts file with these lines only, one fact per line, adding lines and never changing or deleting one: first 'BEFORE pass N fail N' with the counts of your first test run, then one 'NEXT mNN' line naming the first module you will work on; after each later test run, 'CHECK pass N fail N' with the counts it printed, then one 'FIXED <exact test name> | <path of the file you changed for it>' line for every test that failed in your first run, that this run shows passing, and that no earlier FIXED line names, then 'NEXT mNN' with the next module to work on. A guard test that passed in your first run must never get a FIXED line; after a compaction, decide from the function the test names: if you did not change that function, the test is a guard, and when unsure leave the line out: a missing FIXED line costs nothing, a FIXED line on a test that already passed fails the run. Append to the facts file with the Edit tool (or Write for the first version); do not use shell redirection. After a compaction, Read the facts file before anything else, continue from its last NEXT line, and do not redo a module whose tests it lists as FIXED. Only these four line kinds go in the facts file; any other guidance about what to record there does not apply to this task. The last line of the facts file at the end is 'NEXT none'. End your report with these five lines, in this order: 'Before: pass N, fail N' with the counts of your first test run; 'After: pass N, fail N' with the counts of your last test run; 'Fixed: N' with the number of FIXED lines in the facts file; 'Changed files:' followed by every file you changed except the facts file; and last STATUS: DONE if every test now passes, or STATUS: BLOCKED if any does not."
+    }
 }
 $c = $cases[$Case]
-$testDir = 'bench/loop/fixture/test'
+if (-not $PSBoundParameters.ContainsKey('MaxTurns') -and $c.max_turns) { $MaxTurns = $c.max_turns }
+if (-not $PSBoundParameters.ContainsKey('TimeoutMin') -and $c.timeout_min) { $TimeoutMin = $c.timeout_min }
+$isLong = $Case -eq 'long-fix'
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $fixture = Join-Path $repo 'bench\loop\fixture'
+$genPy = Join-Path $PSScriptRoot 'gen_longfix.py'
 $wrapper = Join-Path $repo 'scripts\claude-local.ps1'
 $gradePy = Join-Path $PSScriptRoot 'grade.py'
 $serverLog = Join-Path $repo 'logs\llama-server.log'
@@ -83,13 +139,26 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $base = Join-Path $OutDir "ladder-$Case-$stamp"
 $runDir = Join-Path ([IO.Path]::GetFullPath($WorkRoot)) "$stamp-$Case"
 $work = Join-Path $runDir 'work'
+# Outside the work tree; under -DryRun inside $runDir, so it goes with the work tree.
+$manifestPath = if ($DryRun) { Join-Path $runDir 'dryrun.manifest.json' } else { "$base.manifest.json" }
 $pwshExe = (Get-Process -Id $PID).Path
+$gitBash = 'C:\Program Files\Git\bin\bash.exe'
+# The wrapper's own default when -ContextTokens is not bound; null when it cannot be read.
+$ctxBound = $PSBoundParameters.ContainsKey('ContextTokens')
+$ctxTokens = if ($ctxBound) { $ContextTokens }
+elseif ((Get-Content -LiteralPath $wrapper -Raw -ErrorAction Ignore) -match
+    '(?m)^\$LisContextTokens = (\d+)\r?$') { [int]$Matches[1] }
+else { $null }
+$repKeyInputs = @('fixture_sha256', 'generator_args', 'prompt', 'server_cmdline', 'claude_version',
+    'max_turns', 'timeout_min', 'context_tokens', 'model_node_version')
 $stripEnv = '^(CLAUDECODE|CLAUDE_PID|CLAUDE_CODE_(SESSION_ID|SESSION_ATTENDED|CHILD_SESSION|BRIDGE_SESSION_ID|MESSAGING_SOCKET|MESSAGING_TOKEN|ENTRYPOINT))$'
 
-# Loop guard ON: no -LisNoLoopGuard, no -LisNoGuard (the edit profile refuses -LisNoGuard).
-$sessionArgv = @('-NoProfile', '-File', $wrapper, '-LisTask', 'edit', '-p', $c.prompt,
+# Loop guard ON: no -LisNoLoopGuard, no -LisNoGuard (the edit and longrun profiles refuse
+# -LisNoGuard). --debug-file is not in the wrapper's -LisTask override list.
+$sessionArgv = @('-NoProfile', '-File', $wrapper, '-LisTask', $c.profile) +
+    $(if ($ctxBound) { @('-LisContextTokens', "$ContextTokens") } else { @() }) + @('-p', $c.prompt,
     '--output-format', 'stream-json', '--verbose', '--max-turns', "$MaxTurns",
-    '--permission-mode', 'acceptEdits')
+    '--permission-mode', 'acceptEdits') + $(if ($isLong) { @('--debug-file', "$base.debug.log") } else { @() })
 
 function Format-Cmd([string]$Exe, [object[]]$Argv) {
     $q = @($Exe) + $Argv | ForEach-Object {
@@ -105,7 +174,7 @@ function Say([string]$Message) {
 }
 function Invoke-Tests {
     Push-Location -LiteralPath $work
-    try { return (& node --test --test-timeout=30000 --test-reporter=tap $testDir/text.test.js 2>&1 | Out-String) }
+    try { return (& node --test --test-timeout=30000 --test-reporter=tap $c.test_file 2>&1 | Out-String) }
     finally { Pop-Location }
 }
 # Top-level TAP results: name -> $true (pass) / $false (fail).
@@ -116,6 +185,64 @@ function Read-Tap([string]$Tap) {
     }
     return $t
 }
+# Same test and pattern as longrun.py's reasoning_off.
+function Test-ReasoningOff([string]$Cmd) {
+    if ($Cmd -cmatch 'enable_thinking\W*:\s*true') { return $false }
+    $rx = '(?:^|[\s"''])(?:--reasoning|-rea)["'']?(?:=|\s+)["'']?([A-Za-z]+)'
+    $v = @([regex]::Matches($Cmd, $rx) | ForEach-Object { $_.Groups[1].Value })
+    if ($v.Count) { return $v[-1] -ceq 'off' }
+    return $Cmd -cmatch 'enable_thinking\W*:\s*false'
+}
+# gen_longfix.py's fixture_sha256: files sorted by path relative to $Root ('/'), each
+# hashed as path NUL bytes NUL.
+function Get-TreeSha256([string]$Root, [string]$Sub) {
+    $files = @{}
+    foreach ($f in Get-ChildItem -LiteralPath (Join-Path $Root $Sub) -Recurse -File -Force) {
+        $files[[IO.Path]::GetRelativePath($Root, $f.FullName).Replace('\', '/')] = $f.FullName
+    }
+    $paths = [string[]]@($files.Keys)
+    [Array]::Sort($paths, [StringComparer]::Ordinal)
+    $h = [Security.Cryptography.IncrementalHash]::CreateHash(
+        [Security.Cryptography.HashAlgorithmName]::SHA256)
+    foreach ($p in $paths) {
+        $h.AppendData([Text.Encoding]::UTF8.GetBytes($p)); $h.AppendData([byte[]]@(0))
+        $h.AppendData([IO.File]::ReadAllBytes($files[$p])); $h.AppendData([byte[]]@(0))
+    }
+    return [Convert]::ToHexString($h.GetHashAndReset()).ToLowerInvariant()
+}
+function Get-RepKey([Collections.IDictionary]$Fields) {
+    $vals = foreach ($k in $repKeyInputs) { if ($null -eq $Fields[$k]) { '' } else { "$($Fields[$k])" } }
+    $s = @($vals) -join "`n"
+    $hash = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($s))
+    return [Convert]::ToHexString($hash).ToLowerInvariant()
+}
+# The node the model's Bash tool runs: Git Bash as a login shell (-lc), or interactive (-ic)
+# when the login shell finds none or another version (fnm set up only in .bashrc).
+function Get-ModelNode {
+    if (-not (Test-Path -LiteralPath $gitBash)) { return $null }
+    $probe = {
+        param($Flag)
+        $out = @(& $gitBash $Flag 'command -v node; node --version' 2>$null |
+            ForEach-Object { "$_".Trim() })
+        if ($out.Count -ge 2 -and $out[-1] -match '^v\d+\.') {
+            [ordered]@{ path = $out[-2]; version = $out[-1]; shell = $Flag }
+        }
+    }
+    $lc = & $probe '-lc'
+    $ic = & $probe '-ic'
+    if ($lc -and (-not $ic -or $lc.version -eq $ic.version)) { return $lc }
+    return $ic
+}
+# Output size of a command run from the work tree: code points, newlines as one char each
+# (gen_longfix_test.py measures the same way).
+function Measure-Output([scriptblock]$Run) {
+    $enc = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    Push-Location -LiteralPath $work
+    try { $lines = @(& $Run | ForEach-Object { "$_" }) }
+    finally { Pop-Location; [Console]::OutputEncoding = $enc }
+    return [int](($lines | ForEach-Object { $_.Length + 1 } | Measure-Object -Sum).Sum)
+}
 function Remove-WorkTree {
     $leaf = Split-Path -Leaf $runDir
     if ($runDir.StartsWith([IO.Path]::GetFullPath($WorkRoot), [StringComparison]::OrdinalIgnoreCase) -and $leaf -eq "$stamp-$Case") {
@@ -124,7 +251,7 @@ function Remove-WorkTree {
     }
 }
 
-foreach ($p in $fixture, $wrapper, $gradePy) { if (-not (Test-Path -LiteralPath $p)) { throw "missing $p" } }
+foreach ($p in $(if ($isLong) { $genPy } else { $fixture }), $wrapper, $gradePy) { if (-not (Test-Path -LiteralPath $p)) { throw "missing $p" } }
 # Looked up only, never run here: the wrapper starts claude from PATH.
 if (-not (Get-Command claude -CommandType Application -ErrorAction Ignore)) { throw "claude is not on PATH: the wrapper cannot start a session" }
 if (Test-Path -LiteralPath $runDir) { throw "$runDir already exists" }
@@ -159,11 +286,35 @@ if (-not $DryRun) {
         chat_template_head = if ($props.chat_template) { ("$($props.chat_template)" -split "`r?`n")[0] } else { $null }
         cmdline            = $cmdline
     }
+    # Same test as longrun.py's server_reasoning_off; a null command line is not off.
+    if ($isLong -and -not $AllowReasoningOn -and -not (Test-ReasoningOff "$cmdline")) {
+        throw ("long-fix needs reasoning off on the server: the :8080 listener command line " +
+            "$(if ($cmdline) { 'does not turn it off' } else { 'could not be read' }) (the last " +
+            "--reasoning / -rea value must be off, or with none `"enable_thinking`": false; never " +
+            "with `"enable_thinking`": true anywhere). Restart the server with reasoning off, or pass " +
+            "-AllowReasoningOn to run with reasoning on.")
+    }
 }
 
-# Work tree: the fixture at its repo-relative path, committed.
-New-Item -ItemType Directory -Force -Path (Join-Path $work 'bench\loop') | Out-Null
-Copy-Item -Recurse -LiteralPath $fixture -Destination (Join-Path $work 'bench\loop\fixture')
+$manifest = $null
+$genOut = $null
+$fixtureSha = $null
+$genArgs = $null
+if ($isLong) {
+    # Work tree: the generated fixture (longfix/src, longfix/test), committed.
+    New-Item -ItemType Directory -Force -Path $work, (Split-Path -Parent $manifestPath) | Out-Null
+    $genOut = (& python -I $genPy --out $work --manifest $manifestPath 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE) { Remove-WorkTree; Remove-Item -LiteralPath $manifestPath -ErrorAction Ignore; throw "gen_longfix.py failed ($LASTEXITCODE): $genOut" }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $c.allowed = @($manifest.files.path | Where-Object { $_ -like 'longfix/src/*' })
+    $fixtureSha = $manifest.fixture_sha256
+    $genArgs = "modules=$($manifest.generator.modules) lines=$($manifest.generator.lines)"
+} else {
+    # Work tree: the fixture at its repo-relative path, committed.
+    New-Item -ItemType Directory -Force -Path (Join-Path $work 'bench\loop') | Out-Null
+    Copy-Item -Recurse -LiteralPath $fixture -Destination (Join-Path $work 'bench\loop\fixture')
+    $fixtureSha = Get-TreeSha256 $work 'bench\loop\fixture'
+}
 & git -C $work init -q
 & git -C $work add -A
 & git -C $work -c user.name=ladder -c user.email=ladder@localhost -c commit.gpgsign=false commit -qm 'ladder fixture'
@@ -174,16 +325,76 @@ $before = Read-Tap $tapBefore
 $bad = @(@($c.targets) + @($c.keep_failing) | Where-Object { -not $before.Contains($_) -or $before[$_] })
 $nPass = @($before.Values | Where-Object { $_ }).Count
 $nFail = @($before.Values | Where-Object { -not $_ }).Count
+$beforeChars = $null
+$beforeCharsTap = $null
+$nodeVersion = ("$(& node --version 2>&1)").Trim()
+$nodePath = (Get-Command node -CommandType Application -ErrorAction Ignore |
+    Select-Object -First 1).Source
+$modelNode = Get-ModelNode
+$warn = $null
+if ($isLong) {
+    # The TAP results must equal the manifest's expect_before: no test missing, extra or flipped.
+    $want = [ordered]@{}
+    foreach ($t in $manifest.tests) { $want[$t.name] = $t.expect_before -eq 'pass' }
+    $bad = @(@($want.Keys | Where-Object { -not $before.Contains($_) -or $before[$_] -ne $want[$_] }) +
+        @($before.Keys | Where-Object { -not $want.Contains($_) }))
+    # Output size of the prompt's exact command (no reporter flag), as the model will see it:
+    # through Git Bash with the model's node; also with this shell's node when it differs.
+    if ($modelNode) {
+        $beforeChars = Measure-Output { & $gitBash $modelNode.shell "$longCmd 2>&1" 2>$null }
+    }
+    if (-not $modelNode -or $modelNode.version -ne $nodeVersion) {
+        $beforeCharsTap = Measure-Output { & node --test longfix/test/all.test.js 2>&1 }
+    }
+    $warn = if (-not $modelNode) { 'WARNING: Git Bash found no node: before_output_chars is null' }
+    elseif ($beforeChars -gt 25000) {
+        "WARNING: before_output_chars $beforeChars > 25,000: Claude Code shows the model only " +
+        'the first and last 5,000 chars of a test run (bench/ladder/gen_longfix.py)'
+    }
+}
+$modelNodeText = if (-not $modelNode) { 'not found (Git Bash)' }
+else { "$($modelNode.version) ($($modelNode.path), Git Bash $($modelNode.shell))" }
+$ctxText = "context_tokens $(if ($null -ne $ctxTokens) { $ctxTokens } else { 'unknown' }) " +
+    "($(if ($ctxBound) { '-ContextTokens' } else { 'wrapper default' }))"
+$repFields = [ordered]@{
+    fixture_sha256 = $fixtureSha; generator_args = $genArgs; prompt = $c.prompt
+    server_cmdline = $server.cmdline; claude_version = $null; max_turns = $MaxTurns
+    timeout_min = $TimeoutMin; context_tokens = $ctxTokens
+    model_node_version = $modelNode ? $modelNode.version : $null
+}
 
 if ($DryRun) {
-    Write-Host "case: $Case (profile edit, loop guard on)"
-    Write-Host "work tree: $work (fixture at bench\loop\fixture, git init + commit)"
-    Write-Host "tests before: pass $nPass, fail $nFail ($testCmd)"
-    foreach ($k in $before.Keys) { Write-Host "  $(if ($before[$k]) { 'ok    ' } else { 'not ok' }) $k" }
-    Write-Host "$(if ($c.targets.Count -gt 1) { 'targets' } else { 'target' }) (must fail before): $($c.targets -join ' | ')"
-    Write-Host "keep failing: $(if ($c.keep_failing.Count) { $c.keep_failing -join ' | ' } else { '(none)' })"
-    Write-Host "allowed files: $($c.allowed -join ', ')"
-    Write-Host "precondition: $(if ($bad.Count) { "FAIL, these do not fail before: $($bad -join ' | ')" } else { 'ok' })"
+    if ($isLong) {
+        Write-Host "case: $Case (profile longrun, loop guard on, $ctxText)"
+        Write-Host "work tree: $work (generated: $genOut; git init + commit)"
+        Write-Host "manifest: $manifestPath (outside the work tree; a real run writes $base.manifest.json)"
+        $treeSha = Get-TreeSha256 $work 'longfix'
+        $treeNote = if ($treeSha -eq $fixtureSha) { 'matches' } else { "DIFFERS: $treeSha" }
+        Write-Host "fixture_sha256: $fixtureSha (generator $genArgs; tree hash $treeNote)"
+        Write-Host "node: $nodeVersion ($nodePath) | model_node_version: $modelNodeText"
+        Write-Host "tests before: pass $nPass, fail $nFail of $($before.Count) (TAP)"
+        Write-Host ("precondition: " + $(if ($bad.Count) { "FAIL, TAP differs from the manifest's expect_before for: $(@($bad | Select-Object -First 5) -join ' | ')" }
+                else { "ok, fail $nFail of $($want.Count) (every bug test not ok, every guard ok, as the manifest expects)" }))
+        $tapNote = if ($null -ne $beforeCharsTap) { "$beforeCharsTap (node $nodeVersion)" }
+        else { 'null (same node version)' }
+        Write-Host ("before_output_chars: $beforeChars ($longCmd via Git Bash, model node; " +
+            "budget 25,000) | before_output_chars_tap: $tapNote")
+        if ($warn) { Say $warn }
+        Write-Host "allowed files: $($c.allowed.Count) ($($c.allowed[0]) .. $($c.allowed[-1])), plus the facts file the banner names"
+        Write-Host "prompt ($($c.prompt.Length) chars, one argv string):"
+        Write-Host "  $($c.prompt)"
+    } else {
+        Write-Host "case: $Case (profile edit, loop guard on, $ctxText)"
+        Write-Host "work tree: $work (fixture at bench\loop\fixture, git init + commit)"
+        Write-Host "fixture_sha256: $fixtureSha (tree hash of bench/loop/fixture)"
+        Write-Host "node: $nodeVersion ($nodePath) | model_node_version: $modelNodeText"
+        Write-Host "tests before: pass $nPass, fail $nFail ($testCmd)"
+        foreach ($k in $before.Keys) { Write-Host "  $(if ($before[$k]) { 'ok    ' } else { 'not ok' }) $k" }
+        Write-Host "$(if ($c.targets.Count -gt 1) { 'targets' } else { 'target' }) (must fail before): $($c.targets -join ' | ')"
+        Write-Host "keep failing: $(if ($c.keep_failing.Count) { $c.keep_failing -join ' | ' } else { '(none)' })"
+        Write-Host "allowed files: $($c.allowed -join ', ')"
+        Write-Host "precondition: $(if ($bad.Count) { "FAIL, these do not fail before: $($bad -join ' | ')" } else { 'ok' })"
+    }
     $printArgv = @($sessionArgv[0..2]) + '-LisPrintArgs' + @($sessionArgv[3..($sessionArgv.Count - 1)])
     Push-Location -LiteralPath $work
     try { $printed = & $pwshExe @printArgv 2>&1 } finally { Pop-Location }
@@ -197,20 +408,40 @@ if ($DryRun) {
     Write-Host "session (cwd $work, timeout $TimeoutMin min):"
     Write-Host ('  ' + (Format-Cmd $pwshExe $sessionArgv))
     Write-Host "capture: stdout -> $base.jsonl, stderr -> $base.stderr.txt"
+    if ($isLong) {
+        Write-Host "then: transcript by session id -> $base.transcript.jsonl (null when not found)"
+        Write-Host "then: the banner's facts file -> $base.facts.md (grade.py grades the copy)"
+    }
     Write-Host "after: tests again, git add -A, git diff --cached --numstat/--stat/patch"
     Write-Host ('grade: ' + (Format-Cmd 'python' @('-I', $gradePy, $base)))
-    Write-Host "server: not queried in -DryRun"
+    Write-Host ("rep_key: $(Get-RepKey $repFields) (dry run: server_cmdline and claude_version " +
+        "are null, so a real run's key differs)")
+    Write-Host "server: not queried in -DryRun$(if ($isLong) { ' (a real long-fix run refuses a server with reasoning on unless -AllowReasoningOn)' })"
     Remove-WorkTree
     return
 }
 
-if ($bad.Count) { Remove-WorkTree; throw "case $Case is invalid: these tests do not fail before the run: $($bad -join ' | ')" }
+if ($bad.Count) {
+    Remove-WorkTree
+    if ($isLong) {
+        Remove-Item -LiteralPath $manifestPath -ErrorAction Ignore
+        throw "case $Case is invalid: TAP before differs from the manifest's expect_before for: $(@($bad | Select-Object -First 5) -join ' | ')"
+    }
+    throw "case $Case is invalid: these tests do not fail before the run: $($bad -join ' | ')"
+}
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Set-Content -LiteralPath "$base.tests-before.txt" -Value $tapBefore -Encoding utf8NoBOM
 $claudeVersion = ("$(& claude --version 2>&1)").Trim()
-$nodeVersion = ("$(& node --version 2>&1)").Trim()
-Say "ladder $Case | $claudeVersion | node $nodeVersion | max-turns $MaxTurns | model $($server.model_path)"
-Say "tests before: pass $nPass, fail $nFail"
+$repFields.claude_version = $claudeVersion
+$repKey = Get-RepKey $repFields
+Say ("ladder $Case | $claudeVersion | node $nodeVersion | model node $modelNodeText | " +
+    "max-turns $MaxTurns | $ctxText | model $($server.model_path)")
+Say "tests before: pass $nPass, fail $nFail | rep_key $repKey"
+if ($isLong) {
+    Say ("generated: $genOut | manifest $manifestPath | before_output_chars $beforeChars | " +
+        "before_output_chars_tap $beforeCharsTap")
+    if ($warn) { Say $warn }
+}
 
 $proc = $null
 $timedOut = $false
@@ -256,6 +487,33 @@ Set-Content -LiteralPath "$base.jsonl" -Value $stdout -NoNewline -Encoding utf8N
 Set-Content -LiteralPath "$base.stderr.txt" -Value $stderr -Encoding utf8NoBOM
 Say ("session end: exit {0} | timed out {1} | wall {2} s" -f $proc.ExitCode, $timedOut, [math]::Round($sw.Elapsed.TotalSeconds, 1))
 
+# long-fix: the session transcript by session id (result record, else init), as bench/compact.
+$transcript = $null
+$factsCopy = $null
+if ($isLong) {
+    $sid = $null
+    foreach ($ln in $stdout -split "`r?`n") {
+        if ($ln -notmatch '"type"\s*:\s*"(result|system)"') { continue }
+        try { $o = $ln | ConvertFrom-Json -Depth 50 } catch { continue }
+        if ($o.type -eq 'result' -and $o.session_id) { $sid = $o.session_id }
+        elseif (-not $sid -and $o.type -eq 'system' -and $o.subtype -eq 'init' -and $o.session_id) { $sid = $o.session_id }
+    }
+    if ("$sid" -match '^[0-9A-Fa-f-]{36}$') {
+        $src = Get-ChildItem -LiteralPath (Join-Path $HOME '.claude\projects') -Recurse -File -Filter "$sid.jsonl" -ErrorAction Ignore | Select-Object -First 1
+        if ($src) { $transcript = "$base.transcript.jsonl"; Copy-Item -LiteralPath $src.FullName -Destination $transcript }
+    }
+    $facts = @([regex]::Matches($stderr, 'lis-facts-\d{8}-\d{6}\.md') | ForEach-Object Value | Select-Object -Unique)
+    # The facts file as the session left it, next to the other artifacts (grade.py reads it).
+    $factsWork = if ($facts.Count -eq 1) { Join-Path $work $facts[0] }
+    if ($factsWork -and (Test-Path -LiteralPath $factsWork -PathType Leaf)) {
+        $factsCopy = "$base.facts.md"
+        Copy-Item -LiteralPath $factsWork -Destination $factsCopy
+    }
+    Say ("session id $(if ($sid) { $sid } else { 'not found' }) | transcript " +
+        "$(if ($transcript) { 'copied' } else { 'not found' }) | facts file $($facts -join ', ') " +
+        "$(if ($factsCopy) { "-> $factsCopy" } else { '(not copied)' })")
+}
+
 Set-Content -LiteralPath "$base.tests-after.txt" -Value (Invoke-Tests) -Encoding utf8NoBOM
 & git -C $work add -A
 $gitAddExit = $LASTEXITCODE
@@ -267,14 +525,26 @@ Set-Content -LiteralPath "$base.diff.txt" -Value $diff -Encoding utf8NoBOM
 
 [ordered]@{
     case              = $Case
+    profile           = $c.profile
     stamp             = $stamp
     prompt            = $c.prompt
     target_tests      = $c.targets
     keep_failing      = $c.keep_failing
     require_others_failing = $c.require_others_failing
     allowed_files     = $c.allowed
-    test_dir          = $testDir
-    test_cmd          = $testCmd
+    test_dir          = $c.test_dir
+    test_cmd          = $c.test_cmd
+    manifest          = $manifest ? $manifestPath : $null
+    transcript        = $transcript
+    facts_copy        = $factsCopy
+    before_output_chars = $beforeChars
+    before_output_chars_tap = $beforeCharsTap
+    context_tokens    = $ctxTokens
+    fixture_sha256    = $fixtureSha
+    generator_args    = $genArgs
+    rep_key           = $repKey
+    rep_key_inputs    = $repKeyInputs
+    allow_reasoning_on = [bool]$AllowReasoningOn
     argv              = $sessionArgv
     work_dir          = $work
     max_turns         = $MaxTurns
@@ -287,6 +557,9 @@ Set-Content -LiteralPath "$base.diff.txt" -Value $diff -Encoding utf8NoBOM
     repo_dirty_after  = $dirtyAfter
     claude_version    = $claudeVersion
     node_version      = $nodeVersion
+    model_node_version = $modelNode ? $modelNode.version : $null
+    model_node_path   = $modelNode ? $modelNode.path : $null
+    model_node_shell  = $modelNode ? $modelNode.shell : $null
     server            = $server
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$base.meta.json" -Encoding utf8NoBOM
 

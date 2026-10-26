@@ -91,9 +91,12 @@
       "Bash(python -I scripts/hooks/tests/lis-guard_test.py)",
       "Bash(python -I scripts/hooks/tests/loop-guard_test.py)",
       "Bash(python -I bench/ladder/tests/grade_test.py)",
+      "Bash(python -I bench/ladder/tests/gen_longfix_test.py)",
+      "Bash(python -I bench/ladder/tests/longrun_test.py)",
       "Bash(python -I scripts/tests/verify-doc_test.py)",
       "Bash(python -I scripts/tests/verify_claims_report_test.py)",
-      "Bash(node --test bench/loop/fixture/test/text.test.js)"
+      "Bash(node --test bench/loop/fixture/test/text.test.js)",
+      "Bash(node --test longfix/test/all.test.js)"
     ],
     "ask": [
       "Edit(~/.claude/**)",

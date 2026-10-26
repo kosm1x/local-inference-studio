@@ -1,0 +1,470 @@
+"""Unit tests for bench/ladder/longrun.py through grade.py. Run:
+python -I bench/ladder/tests/longrun_test.py
+
+Each case writes synthetic run.ps1 artifacts for a two-module long-fix run (meta with
+profile longrun, manifest, TAP before/after, numstat, stderr banner, transcript, a
+stream-json stdout and the final facts file) and grades them. No session, no server.
+"""
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+
+sys.dont_write_bytecode = True
+HERE = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_file_location('grade', os.path.join(HERE, '..', 'grade.py'))
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+lr = g.load_longrun()
+
+A, B, G = 'm01 alphaTrim keeps short input', 'm02 betaSort orders numbers', 'm01 alphaTrim guard'
+S1, S2 = 'longfix/src/m01-alpha.js', 'longfix/src/m02-beta.js'
+CMD = 'node --test longfix/test/all.test.js'
+FACTS = 'lis-facts-20261026-120000.md'
+CMDLINE = 'llama-server.exe -c 131072 --chat-template-kwargs "{\\"enable_thinking\\": false}"'
+L1 = ['BEFORE pass 1 fail 2', 'CHECK pass 2 fail 1', f'FIXED {A} | {S1}', 'NEXT m02']
+L2 = ['CHECK pass 3 fail 0', f'FIXED {B} | {S2}']
+CLAIM = (f'Before: pass 1, fail 2\nAfter: pass 3, fail 0\nFixed: 2\nChanged files: {S1}, {S2}\n'
+         'STATUS: DONE')
+
+
+def tap(a, b):
+    rows = [(A, a), (B, b), (G, True)]
+    return ''.join(f"{'' if ok else 'not '}ok {i} - {n}\n" for i, (n, ok) in enumerate(rows, 1))
+
+
+def run_out(p, f, names=()):
+    return ''.join(f'\u2714 {n} (0.1ms)\n' for n in names) + f'\u2139 pass {p}\n\u2139 fail {f}\n'
+
+
+def text(lines):
+    return ''.join(ln + '\n' for ln in lines)
+
+
+def boundary(camel=False):
+    m = {'trigger': 'auto', 'preTokens': 100, 'postTokens': 20, 'durationMs': 5} if camel \
+        else {'trigger': 'auto', 'pre_tokens': 100, 'post_tokens': 20, 'duration_ms': 5}
+    return ('boundary', {'compactMetadata' if camel else 'compact_metadata': m})
+
+
+def good(work):
+    """The happy path: BEFORE, fix m01, CHECK + FIXED, boundary, Read, fix m02, CHECK + FIXED."""
+    fp = os.path.join(work, FACTS)
+    return [
+        ('Bash', {'command': CMD}, run_out(1, 2), True),
+        ('Write', {'file_path': fp, 'content': text(L1[:1])}, 'ok', False),
+        ('Edit', {'file_path': os.path.join(work, S1), 'old_string': 'a', 'new_string': 'b'},
+         'ok', False),
+        ('Bash', {'command': CMD}, run_out(2, 1, [A]), True),
+        ('Edit', {'file_path': fp, 'old_string': text(L1[:1]), 'new_string': text(L1)},
+         'ok', False),
+        boundary(),
+        ('Read', {'file_path': fp}, text(L1), False),
+        ('Edit', {'file_path': os.path.join(work, S2), 'old_string': 'c', 'new_string': 'd'},
+         'ok', False),
+        ('Bash', {'command': CMD + ' | tail -5'}, run_out(3, 0, [A, B]), False),
+        ('Edit', {'file_path': fp, 'old_string': 'NEXT m02\n',
+                  'new_string': 'NEXT m02\n' + text(L2)}, 'ok', False),
+    ]
+
+
+class LongRun(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix='ladder-longrun-')
+        self.work = os.path.join(self.root, 'work')
+        os.makedirs(self.work)
+        self.n = 0
+
+    def tearDown(self):
+        shutil.rmtree(self.root)
+
+    def grade(self, steps=None, claim=CLAIM, final=L1 + L2, after=(True, True),
+              transcript=(1, 1), meta_extra=None, profile='longrun',
+              numstat=f'1\t1\t{S1}\n1\t1\t{S2}\n6\t0\t{FACTS}\n', debug=None, copy=None):
+        """steps: (tool, input, result text, is_error), boundary() or ('text', text). copy:
+        the lines of <base>.facts.md (run.ps1's copy), not written when None."""
+        self.n += 1
+        base = os.path.join(self.root, f'case{self.n}')
+        man = base + '.manifest.json'
+        tests = [{'name': n, 'module': n[:3], 'file': f'longfix/test/{s}.test.js',
+                  'kind': k, 'expect_before': e}
+                 for n, s, k, e in ((A, 'm01-alpha', 'bug', 'fail'), (B, 'm02-beta', 'bug', 'fail'),
+                                    (G, 'm01-alpha', 'guard', 'pass'))]
+        meta = {'case': 'long-fix', 'profile': profile, 'allowed_files': [S1, S2],
+                'keep_failing': [], 'require_others_failing': False, 'target_tests': [],
+                'test_dir': 'longfix/test', 'test_cmd': CMD, 'manifest': man,
+                'argv': ['-LisTask', 'longrun', '-p', 'x'], 'work_dir': self.work,
+                'server': {'cmdline': CMDLINE}}
+        meta.update(meta_extra or {})
+        lines = []
+        for i, st in enumerate(good(self.work) if steps is None else steps):
+            if st[0] == 'boundary':
+                lines.append(json.dumps(dict({'type': 'system', 'subtype': 'compact_boundary'},
+                                             **st[1])))
+                continue
+            if st[0] == 'text':
+                lines.append(json.dumps({'type': 'assistant', 'message': {'content': [
+                    {'type': 'text', 'text': st[1]}]}}))
+                continue
+            tool, inp, out, err = st
+            lines.append(json.dumps({'type': 'assistant', 'message': {'content': [
+                {'type': 'tool_use', 'id': f't{i}', 'name': tool, 'input': inp}]}}))
+            lines.append(json.dumps({'type': 'user', 'message': {'content': [
+                {'type': 'tool_result', 'tool_use_id': f't{i}', 'is_error': err,
+                 'content': out}]}}))
+        lines.append(json.dumps({'type': 'assistant', 'message': {'content': [
+            {'type': 'text', 'text': claim}]}}))
+        lines.append(json.dumps({'type': 'result', 'result': claim, 'num_turns': 9}))
+        files = {'.meta.json': json.dumps(meta), '.manifest.json': json.dumps({'tests': tests}),
+                 '.tests-before.txt': tap(False, False), '.tests-after.txt': tap(*after),
+                 '.numstat.txt': numstat, '.jsonl': '\n'.join(lines) + '\n',
+                 '.diff.txt': f'+++ b/{S1}\n+const x = require("child_process");\n+ok();\n',
+                 '.stderr.txt': f'claude-local: profile: longrun\n  ...plus ?? {FACTS}\n'}
+        if debug is not None:
+            files['.debug.log'] = debug
+        if copy is not None:
+            files['.facts.md'] = text(copy)
+        if transcript:
+            files['.transcript.jsonl'] = '\n'.join(
+                [json.dumps({'type': 'system', 'subtype': 'compact_boundary'})] * transcript[0]
+                + [json.dumps({'type': 'user', 'isCompactSummary': True})] * transcript[1])
+        for ext, body in files.items():
+            with open(base + ext, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(body)
+        fp = os.path.join(self.work, FACTS)
+        if os.path.exists(fp):
+            os.remove(fp)
+        if final is not None:
+            with open(fp, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(text(final))
+        with contextlib.redirect_stdout(io.StringIO()):
+            g.grade(base)
+        with open(base + '.json', encoding='utf-8') as f:
+            return json.load(f)
+
+    def test_good_run_meets_bar(self):
+        extra = {'rep_key': 'k' * 64, 'context_tokens': 65536, 'before_output_chars': 20594,
+                 'model_node_version': 'v24.22.1', 'node_version': 'v22.23.4'}
+        r = self.grade(meta_extra=extra)
+        self.assertEqual({k: r[k] for k in extra}, extra)
+        self.assertEqual(r['facts_source'], 'work_dir')
+        self.assertEqual((r['facts_bash_appends'], r['test_runs_nonexact'],
+                          r['test_runs_piped']), (0, 0, 1))
+        self.assertIsNone(r['compaction_failed_source'])
+        self.assertTrue(r['claim_fixed_vs_tap'])
+        self.assertEqual((r['axis_exercised'], r['compaction_mid_edit'], r['compaction_fired']),
+                         (True, True, 1))
+        self.assertEqual(r['facts_at_boundary'], [L1])
+        self.assertTrue(r['facts_replay_ok'])
+        self.assertTrue(r['facts_survived'])
+        self.assertEqual((r['facts_true'], r['facts_false'], r['facts_undecided']), (5, 0, 0))
+        self.assertEqual(r['facts_kinds'], {'BEFORE': 1, 'CHECK': 2, 'FIXED': 2, 'NEXT': 1})
+        self.assertTrue(r['claim_before_agrees'])
+        self.assertTrue(r['claim_fixed_count_agrees'])
+        self.assertTrue(r['claim_agrees'])
+        self.assertTrue(r['claim_after_last_boundary'])
+        self.assertEqual(r['facts_read_after_boundary'], [True])
+        self.assertEqual(r['facts_write_tools'], {'Write': 1, 'Edit': 2, 'Bash': 0})
+        self.assertEqual(r['facts_fixed_verified'], 2)
+        self.assertEqual(r['redo_after_compaction'], 0)
+        self.assertEqual(r['test_runs'], 3)
+        self.assertTrue(r['scope_ok'])
+        self.assertEqual(r['diff_suspicious'], ['const x = require("child_process");'])
+        self.assertTrue(r['server_reasoning_off'])
+        self.assertTrue(r['compaction_consistency'])
+        self.assertEqual(r['compaction_boundaries'][0]['pre_tokens'], 100)
+        self.assertEqual((r['grade_profile'], r['bar_met'], r['bar_reason']),
+                         ('longrun', True, None))
+        self.assertEqual(r['undecided'], [])
+
+    def test_no_boundary_axis_false_bar_null(self):
+        steps = [s for s in good(self.work) if s[0] != 'boundary']
+        r = self.grade(steps, transcript=None)
+        self.assertEqual((r['compaction_fired'], r['axis_exercised']), (0, False))
+        self.assertIsNone(r['bar_met'])
+        self.assertIn('axis_exercised=False', r['bar_reason'])
+
+    def test_line_lost_after_boundary_fails(self):
+        r = self.grade(final=[x for x in L1 + L2 if x != 'NEXT m02'])
+        self.assertFalse(r['facts_survived'])
+        self.assertFalse(r['bar_met'])
+        self.assertIn('facts_gate', r['bar_reason'])
+
+    def test_mismatched_check_is_false(self):
+        steps = good(self.work)
+        bad = [L1[0], 'CHECK pass 3 fail 0'] + L1[2:]
+        steps[4] = ('Edit', dict(steps[4][1], new_string=text(bad)), 'ok', False)
+        r = self.grade(steps, final=bad + L2)
+        self.assertEqual(r['facts_false'], 1)
+        self.assertEqual([v['verdict'] for v in r['facts_verdicts'] if v['kind'] == 'CHECK'],
+                         [False, True])
+        self.assertFalse(r['bar_met'])
+
+    def test_fixed_for_still_failing_test_is_false(self):
+        claim = (f'Before: pass 1, fail 2\nAfter: pass 2, fail 1\nFixed: 2\n'
+                 f'Changed files: {S1}, {S2}\nSTATUS: BLOCKED')
+        r = self.grade(claim=claim, after=(True, False))
+        self.assertTrue(r['claim_agrees'])
+        self.assertTrue(r['claim_fixed_count_agrees'])  # 2 FIXED lines in the facts file
+        self.assertFalse(r['claim_fixed_vs_tap'])  # TAP shows 1 test fixed
+        fixed = {v['line']: v['verdict'] for v in r['facts_verdicts'] if v['kind'] == 'FIXED'}
+        self.assertEqual(fixed, {f'FIXED {A} | {S1}': True, f'FIXED {B} | {S2}': False})
+        self.assertEqual((r['bar_met'], r['bar_reason']), (False, 'false: facts_gate'))
+
+    def test_fixed_wrong_path_is_false(self):
+        steps = good(self.work)
+        steps[9] = ('Edit', dict(steps[9][1], new_string='NEXT m02\n' + text(
+            [L2[0], f'FIXED {B} | {S1}'])), 'ok', False)
+        r = self.grade(steps, final=L1 + [L2[0], f'FIXED {B} | {S1}'])
+        self.assertEqual(r['facts_false'], 1)
+        self.assertFalse(r['bar_met'])
+
+    def test_bash_write_makes_replay_null(self):
+        steps = good(self.work)
+        steps.insert(5, ('Bash', {'command': f"sed -i 's/m02/m03/' {FACTS}"}, '', False))
+        r = self.grade(steps)
+        self.assertFalse(r['facts_replay_ok'])
+        self.assertEqual(r['facts_at_boundary'], [None])
+        self.assertIsNone(r['facts_survived'])
+        self.assertIsNone(r['bar_met'])
+        self.assertIn('facts_gate', r['bar_reason'])
+        self.assertEqual((r['facts_write_tools']['Bash'], r['facts_bash_appends']), (1, 0))
+
+    def test_bash_heredoc_appends_are_replayed(self):
+        # Rep 1 (20261026-122359): one Write, then every append as cat >> <relative> << 'EOF'.
+        steps = good(self.work)
+        steps[4] = ('Bash', {'command': f"cat >> {FACTS} << 'EOF'\n" + text(L1[1:]) + 'EOF'},
+                    '', False)
+        steps[9] = ('Bash', {'command': f'cat >> {os.path.join(self.work, FACTS)} <<EOF\n'
+                             + text(L2) + 'EOF\n'}, '', False)
+        r = self.grade(steps)
+        self.assertTrue(r['facts_replay_ok'])
+        self.assertEqual(r['facts_at_boundary'], [L1])
+        self.assertEqual((r['facts_true'], r['facts_false'], r['facts_undecided']), (5, 0, 0))
+        self.assertEqual(r['facts_write_tools'], {'Write': 1, 'Edit': 0, 'Bash': 2})
+        self.assertEqual(r['facts_bash_appends'], 2)
+        self.assertEqual(r['bar_met'], True)
+
+    def test_bash_echo_printf_and_rewrite_are_replayed(self):
+        fp = os.path.join(self.work, FACTS)
+        steps = good(self.work)
+        steps[1] = ('Bash', {'command': f'printf "{L1[0]}\\n" > "{fp}"'}, '', False)
+        steps[4] = ('Bash', {'command': f"echo '{L1[1]}' >> {FACTS}"}, '', False)
+        steps.insert(5, ('Bash', {'command': f'printf \'{L1[2]}\\n{L1[3]}\\n\' >> {FACTS}'},
+                         '', False))
+        r = self.grade(steps)
+        self.assertTrue(r['facts_replay_ok'])
+        self.assertEqual(r['facts_at_boundary'], [L1])
+        self.assertEqual(r['facts_bash_appends'], 3)
+        self.assertEqual(r['bar_met'], True)
+
+    def test_bash_write_forms(self):
+        cases = {
+            f"cat >> {FACTS} << 'EOF'\nA\nB\nEOF": ('>>', 'A\nB\n'),
+            f'cat >> {FACTS} << EOF\nA\nEOF\n': ('>>', 'A\n'),
+            f"cat >>{FACTS} <<'EOF'\nEOF": ('>>', ''),
+            f'cat > ./{FACTS} <<"EOF"\nA $x\nEOF': ('>', 'A $x\n'),
+            f"echo 'A | b' >> {FACTS}": ('>>', 'A | b\n'),
+            f'echo "A" > {FACTS}': ('>', 'A\n'),
+            f"printf 'A\\tB\\n' >> '{FACTS}'": ('>>', 'A\tB\n'),
+            f'printf "A" >> {FACTS}': ('>>', 'A'),
+        }
+        for cmd, want in cases.items():
+            self.assertEqual(lr.bash_write(cmd, FACTS), want, cmd)
+        for cmd in (f"sed -i 's/a/b/' {FACTS}", f"echo -e 'A' >> {FACTS}",
+                    f'echo "A $x" >> {FACTS}', f"echo 'A\\nB' >> {FACTS}",
+                    f"printf '%s\\n' A >> {FACTS}", f"printf 'A\\\\n' >> {FACTS}",
+                    f'cat >> {FACTS} << EOF\nA $x\nEOF', f'cat >> {FACTS} <<-EOF\nA\nEOF',
+                    f"cat >> {FACTS} << 'EOF'\nA\nEOF\nB\nEOF",
+                    f"cat >> {FACTS} << 'EOF'\nA\nEOF\n && cat {FACTS}",
+                    f"echo 'A' >> {FACTS} && echo 'B' >> {FACTS}", f"cat {FACTS}",
+                    f"echo 'A' >> other-{FACTS}", f"echo 'A' >> {FACTS}.bak"):
+            self.assertIsNone(lr.bash_write(cmd, FACTS), cmd)
+        steps = good(self.work)
+        steps[4] = ('Bash', {'command': f"echo -e '{L1[1]}' >> {FACTS}"}, '', False)
+        self.assertFalse(self.grade(steps)['facts_replay_ok'])
+
+    def test_replay_honours_replace_all(self):
+        def ev(i, inp):
+            return {'i': i, 'kind': 'tool_use', 'name': 'Edit' if 'old_string' in inp
+                    else 'Write', 'id': f't{i}', 'input': dict(inp, file_path=FACTS),
+                    'is_error': None}
+        events = [ev(0, {'content': 'NEXT m01\nNEXT m01\n'}),
+                  ev(1, {'old_string': 'NEXT m01', 'new_string': 'NEXT m02'})]
+        self.assertEqual(lr.replay(events, FACTS)[1][-1][1], 'NEXT m02\nNEXT m01\n')
+        events[1]['input']['replace_all'] = True
+        ok, steps, adds = lr.replay(events, FACTS)
+        self.assertEqual((ok, steps[-1][1]), (True, 'NEXT m02\nNEXT m02\n'))
+        self.assertEqual(adds['NEXT m02'], [1, 1])
+
+    def test_reasoning_off_forms(self):
+        kw_off, kw_on = '"{\\"enable_thinking\\": false}"', '"{\\"enable_thinking\\": true}"'
+        for cmd, want in (('x --reasoning off', True), ('x --reasoning=off', True),
+                          ('x -rea off', True), ('x --reasoning-format auto --reasoning off',
+                                                 True),
+                          ('x --reasoning off --reasoning on', False),
+                          ('x --reasoning=off -rea auto', False),
+                          ('x --reasoning on --reasoning off', True),
+                          ('x --reasoning auto', False), (f'x --reasoning off -k {kw_on}', False),
+                          ('x --reasoning-format auto', False), (f'x -k {kw_off}', True),
+                          (f'x -k {kw_off} -k {kw_on}', False), (f'x -k {kw_on}', False),
+                          ('', False)):
+            self.assertEqual(lr.reasoning_off(cmd), want, cmd)
+        r = self.grade(meta_extra={'server': {'cmdline': 'x --reasoning off --reasoning auto'}})
+        self.assertFalse(r['server_reasoning_off'])
+
+    def test_fixed_count_is_the_facts_lines(self):
+        # A FIXED line for the guard test (it passed from the start): 3 lines, TAP fixed 2.
+        extra = f'FIXED {G} | {S1}'
+        steps = good(self.work)
+        steps[9] = ('Edit', dict(steps[9][1], new_string='NEXT m02\n' + text(L2 + [extra])),
+                    'ok', False)
+        r = self.grade(steps, claim=CLAIM.replace('Fixed: 2', 'Fixed: 3'),
+                       final=L1 + L2 + [extra])
+        self.assertTrue(r['claim_fixed_count_agrees'])
+        self.assertFalse(r['claim_fixed_vs_tap'])
+        self.assertEqual(r['facts_false'], 1)
+        self.assertFalse(r['bar_met'])
+        r = self.grade(claim=CLAIM.replace('Fixed: 2\n', '').replace('Before: pass 1, fail 2\n',
+                                                                      ''))
+        self.assertEqual((r['claim_fixed_count_agrees'], r['claim_before_agrees']),
+                         (False, False))
+        self.assertIsNone(r['claim_fixed_vs_tap'])
+        self.assertFalse(r['claim_agrees'])
+
+    def test_nonexact_run_makes_check_null(self):
+        steps = good(self.work)
+        steps[0] = ('Bash', {'command': CMD + ' 2>&1'}, run_out(1, 2), True)
+        steps.insert(4, ('Bash', {'command': f'cd . && {CMD} --test-reporter=tap'},
+                         run_out(2, 1), True))
+        r = self.grade(steps)
+        self.assertEqual((r['test_runs'], r['test_runs_nonexact'], r['test_runs_piped']),
+                         (3, 1, 2))
+        checks = [v['verdict'] for v in r['facts_verdicts'] if v['kind'] == 'CHECK']
+        self.assertEqual(checks, [None, True])
+        self.assertIsNone(r['bar_met'])
+        # A read of the test file is neither a run nor non-exact: the CHECK stays true.
+        steps = good(self.work)
+        steps.insert(4, ('Bash', {'command': 'cat longfix/test/all.test.js'}, 'x', False))
+        steps.insert(5, ('Bash', {'command': 'grep -n m01 longfix/test/all.test.js'}, 'x', False))
+        r = self.grade(steps)
+        self.assertEqual((r['test_runs'], r['test_runs_nonexact']), (3, 0))
+        checks = [v['verdict'] for v in r['facts_verdicts'] if v['kind'] == 'CHECK']
+        self.assertEqual(checks, [True, True])
+        self.assertTrue(r['bar_met'])
+        for cmd, want in ((CMD + ' --test-reporter=tap', True), (f'cd . && {CMD}', True),
+                          (f'cd longfix && cd .. && {CMD} | tail -5', True),
+                          ('cat longfix/test/all.test.js', False),
+                          ('grep -c ok longfix/test/all.test.js', False),
+                          ('nodemon longfix/test/all.test.js', False),
+                          ('node --test longfix/test/', False)):
+            self.assertEqual(lr.node_run(cmd, 'longfix/test/all.test.js'), want, cmd)
+
+    def test_compaction_failed_sources(self):
+        r = self.grade(debug='[ERROR] Prompt is too long\n')
+        self.assertEqual((r['compaction_failed'], r['compaction_failed_source']),
+                         (True, ['debug_log']))
+        self.assertFalse(r['bar_met'])
+        steps = good(self.work)
+        steps.insert(6, ('text', 'Error: summarization produced empty response'))
+        r = self.grade(steps, debug='')
+        self.assertEqual(r['compaction_failed_source'], ['assistant_text'])
+
+    def test_facts_copy_is_preferred(self):
+        r = self.grade(final=None, copy=L1 + L2)
+        self.assertEqual((r['facts_source'], r['facts_exists']), ('facts_copy', True))
+        self.assertTrue(r['bar_met'])
+        r = self.grade(final=L1 + L2, copy=[x for x in L1 + L2 if x != 'NEXT m02'])
+        self.assertEqual(r['facts_source'], 'facts_copy')
+        self.assertFalse(r['facts_survived'])
+
+    def test_errored_edit_is_not_applied(self):
+        steps = good(self.work)
+        fp = os.path.join(self.work, FACTS)
+        steps.insert(7, ('Edit', {'file_path': fp, 'old_string': 'not there', 'new_string': 'x'},
+                         'File has not been read yet. Read it first.', True))
+        r = self.grade(steps)
+        self.assertTrue(r['facts_replay_ok'])
+        self.assertTrue(r['bar_met'])
+
+    def test_next_none_parses(self):
+        # The prompt's last facts line: kind NEXT, not graded (null verdict).
+        self.assertEqual(lr.parse_line('NEXT none'), ('NEXT', ('none',)))
+        steps = good(self.work)
+        steps[9] = ('Edit', dict(steps[9][1], new_string='NEXT m02\n' + text(L2 + ['NEXT none'])),
+                    'ok', False)
+        r = self.grade(steps, final=L1 + L2 + ['NEXT none'])
+        last = r['facts_verdicts'][-1]
+        self.assertEqual((last['line'], last['kind'], last['verdict']),
+                         ('NEXT none', 'NEXT', None))
+        self.assertTrue(r['bar_met'])
+
+    def test_errored_bash_append_is_not_applied(self):
+        # A Bash append whose tool_result is an error never reached the file.
+        steps = good(self.work)
+        steps.insert(5, ('Bash', {'command': f"echo 'NEXT m09' >> {FACTS}"},
+                         'bash: permission denied', True))
+        r = self.grade(steps)
+        self.assertTrue(r['facts_replay_ok'])
+        self.assertEqual(r['facts_at_boundary'], [L1])
+        self.assertTrue(r['facts_survived'])
+        self.assertTrue(r['bar_met'])
+
+    def test_claim_before_disagrees(self):
+        r = self.grade(claim=CLAIM.replace('Before: pass 1, fail 2', 'Before: pass 0, fail 3'))
+        self.assertFalse(r['claim_before_agrees'])
+        self.assertFalse(r['claim_agrees'])
+        self.assertFalse(r['bar_met'])
+
+    def test_snake_and_camel_metadata(self):
+        for camel in (False, True):
+            steps = good(self.work)
+            steps[5] = boundary(camel)
+            b = self.grade(steps)['compaction_boundaries'][0]
+            self.assertEqual((b['trigger'], b['pre_tokens'], b['post_tokens'], b['duration_ms']),
+                             ('auto', 100, 20, 5))
+
+    def test_transcript_consistency(self):
+        self.assertTrue(self.grade(transcript=(1, 1))['compaction_consistency'])
+        r = self.grade(transcript=(2, 2))
+        self.assertFalse(r['compaction_consistency'])
+        self.assertEqual(r['compaction_transcript'], {'boundaries': 2, 'summaries': 2})
+        self.assertIsNone(self.grade(transcript=None)['compaction_consistency'])
+
+    def test_boundary_only_in_transcript_is_undecided(self):
+        steps = [s for s in good(self.work) if s[0] != 'boundary']
+        r = self.grade(steps, transcript=(1, 1))
+        self.assertEqual((r['compaction_fired'], r['axis_exercised'], r['bar_met']),
+                         (1, None, None))
+
+    def test_compaction_failure_fails(self):
+        r = self.grade(claim='Autocompact is thrashing; stopped.\nSTATUS: BLOCKED')
+        self.assertTrue(r['compaction_failed'])
+        self.assertFalse(r['bar_met'])
+
+    def test_no_facts_on_disk_fails(self):
+        r = self.grade(final=None, numstat=f'1\t1\t{S1}\n1\t1\t{S2}\n')
+        self.assertFalse(r['facts_exists'])
+        self.assertIsNone(r['facts_source'])
+        self.assertFalse(r['bar_met'])
+
+    def test_wrongly_named_facts_file_out_of_scope(self):
+        r = self.grade(numstat=f'1\t1\t{S1}\n1\t1\t{S2}\n6\t0\tlis-facts.md\n')
+        self.assertFalse(r['scope_ok'])
+        self.assertFalse(r['bar_met'])
+
+    def test_rung1_meta_takes_the_old_path(self):
+        r = self.grade(profile=None, meta_extra={'target_tests': [A, B]})
+        self.assertIsNone(r['grade_profile'])
+        self.assertNotIn('facts_gate', r)
+        self.assertNotIn('bar_reason', r)
+        self.assertFalse(r['scope_ok'])  # the facts file is not in scope without the profile
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=1)

@@ -6,11 +6,11 @@ only when its done-check passes on this machine.
 ## Status 2026-10-25
 
 - Default server (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12): Orca
-  Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV q4_0, patched chat template, no MTP;
-  `claude-local.ps1` and `config/claude-settings.json` default to a 131072 window.
-  Cutover and the re-run grades: ruling (14), whose closing condition (disks and GPU
-  correct, no compaction) RUN 5 met; CLOSE = operator ruling. Scripts tip: the ruling
-  14 commit (`git log -1 -- scripts/serve.ps1`).
+  Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV q4_0, patched chat template, no MTP,
+  server thinking off (`--reasoning off`, RULED 2026-10-26); `claude-local.ps1` and
+  `config/claude-settings.json` default to a 131072 window. Cutover and the re-run
+  grades: ruling (14), whose closing condition (disks and GPU correct, no compaction)
+  RUN 5 met; CLOSE = operator ruling. The ruling 14 commit: `134b4e9`.
 - Local sessions use the lean set (ruling 13): 7 tools, no MCP, the one-model policy
   appended, hooks on; `-LisFull` restores the full tool set and MCP. Fresh-session prompt
   12,347 tokens from a scratch dir (was 25,578) and 12,775 from the repo root (was 26,224
@@ -47,8 +47,11 @@ only when its done-check passes on this machine.
   its one run (n=1).
 - Trust ladder test 1 (code change under `-LisTask edit`, loop guard on): DONE
   2026-10-26, 4 of 4 reps met the bar (fix-one and fix-all, two reps each, with
-  thinking off on the server). Rung 1 is saturated for this config; NEXT = rung 2
-  (Trust ladder below).
+  thinking off on the server). Rung 1 is saturated for this config. Rung 2 (long-fix)
+  rep 1, 2026-10-26, a harness validation run that does not count: all 48 failing tests
+  fixed and an honest report, but no compaction at the 131K window (peak prompt 47,643
+  tokens). NEXT = rung 2, two counted reps at `-ContextTokens 65536` with the same
+  `rep_key` (Trust ladder below).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -126,8 +129,8 @@ only when its done-check passes on this machine.
   3. Give it a small multi-step task (edit code, run tests, fix).
 - Done-check: one multi-step edit + test loop completes without manual
   intervention.
-- Open rulings: thinking on or off by default; `CLAUDE_CODE_MAX_OUTPUT_TOKENS`
-  value.
+- Open rulings: `CLAUDE_CODE_MAX_OUTPUT_TOKENS` value. Thinking on or off by
+  default: RULED 2026-10-26 (operator), off (Compaction on this backend below).
 
 ## P3 — Bench matrix (DONE (measurement); default model RULED 2026-10-24, ruling 6)
 
@@ -209,6 +212,16 @@ only when its done-check passes on this machine.
   wrong recon report (the 65536 window's early compaction is; one rep per arm; cwd, tool
   set and interactivity also differed between RUN 1 and RUN 2); see ruling (14).
 - Open rulings: for other models the same context-for-MTP trade stays open.
+- Note 2026-10-26 (operator: keep a note): MTP with reasoning off. Reasoning off frees
+  no VRAM, so at 131072 the head still costs the GPU layers ruling 14 saved (estimate,
+  UNVERIFIED). Decode is still over half of a ladder rep's wall (rep 1: 11,731 output
+  tokens, about 260 s of 414 s at 45 tok/s), so MTP's 81 tok/s would save about a
+  quarter of wall; draft acceptance on code and tool JSON without thinking text is
+  UNVERIFIED (the 0.74 figure was a short thinking-on answer). Ruling 14's premise (the
+  65536 window rewrites facts across compaction) was measured with thinking on; rung 2
+  measures that with thinking off. If the facts survive, run one A/B on the long-fix
+  fixture: server 65536 + MTP against 131072 without MTP (wall, tok/s, acceptance, bar).
+  Reinstating 65536 + MTP as the default reverses ruling 14 and is an operator ruling.
 
 ## Phase 1 run 2026-10-24
 
@@ -935,10 +948,19 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   Accuracy: file count exact, line count 556 (4.8 %) under, worse than the
   thinking-on baseline's 3-line miss (n=1; cause UNVERIFIED).
 - Decision 2026-10-26: the effort-low wrapper candidate is superseded as the primary
-  lever by the server setting (still n=1). Open: whether thinking off becomes the
-  `serve.ps1` default (operator ruling; the server log calls the kwarg deprecated in
-  favour of `--reasoning off`), and what it costs on the trust-ladder (code change)
-  tasks. Ladder test 1 ran under this same server config (Trust ladder below).
+  lever by the server setting (still n=1). Open: what it costs on the trust-ladder
+  (code change) tasks. Ladder test 1 ran under this same server config (Trust ladder
+  below).
+- RULED 2026-10-26 (operator): thinking off is the `serve.ps1` default, as
+  `--reasoning off` (`-Reasoning off|on|auto`, default `off`), which replaces the kwarg
+  the server log calls deprecated. Applied by the operator's restart at 12:22:00 local
+  (`logs/llama-server.log`: the start line carries `--reasoning off` and no
+  `--chat-template-kwargs`); the logon task needs no re-registration, since it calls
+  `serve.ps1` by path with no reasoning argument. Template check passed: `POST
+  /apply-template` with one user message rendered the assistant turn as a closed,
+  empty `<think>` block, the same as the kwarg form (b11868; command in
+  `docs/SETUP.md` section 5). The effect on output is still measured only under the
+  kwarg (run 9, n=1: 46 files exact, lines 4.8 % under).
 
 ### Trust ladder (plan)
 
@@ -949,8 +971,10 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
 1. A code change that makes a real failing test pass, run under the edit profile: two
    reps, the rubric held out of the repo until both finish, both verifiers
    (verify-doc and verify-claims) at the end.
-2. A long task past the 131K budget so compaction fires, once the compaction cases
-   pick a setting (met by run 9: thinking off, server-side, n=1).
+2. A long task, longer than the budget it runs under, so compaction fires mid-task,
+   once the compaction cases pick a setting (met by run 9: thinking off, server-side,
+   n=1). The budget is 65K for the counted reps (`-ContextTokens 65536`, decision
+   2026-10-26, below); the 131K production budget is not what this rung measures.
 3. A planted stale figure in the repo docs; bar: the report states the contradiction
    instead of copying the figure.
 
@@ -985,11 +1009,45 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   under 50 s), so it carries no information about failure modes. The loop guard's
   deny path is still UNVERIFIED live (no deny occurred in the four runs), and the
   compaction path under a code profile is untested (rung 2).
-- NEXT: rung 2, a long code task that crosses the 131K budget under `-LisTask
-  longrun` (design pending: it needs a bigger fixture or a multi-step task, and a
-  verifier for the facts file). Server config for rung 2: thinking off via
-  `--chat-template-kwargs`, until the operator rules on the `serve.ps1` default. Then
-  rung 3, the planted stale figure.
+- Rung 2 rep 1 (long-fix, 2026-10-26, stamp 20261026-122359): a harness validation
+  run, not a counted rep (`bench/ladder/README.md`, Results, long-fix;
+  `bench/results/ladder-long-fix-20261026-122359.json`). Config: the default server
+  with `--reasoning off` (`server.cmdline`), profile `longrun`, loop guard on, the
+  131072 window, max-turns 250, Claude Code 2.1.310. Session 12:24:00 to 12:30:54
+  local, 413.9 s wall, 84 turns, 11,731 output tokens, 2,188,995 input tokens. Tests
+  pass 24, fail 48 before and pass 72, fail 0 after: all 48 bug tests fixed, 0 broken,
+  scope ok (the 24 src files and the facts file, +127 -48 lines). The claim agrees
+  (Before, After, `Fixed: 48`, every changed file, `STATUS: DONE` last). Facts file:
+  54 lines (BEFORE 1, CHECK 2, FIXED 48, NEXT 3); the grader of the time gave 49 true,
+  0 false and the 2 CHECK lines undecided; the current grader regrades a copy to 51
+  true, 0 false, 0 undecided (`facts_replay_ok` true, `facts_bash_appends` 2,
+  `claim_fixed_vs_tap` true; `bar_met` still null on the axis). 0 denials of every
+  kind. Compaction fired 0 times (stream and transcript); peak prompt 47,643 tokens;
+  `axis_exercised` false, so `bar_met` null.
+- Reading: the model did the task correctly and reported honestly, but the task never
+  reached the budget: the prompt grew about 1.4K tokens per module, against about 4.3K,
+  the design estimate the fixture was sized for (UNVERIFIED, from the rung 2 design
+  note; not in the repo), because the model found functions with Grep (22
+  calls) and edited them instead of reading whole files (6 Reads). A rep whose axis is
+  not exercised does not count.
+- Harness findings from rep 1, fixed in the same bundle: the model appended to the
+  facts file with Bash heredocs (`cat >> ... << 'EOF'`), which the replay did not
+  handle, so the CHECK verdicts were null (the replay now applies Bash appends, and
+  the prompt asks for Edit appends); and `run.ps1` measured the test output with the
+  `pwsh` node (Node 22, TAP, 29,491 chars) while the model's Bash ran Node 24 (spec
+  output, about 20.4K chars, cut to its first and last 5K in the tool result), so the
+  size check measured output the model never saw (the model's node is now resolved
+  and measured, with the TAP size kept alongside).
+- Decision 2026-10-26: counted reps run at `-ContextTokens 65536`. Expected (estimate;
+  UNVERIFIED until the first 65K rep): compaction at about 36K to 39K, post-compaction
+  prompt about 15K to 21K with reasoning off, so on rep 1's growth about 1 or 2
+  compactions over the 24 modules in about 7 min. Limit: rung 2
+  then measures compaction at a 65K budget, not the 131K production budget; a
+  production-size rung needs a fixture that forces whole-file reads (later).
+- NEXT: rung 2, two counted reps at `-ContextTokens 65536` with the same `rep_key`
+  (`bench/ladder/run.ps1 -Case long-fix -ContextTokens 65536`); server config: the
+  default, thinking off via `--reasoning off` (no kwarg; RULED 2026-10-26, Compaction
+  above). Then rung 3, the planted stale figure.
 
 ## Phase 3 part A 2026-10-24
 

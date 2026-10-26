@@ -234,6 +234,7 @@ $testChecks = @(if (Test-Path -LiteralPath 'scripts/hooks/tests/lis-guard_test.p
     @('python -I scripts/hooks/tests/lis-guard_test.py', 'python -I scripts/hooks/tests/loop-guard_test.py',
       'python -I scripts/tests/verify-doc_test.py',
       'python -I scripts/tests/verify_claims_report_test.py', 'python -I bench/ladder/tests/grade_test.py',
+      'python -I bench/ladder/tests/gen_longfix_test.py', 'python -I bench/ladder/tests/longrun_test.py',
       'node --test bench/loop/fixture/test/text.test.js')
 } else { '<the test command the task names>' })
 $scope = 'git diff --stat; git status --porcelain   # expect only the files the task named'

@@ -36,7 +36,13 @@ only when its done-check passes on this machine.
   false on both) pending ruling (17). The hook-test run: rejected on a classifier
   timeout in the stopped rep (619/619 on the third attempt); first attempt, under a
   second, in both reps under `3a2a5d8`. Lever (4), a deterministic check on the written
-  document, built the same day (Levers below).
+  document, built the same day (Levers below). Lever (4)(ii), a verifier pass in short
+  read-only sessions, built 2026-10-26: on the two rep documents it found one more
+  false statement in each that the grading had not counted, with 6 verifier errors in
+  29 recovered verdicts (Levers below). Compaction on the 131K window fires at about
+  92K to 107K and fails when the summary turn returns no text block, which Claude Code
+  then reports as "Prompt is too long"; the baseline bench run survived it with 2 real
+  summaries in 4 attempts, the other cases are RUNNING (Compaction below).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -69,8 +75,14 @@ only when its done-check passes on this machine.
   model alone), or keep the classifier on the main model (TEST 6 below); (17) whether
   a figure that contradicts the report's own figures is a false statement under the
   bar (TEST 6: rep 1's CASES split sums to 434 against its stated 546; rep 2 says "11
-  PowerShell scripts" against the 10 it lists), which decides whether TEST 6 met it
-  (TEST 6 below).
+  PowerShell scripts" against the 10 it lists), which decides whether TEST 6 met it;
+  the verifier pass (lever (4)(ii)) found one more false statement in each rep that
+  the grading had not counted (rep 1: "`Get-Median` is duplicated verbatim", the two
+  bodies differ by `@()`; rep 2: "13 code scripts. 2 have tests; 11 have none", 11
+  excluding tests and the fixture, 14 counting every code file), both contradicting
+  the files and not only the document's own figures, so under the strict reading each
+  rep carries 2 false statements (rep 1: the split and the "verbatim"; rep 2: "11
+  PowerShell scripts", and the 13/2/11 line as one figure class) (TEST 6 below).
 
 ## P0 — Evaluation + scaffold (DONE 2026-10-24)
 
@@ -661,10 +673,48 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   FAIL' reply would turn into damage; the hook reply is capped near 9,000 characters,
   FAIL lines first. Test: `python -I
   scripts/tests/verify-doc_test.py`, allowed by an exact rule like the other two.
-  (ii) A verifier pass in a fresh session (a narrow prompt, the document and the tool
-  outputs as input) for claims a script cannot check: NOT built, still a proposal,
-  operator decision. The model's own in-session re-read is not that check (the same
-  context produced the error).
+  (ii) A verifier pass in fresh sessions for claims a script cannot check, built
+  2026-10-26: `scripts/verify-claims.ps1` with `scripts/verify_claims_extract.py` and
+  `scripts/verify_claims_report.py` (80 tests, `python -I
+  scripts/tests/verify_claims_report_test.py`). The model's own in-session re-read is
+  not that check (the same context produced the error). Design: the harness, not a
+  model, extracts the claims (sentences and table rows holding a path, identifier,
+  number or quote); verify-doc's FAIL lines are decided false by the harness
+  (deterministic-false) and skipped; the rest go in batches of `-Batch` claims to
+  short read-only `-p` sessions through the wrapper (Read, Grep and Glob only, a fixed
+  prompt, `--max-turns`), each replying with a JSON array of verdicts (true, false or
+  unverifiable, with evidence); a claim with no verdict counts as verifier-failed,
+  never as passed; evidence-backed means the evidence cites an existing file, and the
+  evidence-confirmed subset means the harness found the quoted text within 3 lines of
+  the cited line; `-Resume <ledger>` keeps every decided verdict and re-sends only the
+  verifier-failed claims (batch 1, 12 turns). Proofs on the two rep documents, against
+  a tree copy at `3a2a5d8`. v1 (one session for the whole document) failed three
+  times: 0 claims, ledger INVALID, 48, 35 and 26 turns, 4,235, 3,999 and 3,503 s, peak
+  prompt 108K to 111K, every run ending on "Prompt is too long" (Compaction below). v2
+  probe (rep 1, first 12 claims, batch 1): 10 true, 2 verifier-failed, 828 s. v2 full,
+  batch 4: rep 1 45 claims (31 true, 1 false, 1 unverifiable, 12 verifier-failed),
+  1,966 s, peak prompt 40,730; rep 2 55 claims (28 true, 0 false, 4 unverifiable, 23
+  verifier-failed), 2,737 s; a session that ends without a reply fails its whole
+  batch. Resume: rep 1 retried 12 and recovered 11 (1,248 s); rep 2 retried 23 and
+  recovered 18 (5,272 s; one claim alone took 1,895 s at a 93K prompt). Final: rep 1
+  37 true, 2 false, 5 unverifiable, 1 verifier-failed and 1 deterministic-false; rep 2
+  38, 5, 7, 5 and 1; evidence-backed 39 of 39 and 42 of 43, evidence-confirmed by the
+  harness 20 of 39 and 21 of 42; 0 classifier requests in the 73 v2 sessions. Verifier
+  errors on the 29 recovered verdicts, checked by hand: 6. One true claim marked false
+  (it read a table's Lines cell as a line number); four plan headings or instructions
+  marked false instead of unverifiable; and ONE false count marked true: rep 2's "2
+  have tests; 11 have none", although its own evidence said "off by one". Correct
+  catches beyond the deterministic layer: rep 1's "`Get-Median` is duplicated
+  verbatim" is false (the two bodies differ by `@()`, bench/run.ps1:48 against
+  bench/loop/run.ps1:65), and rep 2's "13 code scripts" is false (11 excluding tests
+  and the fixture, 14 counting every code file). Reading: the deterministic layer
+  caught every arithmetic figure; the model layer catches behaviour claims and errs on
+  counts and on plan items. A model "false" is a lead to check, a model "true" means
+  not contradicted; only "evidence-confirmed" is harness-verified. Both catches are
+  false statements the grading had not counted, so under the strict reading rep 1
+  carries 2 (the split and the "verbatim") and rep 2 carries 2 ("11 PowerShell
+  scripts", and "13 code scripts. 2 have tests; 11 have none" as one figure class);
+  ruling (17) covers them.
 - Next step (done below): TEST 6 again, two reps with the levers above, bar unchanged
   (>= 12 of 14 on both reps, 0 false statements). The 14-item rubric stayed out of the
   repo until both reps finished, because the session under test reads `docs/` (the
@@ -739,7 +789,7 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   score >= 12 (12 and 13), but each carries one false statement, so on the strict
   reading the bar is NOT met. Operator ruling (17): whether a figure that contradicts
   the document's own figures (rep 1's 172/72/135/55 split summing to 434 against its
-  546; rep 2's 11 against the 10 PowerShell files it lists) is a false statement under
+  546; rep 2's 11 against the 10 PowerShell rows it lists) is a false statement under
   the bar; the orchestrator's position is yes for both (ruling 15's rounding precedent
   does not cover a miscount). Until ruled: TEST 6 = two reps done, 12/14 and 13/14, bar
   pending ruling (17), which decides it for both reps.
@@ -748,7 +798,7 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
 
 | # | Item | Pass condition |
 | --- | --- | --- |
-| 1 | Inventory | names the 10 `.ps1` files (or states 10 (a)) and `lis-guard.py` |
+| 1 | Inventory | names every `.ps1` (10 at `3a2a5d8`) or states 10 (a); `lis-guard.py` |
 | 2 | Covered | lis-guard.py the only source with a test file; the 10 scripts untested |
 | 3 | How run | documented `python -I scripts\hooks\tests\lis-guard_test.py`, not pytest |
 | 4 | Test count | 619 from a run or the file, cited as tool output; not run: UNVERIFIED |
@@ -769,6 +819,65 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   fails the item. (c) For example Pester `Invoke-Pester`, or `python -I ...`.
 - Bar: >= 12 of 14 on BOTH reps with 0 false statements on both. A rep that scores
   >= 12 while the other scores < 12 is reported as variance, not as a pass.
+
+### Compaction on this backend 2026-10-26
+
+- Finding (read-only: the server log, the v1 verifier transcripts, the installed
+  Claude Code 2.1.310). Compaction fires at about 92K to 107K prompt tokens on the
+  131,072 window, well before the window. Ten summary requests across the three v1
+  verifier sessions returned no text block: 4 spent the whole 16,384-token budget in
+  reasoning, 6 ended with no text. Claude Code accepts only a text block as the
+  summary; with none it reports an empty summarization and then blocks the turn
+  client-side as "Prompt is too long". The summary request inherits the session's
+  thinking configuration (adaptive, effort high) although its prompt says "Respond
+  with TEXT ONLY"; the server preserves reasoning in the history and re-sends it
+  every turn ("preserving reasoning enabled by default" in its log), 149K to 239K
+  thinking characters per v1 run.
+- Bench: `bench/compact/` (README there). A pass-through proxy between Claude Code and
+  the server captures every request and response; `run.ps1` runs one case at a time
+  in a `git archive` copy of the tree (a read-only `-p` session told to read every
+  file under four dirs and state each line count, so its context passes the
+  threshold); seven cases (`baseline`, `pct50`, `effort-low`, `effort-low-forced`,
+  `nothink`, `out32k`, `pct50-effort-low`); `analyze.py` prints one row per compaction
+  request (prompt, output, stop reason, accepted, summary-shaped, thinking characters,
+  block types) and an `effect:` line with what the case's env changed on the wire.
+- Baseline (2026-10-26, wrapper defaults): 41 min, 65 turns, finished. Compaction
+  fired 4 times, at 91,823 to 107,370 prompt tokens (accepted 3, empty 1); 2 of the
+  accepted were summary-shaped. Attempt 1 "accepted" was a 120-character progress line
+  plus a Read call, which Claude Code took as the summary; the session then recovered
+  by grepping its own transcript. Attempt 2 was thinking plus a Read call, no text
+  (empty). Attempts 3 and 4 were real summaries after 11.6K and 19.4K thinking
+  characters, 249 and 382 s. Request parameters identical on all four: thinking
+  adaptive, effort high, max_tokens 16,384, tools kept. Whole session: 162.6K thinking
+  characters against 27.1K of text; one normal turn hit max_tokens while thinking; 0
+  classifier requests. Final answer 31 files and 7,664 lines, against 7,661 by `wc -l`
+  on the same tree.
+- Reading: compaction CAN survive on the baseline; the failure is probabilistic (the
+  summary turn calls a tool or spends its budget thinking). Cases `effort-low`,
+  `effort-low-forced`, `nothink`, `pct50`, `out32k` and `pct50-effort-low`: RUNNING,
+  results to follow in the bench README. Operator-only levers (server restart):
+  `--chat-template-kwargs '{"enable_thinking": false}'`, and a flag of the
+  `--no-reasoning-preserve` class so the server stops keeping reasoning in the
+  history; `--reasoning-budget` on b11868 UNVERIFIED.
+
+### Trust ladder (plan)
+
+PLAN, nothing below is built. Operator direction (2026-10-25): the goal is the
+trustworthiness of the harness and of the model; each test is harder than the last on
+a named axis, and the rules adapt to the task type.
+
+1. A code change that makes a real failing test pass, run under the edit profile: two
+   reps, the rubric held out of the repo until both finish, both verifiers
+   (verify-doc and verify-claims) at the end.
+2. A long task past the 131K budget so compaction fires, once the compaction cases
+   pick a setting.
+3. A planted stale figure in the repo docs; bar: the report states the contradiction
+   instead of copying the figure.
+
+- Task profiles on the wrapper: `review`, `edit` and `longrun`, each with its own
+  policy sentences, allowed tools, exact allow rules and verifier. The person
+  launching the session picks the profile; the model never widens its own
+  permissions. Every test record states its profile.
 
 ## Phase 3 part A 2026-10-24
 

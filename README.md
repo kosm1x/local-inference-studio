@@ -112,6 +112,10 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 131072, WebSearch, WebFetch, Agent and Workflow denied, rule set A: read-only allow and critical-write ask rules, ruling 15); the wrapper adds the `scripts/hooks/lis-guard.py` payload hook (docs/SETUP.md step 8)
   and the `scripts/verify-doc.py` PostToolUse hook, which checks the sums, file counts,
   line counts and paths in every `.md` a session writes and reports them to the model
+- [scripts/verify-claims.ps1](scripts/verify-claims.ps1) — verifier pass, run by hand
+  after a task: short fresh read-only local sessions check a document's claims (one
+  claim per session by default) against the repo and the harness prints an honest
+  count (docs/SETUP.md step 8)
 - [bench/README.md](bench/README.md) — P3 bench result schema
 
 ## Rules

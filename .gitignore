@@ -8,5 +8,8 @@ bench/results/*.json
 logs/*
 !logs/.gitkeep
 bench/results/*.log
+bench/results/*.jsonl
+bench/results/*.txt
+.claude/agent-memory/
 bench/results/latest
 __pycache__/

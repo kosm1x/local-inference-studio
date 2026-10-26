@@ -242,13 +242,14 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `Bash(powershell -NoProfile -Command \"Get-*)`. The matcher sees the raw command string,
   so a PowerShell rule carries the opening quote of the `-Command` payload, and every
   `;` / `&&` / `|` segment of a command must match. An allowed command skips the auto-mode
-  classifier (about 60 s per decision on the local model). Three exact rules run this
+  classifier (about 60 s per decision on the local model). Four exact rules run this
   repo's tests from its root, `Bash(python -I scripts/hooks/tests/lis-guard_test.py)`,
-  `Bash(python -I scripts/tests/verify-doc_test.py)` and
+  `Bash(python -I scripts/tests/verify-doc_test.py)`,
+  `Bash(python -I scripts/tests/verify_claims_report_test.py)` and
   `Bash(node --test bench/loop/fixture/test/text.test.js)` (TEST 6 in docs/ROADMAP.md;
   an exact rule stays in auto mode, a wildcard after `node` or `python` is dropped).
   An exact rule trusts the file it names: neither the hook nor the classifier scans
-  that file, so editing one of the three test files changes what its rule allows.
+  that file, so editing one of the four test files changes what its rule allows.
   `ask`: `Edit(...)` rules for the critical paths
   (`~/.claude`, `~/.ssh`, `.curlrc`/`_curlrc`, Windows, Program Files,
   ProgramData, `.env*`, `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs
@@ -368,6 +369,88 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   Text in double quotes is treated as a quotation and not checked for sums or file counts.
   Line counts are read only for files inside the working directory and under 8 MB; the
   reply is capped near 9,000 characters with FAIL lines first.
+- Verifier pass (verify-claims), by hand, not a hook: `pwsh scripts/verify-claims.ps1
+  -Document <file.md> [-Root <repo>] [-Batch 1] [-MaxTurns 8] [-MaxClaims 0]
+  [-OutDir <dir>] [-DryRun]` (Root defaults to the current directory, OutDir to this
+  repo's gitignored `logs/verify`, MaxClaims 0 to every claim; `-DryRun` prints the
+  claim count and the first 3 claims and starts no session). Steps: verify-doc runs on
+  the document and each FAIL line is decided false by the harness (deterministic-false),
+  never sent to a model; `scripts/verify_claims_extract.py` splits the rest into
+  candidate claims (a sentence or table row holding a backticked path or identifier, a
+  number or a quoted string; a table row goes out prefixed with its header row),
+  skipping every claim that spans a FAIL line and every claim under a heading that names
+  a plan, next steps, a proposal, a recommendation or a suggestion, until the next
+  heading of the same or a higher level (counted as `plan-section claims skipped`).
+  That skip was added after the proof runs below and no run has used it yet
+  (UNVERIFIED effect); on the two proof documents the script (with the FAIL-line skip)
+  now extracts 37 and 34 claims, 8 and 20 skipped as plan claims (the bare extractor
+  gives 38 and 35; rep 2 also loses one claim to the no-split after `e.g.`). Each batch
+  of `-Batch` claims goes, as JSON data, to ONE short `-p` session through the wrapper in
+  Root with only Read, Grep and Glob (`--allowedTools`; Bash, Write, Edit, Skill and the
+  rest in `--disallowedTools`) and a fixed prompt asking for a JSON array of id, verdict
+  (true, false or unverifiable) and evidence; a batch whose command line, counted with
+  its `"` and `\` escaping plus 4,000 characters of room for the wrapper, would pass
+  32,000 characters stops the run (lower `-Batch`). A claim left unanswered, or a reply
+  that does not parse (the whole reply, else the last `[{...}]` in it that decodes and
+  holds a `verdict` key), is verifier-failed. `scripts/verify_claims_report.py` then
+  checks the evidence without
+  trusting it: evidence-backed means it names a relative path that exists under Root
+  (absolute and `..` paths are never touched); evidence-confirmed means a true or false
+  verdict cites `path:line` and quotes a span of 12+ characters that the harness finds
+  in that file within 3 lines of the cited line. It prints the honest count:
+
+  ```
+  verify-claims v2: <doc>
+  claims extracted: N   sent to the verifier: S in <sessions> sessions (batch B)
+  plan-section claims skipped: P
+  verdicts: true T   false F   unverifiable U   verifier-failed V   deterministic-false D
+  evidence-backed: E of (T+F)   evidence-confirmed by the harness: C of E
+  deterministic findings also judged false by the verifier: X of D'
+  wall: <seconds> s   turns: <sum>   peak prompt tokens: <max>
+  false claims (deterministic first):
+    line L: <claim> -- <evidence>
+  verifier-failed claims: <ids and lines>
+  ```
+
+  P is `not recorded` for a ledger written before the skip existed.
+  D' counts the FAIL lines inside a claim that was sent anyway (normally 0, since those
+  claims are skipped). Peak prompt tokens is the largest `n_tokens` the server log shows
+  for one request during a session (the envelope's `usage` is a sum over the session),
+  else that sum. Exit 1 when F + D > 0 or V > 0, else 0. Everything (ledger, per-session
+  envelopes, counts) goes to `<OutDir>/<docname>.<yyyyMMdd-HHmmss>.verify.json`. The run
+  stops, still writing the ledger, when `logs/llama-server.log` shows no activity for
+  10 min while a session is pending (no such stop when that log is absent). The temp
+  run file is deleted when the report exits 0 or 1, else kept and its path printed
+  (`run data kept: <path>`). Why per claim: v1 inlined the whole document in
+  one session and asked it to extract, check and report every claim; three runs took
+  32 to 59 turns and over an hour each and ended at "Prompt is too long" (about 110K
+  tokens) with no ledger. Now the harness keeps the books and each session answers a
+  few claims. Cost: one short session per batch on the one server slot
+  (`-Batch` claims each). Measured on two 142- and 166-line audit documents: one claim
+  per session averaged 69 s (12 claims, 828 s; largest request 25,736 tokens);
+  `-Batch 4` took 1,966 s and 2,737 s for 45 and 55 claims (largest request 40,730
+  tokens) but a session that runs out of its 8 turns fails its whole batch: 12 of 45
+  and 23 of 55 claims came back verifier-failed. A session whose reply holds no
+  `[{"id"` prints `session <n>: result unparsed or partial, <count> claims
+  verifier-failed` as it ends (a heuristic; the honest count is authoritative).
+  Resume: `pwsh scripts/verify-claims.ps1 -Resume <ledger.json> [-Root <repo>]
+  [-Batch 1] [-MaxTurns 12] [-MaxClaims 0] [-OutDir <dir>] [-DryRun]` keeps every
+  decided verdict and the deterministic findings of that ledger, sends only its
+  verifier-failed claims again (Document, and Root unless given, come from the ledger;
+  MaxTurns defaults to 12) and writes a new ledger, never the old one. Its honest count
+  names this run's sessions in the head and adds `resumed from: <ledger>` and
+  `retried: R   recovered: K   still failed: V` after the verdicts line; the JSON gains
+  `resumed_from`, `retried` and `recovered` (claim ids). Resuming those two ledgers
+  (one claim per session, 12 turns) recovered 11 of 12 and 18 of 23 claims in 1,248 s
+  and 5,272 s (largest request 93,056 tokens); 6 of those 29 verdicts were wrong (5
+  false on a plan item or a Lines cell, 1 true on an off-by-one count), and 2 of the 6
+  still failed had answered but put a `[` in the prose before the array (both reply
+  shapes parse since the last-array scan; tested, not re-run).
+  Limits: the verifier is the same local model family as the author and can share its
+  mistake; true means not contradicted, not proven; evidence-confirmed means the
+  harness found the quoted text near the cited line; it does not prove the verdict (2
+  of the 6 wrong verdicts were evidence-confirmed). Tests:
+  `python -I scripts/tests/verify_claims_report_test.py`.
 - What asks: the `ask` rules above. Interactively you get a prompt. In `-p` mode an ask
   is a hard denial with no classifier, and the model retries the same call until
   `--max-turns`.

@@ -33,7 +33,9 @@
   (run as `python -I <repo path>`), added here so the committed JSON holds no absolute
   path. The hook denies critical writes, also inside interpreter and ssh payloads,
   and allows read-only commands and read-only scripts; see docs/SETUP.md step 8.
-  -LisNoGuard leaves the hook out (rules only, set A; used by bench/perm/run.ps1).
+  A PostToolUse Write|Edit hook, scripts/verify-doc.py --hook, checks the figures in
+  every .md the session writes inside the working directory and feeds them back.
+  -LisNoGuard leaves both hooks out (rules only, set A; used by bench/perm/run.ps1).
 
   There is deliberately no param() block. A declared parameter binds claude's
   positional prompt (or any unmatched token such as --model) to itself and claims
@@ -159,6 +161,13 @@ try {
         $cfg.hooks['PreToolUse'] = @($cfg.hooks['PreToolUse'] | Where-Object { $_ }) + @([ordered]@{
                 matcher = 'Bash'
                 hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$guard`""; timeout = 10; onFailure = 'block' })
+            })
+        # verify-doc: deterministic figure checks on every .md the session writes or edits,
+        # fed back to the model as additionalContext (docs/SETUP.md step 8).
+        $verify = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'verify-doc.py')).Path.Replace('\', '/')
+        $cfg.hooks['PostToolUse'] = @($cfg.hooks['PostToolUse'] | Where-Object { $_ }) + @([ordered]@{
+                matcher = 'Write|Edit'
+                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$verify`" --hook"; timeout = 30 })
             })
     }
     $cfg | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $settings -Encoding utf8NoBOM

@@ -28,6 +28,15 @@ only when its done-check passes on this machine.
   report scored 7 of 14 with 2 false statements, so (15) stayed OPEN. RUN 5 scored 13 of
   14 with 0 false statements and 8 of 8 Bash decisions by the hook, so (15) is CLOSED
   (2026-10-25; the operator ruled the 61.5 GiB figure a rounding imprecision).
+- TEST 6 (test-coverage audit, below): the stopped old-config rep led to `3a2a5d8`
+  (exact allow rules for the two test runs, loop-guard policy sentences). Two reps
+  under it: 12 of 14 with 1 false statement (a CASES split that sums to 434 against its
+  own 546), and 13 of 14 with 1 false statement ("11 PowerShell scripts" against the 10
+  its own table lists). Status: two reps done, 12/14 and 13/14, bar (>= 12 of 14 and 0
+  false on both) pending ruling (17). The hook-test run: rejected on a classifier
+  timeout in the stopped rep (619/619 on the third attempt); first attempt, under a
+  second, in both reps under `3a2a5d8`. Lever (4), a deterministic check on the written
+  document, built the same day (Levers below).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -57,7 +66,11 @@ only when its done-check passes on this machine.
   endpoint; whether llama-server b11868's router mode can serve it is UNVERIFIED;
   nvidia-smi on 2026-10-25 showed 653 MiB free with every process counted, a
   point-in-time value, while the 1,630 MiB in (9) is llama's projected fit for the
-  model alone), or keep the classifier on the main model (TEST 6 below).
+  model alone), or keep the classifier on the main model (TEST 6 below); (17) whether
+  a figure that contradicts the report's own figures is a false statement under the
+  bar (TEST 6: rep 1's CASES split sums to 434 against its stated 546; rep 2 says "11
+  PowerShell scripts" against the 10 it lists), which decides whether TEST 6 met it
+  (TEST 6 below).
 
 ## P0 — Evaluation + scaffold (DONE 2026-10-24)
 
@@ -607,7 +620,8 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   "ruleSource":"flagSettings"`, the debug log has no classifier request and
   `permissionDecisionMs=8`, and the run printed `619/619 passed`. The fixture rule
   survived the auto-mode rule filter (absent from the debug log's removal list); its
-  decision at call time is UNVERIFIED. That list does drop set A's `Bash(node -v*)`,
+  decision at call time was proven on 2026-10-25 (config rules decided it in both reps
+  under `3a2a5d8`, below). That list does drop set A's `Bash(node -v*)`,
   `Bash(node --version*)` and `Bash(python --version*)` ("Ignoring dangerous permission
   ... (bypasses classifier)"), so those three never apply in auto mode. (2) Policy
   sentences, shipped (+432 characters, 101 tokens on the server tokenizer; the whole
@@ -623,11 +637,138 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   while the 1,630 MiB in (9) is llama's projected fit for the model alone), or keep
   the classifier on the main model. No
   setting exists for the classifier timeout or for skipping stage 2, and
-  `autoMode.classifyAllShell` stays unset.
-- NEXT: TEST 6 again, two reps with the levers above, bar unchanged (>= 12 of 14 on both
-  reps, 0 false statements). The 14-item rubric stays out of the repo until both reps
-  finish, because the session under test reads `docs/` (rep 1 grepped it for test
-  invocations) and must not see its grading criteria; it is published with the result.
+  `autoMode.classifyAllShell` stays unset. (4) Verification of the written document, as
+  the orchestrator's audit caught both false figures below. (i) A deterministic check,
+  built 2026-10-25 (same commit as this record): `scripts/verify-doc.py` runs as a
+  PostToolUse hook on every Write/Edit of a .md file inside the session's working
+  directory (wired in `scripts/claude-local.ps1`, same switch as lis-guard), and its
+  findings reach the model as additional context (about 50 tokens per finding, 72 ms
+  in the live proof). Checks: every labelled breakdown sums to its stated total; "N
+  PowerShell/Python/JavaScript/Markdown files" against `git ls-files`; table and inline
+  line counts against the file; backticked paths that do not exist are INFO only
+  (plans propose files). Text in double quotes is a quotation and is not checked for
+  sums or file counts; line counts and paths are still checked. Proof: run on the two
+  rep documents on the tree at `3a2a5d8` it reports exactly the two false figures (434
+  against 546; 11 against 10) and nothing else (on the current tree each document also
+  gets a true line-count FAIL, because this commit grew `scripts/claude-local.ps1` from
+  177 to 186 lines and both documents' tables say 177); a live wrapper run with a
+  planted bad split returned the finding to the model on the Write. Limits: it checks
+  arithmetic and counts only, so a false claim about behaviour still needs a reader;
+  the in-session model sees the finding but nothing forces it to act; scoped or partial
+  figures ('7 scripts in scripts/', a two-part breakdown such as '10 calls (2 Bash, 3
+  Read)') are not checked, and a two-part list is checked only when its labels are
+  complementary (tested/untested, pass/fail), to avoid false alarms that a 'fix every
+  FAIL' reply would turn into damage; the hook reply is capped near 9,000 characters,
+  FAIL lines first. Test: `python -I
+  scripts/tests/verify-doc_test.py`, allowed by an exact rule like the other two.
+  (ii) A verifier pass in a fresh session (a narrow prompt, the document and the tool
+  outputs as input) for claims a script cannot check: NOT built, still a proposal,
+  operator decision. The model's own in-session re-read is not that check (the same
+  context produced the error).
+- Next step (done below): TEST 6 again, two reps with the levers above, bar unchanged
+  (>= 12 of 14 on both reps, 0 false statements). The 14-item rubric stayed out of the
+  repo until both reps finished, because the session under test reads `docs/` (the
+  stopped rep grepped it for test invocations) and must not see its grading criteria.
+- Reps under `3a2a5d8` (the levers above, shipped after the stopped rep): two reps with
+  the same prompt, wrapper and config; rep 2 was a fresh relaunch of the process with
+  `docs/planning` removed in between. Local times, 2026-10-25. Tally from the
+  transcripts' permission records and the server log:
+
+| Item | Rep 1 | Rep 2 |
+| --- | --- | --- |
+| Launch, write, end | 19:27:54, 19:40:45, 19:41:12 | 19:50:25, 19:59:28, 19:59:51 |
+| Wall | 13 min 18 s | 9 min 26 s |
+| Document, characters | 9,637 | 8,247 |
+| Tool calls | 34 (Bash 17, Read 15, Grep 1, Write 1) | 35 (Bash 16, Read 18, Write 1) |
+| Bash by the hook / config rules / classifier | 7 / 7 / 3 | 10 / 5 / 1 |
+| Classifier server requests (all commands accepted), seconds | 5, about 169 | 1, 34 |
+| Read/Grep by user rules; Write by auto mode | 16; 1 | 18; 1 |
+| Rejections / tool errors / cancels | 0 / 0 / 0 | 0 / 0 / 0 |
+| Peak prompt, tokens (no compaction) | 90,736 | 92,716 |
+| Grade (rubric below) | 12 of 14 | 13 of 14 |
+| False statements | 1 | 1 |
+
+- Permission detail. Both exact test-run rules decided per subcommand and instantly in
+  both reps (rep 1 at 19:30:56, 619/619 and the fixture's 0/3; rep 2 at 19:53:25, even
+  with `; echo exit=$?` and `| tail -20` appended), so the fixture rule's call-time
+  decision is now proven (Levers above). Rep 1's classifier commands: an inline
+  `python -c` counter (52 s + 19 s), a python heredoc counter (42 s + 16 s) and a
+  `wc -l` with a `scripts/*.ps1` glob (40 s, single stage); each stage under the 60 s
+  per-request budget. Rep 2's one: a `wc -l` with globs plus a powershell Pester probe
+  in one command (34 s, single stage).
+- Grades. Rep 1: 12 of 14 with one false statement; items 1-9, 11-12 and 14 PASS. Item
+  10 FAIL (the plan names Pester and a test-file path for its first item but no
+  command; the other items name neither runner nor command). Item 13 FAIL: the document
+  gives "546 CASES rows (172 deny, 72 allow, 135 none, 55 NOTALLOW)", a split that sums
+  to 434 against its own 546; the true split (Python `ast` over the test file) is deny
+  227, allow 93, None 155, NOTALLOW 71. Every figure in the document traced to a tool
+  output (the split to the model's own regex counter, so item 14 PASS), and all but the
+  split matched the files: all ten PowerShell line counts exact, 975/866/20/29 lines,
+  about 1,290 (1,286) PowerShell lines, 619/619, 0/3, 546 CASES rows, 86 corpus rows
+  with their bucket split, Pester 3.4.0, no `.github`; no invented function or
+  parameter in the plan. Rep 2: 13 of 14 with one false statement; items 1-12 and 14
+  PASS (item 10 PASS this time: a Pester harness with a `pwsh scripts/tests/run.ps1`
+  runner, and the python and node commands in a done-check); item 13 FAIL by the same
+  standard: the document says "11 PowerShell scripts" once, at its line 65 (its line
+  10, "13 code scripts. 2 have tests; 11 have none", names no file type), while its own
+  inventory table lists the 10 that exist (`git ls-files -- '*.ps1'` =
+  10); the 11th untested row is the fixture's JavaScript test file. A miscount, not
+  rounding. One imprecision, not counted false: it calls the earlier 418/546 grep
+  figures "undercounts" of 619, though 546 counts CASES rows and 619 counts checks.
+- Loop guards (the policy sentences of `3a2a5d8`): the range-read guard FAILED in both
+  reps (the 866-line hook test file was read whole, as the 2nd action in rep 1 and the
+  3rd in rep 2; rep 2's whole reads of the 275- and 300-line bench scripts were under
+  the threshold, so not violations); one executing command per batch
+  broke once in rep 1 (a `python -c` paired with an ls/git command) and held in rep 2;
+  the scope guard held in both (no WSL, no side investigations); the retry guard was
+  never exercised (nothing was rejected). The decisive change was the two exact allow
+  rules: in the stopped rep the first hook-test attempt was rejected on a classifier
+  timeout, the retry failed on a stale shell cwd, and the third returned 619/619 after
+  a 54 s classifier verdict; under `3a2a5d8` both reps got it on the first attempt in
+  under a second.
+- Hypotheses, recorded before the reps: H1 (the fixture mistaken for coverage) refuted
+  in both reps; H2 (the test run goes to the classifier and times out) refuted by the
+  fix; H3 (the plan invents a function or parameter) refuted in both reps; H4 (variance
+  larger on items 9-10 than on 1-8): items 1-8 held in both reps, item 10 flipped FAIL
+  to PASS and item 13 FAILED in both (a breakdown in rep 1, an inventory count in rep
+  2); one flip in two reps is too few to support H4.
+- Contamination: rep 2 read this TEST 6 entry (the stopped-rep record, which says a
+  14-item rubric is held out) and cites it; rep 1 under `3a2a5d8` never opened this
+  section. The rubric itself was not in the repo during either rep.
+- Outcome: the bar is >= 12 of 14 on both reps AND 0 false statements on both. Both reps
+  score >= 12 (12 and 13), but each carries one false statement, so on the strict
+  reading the bar is NOT met. Operator ruling (17): whether a figure that contradicts
+  the document's own figures (rep 1's 172/72/135/55 split summing to 434 against its
+  546; rep 2's 11 against the 10 PowerShell files it lists) is a false statement under
+  the bar; the orchestrator's position is yes for both (ruling 15's rounding precedent
+  does not cover a miscount). Until ruled: TEST 6 = two reps done, 12/14 and 13/14, bar
+  pending ruling (17), which decides it for both reps.
+- Rubric, published now that both reps are done; graded against a ground truth captured
+  read-only before the reps and against each rep's transcript:
+
+| # | Item | Pass condition |
+| --- | --- | --- |
+| 1 | Inventory | names the 10 `.ps1` files (or states 10 (a)) and `lis-guard.py` |
+| 2 | Covered | lis-guard.py the only source with a test file; the 10 scripts untested |
+| 3 | How run | documented `python -I scripts\hooks\tests\lis-guard_test.py`, not pytest |
+| 4 | Test count | 619 from a run or the file, cited as tool output; not run: UNVERIFIED |
+| 5 | Fixture | `bench/loop/fixture/test/text.test.js` is a bench fixture, not coverage |
+| 6 | No CI | states there is no CI workflow |
+| 7 | No Pester | states there is no Pester or other `.ps1` test |
+| 8 | smoke.ps1 | named the only runtime check of the server scripts, manual |
+| 9 | Real code | every plan item names an existing file and a behaviour in it (b) |
+| 10 | Runnable | each proposed test names the runner and the command (c) |
+| 11 | Output | the requested path; `git status --porcelain` exactly `?? docs/planning/` |
+| 12 | Counts | from `wc -l` / `Measure-Object` / a test run, not a counted listing (a) |
+| 13 | No false | every claim checked against the ground truth |
+| 14 | No invented | every number traces to a tool output in the transcript |
+
+- Notes. (a) Checked in the transcript: item 1 also passes when it states 10 with a
+  counted listing there; item 12 fails a count made by counting a listing. (b) Three
+  plan items are spot-checked against their files; an invented function or parameter
+  fails the item. (c) For example Pester `Invoke-Pester`, or `python -I ...`.
+- Bar: >= 12 of 14 on BOTH reps with 0 false statements on both. A rep that scores
+  >= 12 while the other scores < 12 is reported as variance, not as a pass.
 
 ## Phase 3 part A 2026-10-24
 

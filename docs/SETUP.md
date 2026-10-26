@@ -242,13 +242,14 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `Bash(powershell -NoProfile -Command \"Get-*)`. The matcher sees the raw command string,
   so a PowerShell rule carries the opening quote of the `-Command` payload, and every
   `;` / `&&` / `|` segment of a command must match. An allowed command skips the auto-mode
-  classifier (about 60 s per decision on the local model). Two exact rules run this
-  repo's tests from its root, `Bash(python -I scripts/hooks/tests/lis-guard_test.py)` and
+  classifier (about 60 s per decision on the local model). Three exact rules run this
+  repo's tests from its root, `Bash(python -I scripts/hooks/tests/lis-guard_test.py)`,
+  `Bash(python -I scripts/tests/verify-doc_test.py)` and
   `Bash(node --test bench/loop/fixture/test/text.test.js)` (TEST 6 in docs/ROADMAP.md;
   an exact rule stays in auto mode, a wildcard after `node` or `python` is dropped).
   An exact rule trusts the file it names: neither the hook nor the classifier scans
-  that file, so editing `scripts/hooks/tests/lis-guard_test.py` or the fixture test
-  changes what the rule allows. `ask`: `Edit(...)` rules for the critical paths
+  that file, so editing one of the three test files changes what its rule allows.
+  `ask`: `Edit(...)` rules for the critical paths
   (`~/.claude`, `~/.ssh`, `.curlrc`/`_curlrc`, Windows, Program Files,
   ProgramData, `.env*`, `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs
   Write; the wrapper rewrites `Edit(~/...)` to the `//c/Users/<name>/...` form at run
@@ -356,6 +357,17 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   blocks the call rather than letting it through), and inputs over 32 KB get no decision.
   `-LisNoGuard` leaves the hook out. Tests:
   `python -I scripts\hooks\tests\lis-guard_test.py`.
+- PostToolUse hook (matcher `Write|Edit`, added with lis-guard, dropped by `-LisNoGuard`):
+  `scripts/verify-doc.py --hook` checks every `.md` written or edited inside the working
+  directory and hands its findings to the model as `additionalContext`, never blocking.
+  FAIL: a labelled split of 3+ parts (or of 2 complementary parts such as
+  tested/untested or pass/fail) that does not sum to its total, an unscoped
+  "N PowerShell scripts"-style count against the repo, "`path` (N lines)" or a Lines
+  cell against the file; a missing backticked path is INFO only. By hand:
+  `python -I scripts/verify-doc.py <file.md>`.
+  Text in double quotes is treated as a quotation and not checked for sums or file counts.
+  Line counts are read only for files inside the working directory and under 8 MB; the
+  reply is capped near 9,000 characters with FAIL lines first.
 - What asks: the `ask` rules above. Interactively you get a prompt. In `-p` mode an ask
   is a hard denial with no classifier, and the model retries the same call until
   `--max-turns`.

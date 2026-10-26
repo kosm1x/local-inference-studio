@@ -89,6 +89,7 @@
       "Bash(git config --global core.symlinks)",
       "Bash(pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()')",
       "Bash(python -I scripts/hooks/tests/lis-guard_test.py)",
+      "Bash(python -I scripts/tests/verify-doc_test.py)",
       "Bash(node --test bench/loop/fixture/test/text.test.js)"
     ],
     "ask": [

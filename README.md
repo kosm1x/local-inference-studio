@@ -110,6 +110,8 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phases P0-P6
 - [config/models.md](config/models.md) — tracked model candidates
 - [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 131072, WebSearch, WebFetch, Agent and Workflow denied, rule set A: read-only allow and critical-write ask rules, ruling 15); the wrapper adds the `scripts/hooks/lis-guard.py` payload hook (docs/SETUP.md step 8)
+  and the `scripts/verify-doc.py` PostToolUse hook, which checks the sums, file counts,
+  line counts and paths in every `.md` a session writes and reports them to the model
 - [bench/README.md](bench/README.md) — P3 bench result schema
 
 ## Rules

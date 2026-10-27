@@ -3,7 +3,105 @@
 Each phase lists its goal, steps, done-check and open rulings. A phase is done
 only when its done-check passes on this machine.
 
-## Status 2026-10-25
+## At a glance 2026-10-27
+
+Read this first; the Status section below keeps the full record. Results checked
+2026-10-27 against `bench/results/` on the workstation: every ladder verdict and facts
+count in this file matches its result file, with one exception: series 1 rep 2
+(stamp 20261026-132833) stores `bar_met` null; its true is the ruling 18 regrade of a
+copy, never written back.
+
+| Phase | State | Next gate |
+|---|---|---|
+| P0 Evaluation + scaffold | DONE 2026-10-24 | none |
+| P1 Install + smoke | DONE 2026-10-24 | none |
+| P2 Claude Code profile | DONE 2026-10-24 | none |
+| P3 Bench matrix | DONE; default ruled (6, 14) | none |
+| P4 MoE CPU offload | not started | operator go/no-go |
+| P5 SGLang / vLLM in WSL2 | BLOCKED (KV capacity) | operator: accept blocked |
+| P6 MTP | measured; off in the default (ruling 14) | MTP A/B design ruling |
+| P7 Daily use (new, proposed) | partial | logon start proof |
+| Trust ladder rung 1 | DONE 2026-10-26, 4 of 4 | none |
+| Trust ladder rung 2 | 4 series run, verdict open | pass rule (proposal below) |
+| Trust ladder rung 3 | BUILT, unrun | pre-rep audit fixes, then series 1 n=1 |
+
+### Assessment
+
+- The plan held for P0 to P3: each phase had a done-check and closed in a day. The
+  trust ladder is where time now goes (four rung 2 series on 2026-10-26), and its
+  rungs, unlike the phases, have no pass rule, so no amount of reps can close one.
+  That is the main gap.
+- Rung 2's axis held in every counted rep: no BEFORE, CHECK or FIXED line written
+  before a boundary was lost or changed by compaction (`facts_survived` true in each
+  counted rep's result file; the 132833 file predates the field, and its record of
+  kept lines is in Status below). Every false verdict came from
+  bookkeeping instead: a `Fixed:` count that disagreed with the record (series 1 reps
+  3 and 4), names without the module prefix (series 3 rep 2), lines rebuilt from a
+  pattern after a compaction (series 4 rep 2) and a CHECK line for a skipped run
+  (series 4 rep 3). Series 4 reps 2 and 3 are the cases closest to the axis: the
+  wrong lines were written after a compaction, from inference, not lost from the
+  record. More series at this budget measure record-keeping, which is a fair target
+  but a different axis from the one rung 2 names.
+- Most NEXT items wait on operator rulings, not on building: about ten are open. The
+  order below takes the cheapest unblocked step first.
+- P4 and P5 carry no current plan: ruling 6 traded speed for accuracy, and P5 is
+  blocked on 16 GB of VRAM. Neither bears on the ladder.
+- The roadmap has no phase for the project's own goal, daily Claude Code use on the
+  local model; the pieces sit in the Status bullets (logon start, live session, lean
+  set). P7 below names them so they have a done-check.
+
+### Proposed order of work
+
+1. Rung 3 pre-rep fixes (Rung 3 stale-figure below): a neutral run-dir leaf and
+   fixture commit identity, the dry-run assertion, the cross-process determinism test,
+   the whole-dir manifest guard. Building only; no ruling needed.
+2. Rung 3 series 1 n=1 smoke under the draft defaults (draft ruling (f): it needs
+   neither the rung 2 ruling nor the MTP design ruling).
+3. Operator rulings, in the batch below.
+4. MTP A/B on the long-fix fixture, once its design ruling is made.
+5. P7 done-check: the logon start.
+
+### P7 — Daily use (proposed)
+
+- Goal: the logon task serves the default and an ordinary Claude Code session uses it
+  without manual steps.
+- Steps: log off and on; read `Get-ScheduledTaskInfo` LastRunTime and `/health`; run
+  one ordinary session through `claude-local.ps1` from a project directory.
+- Done-check: LastRunTime after the logon, `/health` ok, and the session's requests in
+  `logs/llama-server.log` with 0 errors. The manual task start is proven (2026-10-25
+  06:37 UTC); the logon start itself is UNPROVEN.
+- Open rulings: none.
+
+### Open rulings with recommendations
+
+Recommendations only; each stays OPEN until the operator rules.
+
+- Rung pass rule (new): a rung is met when one series of 3 counted reps on one
+  `rep_key` has at least 2 with `bar_met` true. Recommend it for rung 3 onward.
+- Rung 2: recommend MET on its axis (facts survived compaction in every counted rep)
+  and close it, with record-keeping recorded as a known weakness rather than more
+  series; under the pass rule above it would not be met (best series 1 of 3).
+- (20) A FIXED line naming no test: recommend KEEP false (the roadmap's own
+  recommendation).
+- (21) A rep that skips the test cadence: recommend it counts, and exempt the final
+  "once more" run from `check_missing`.
+- (17) A figure that contradicts the report's own figures: recommend it counts as
+  false, so TEST 6 did not meet its bar.
+- (14) Recommend CLOSE: RUN 5 met its condition.
+- (19) User-scope rules and `CLAUDE.md` in LIS sessions: recommend accept and record
+  for production sessions; for rung 3, run each rep as now (recorded) and decide
+  draft ruling (g) after the smoke shows whether the model cites the instruction.
+- (16) Second model for the classifier: recommend no for now; 653 MiB was free with
+  every process counted on 2026-10-25.
+- (9) Bonsai revisit, P4 go/no-go, P5: recommend defer all three until the ladder
+  closes; accept P5 as blocked.
+- Rung 3 draft rulings (a) to (h): recommend the built defaults for series 1.
+- MTP A/B design: recommend both arms at the 65536 client budget, so the server ctx
+  is not the variable; the default change stays a separate ruling.
+- P3 uploader per model and the harder loop fixture: recommend defer; rung 2's
+  fixture now covers multi-file work.
+
+## Status 2026-10-25 (detail, updated through 2026-10-26)
 
 - Default server (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12): Orca
   Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV q4_0, patched chat template, no MTP,

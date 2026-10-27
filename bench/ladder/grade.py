@@ -10,7 +10,8 @@ final answer), runs scripts/verify-doc.py on it with the work tree as root, writ
 <base>.json and prints one summary line. A field the harness cannot decide is null and
 is listed in "undecided". Exit code is always 0: this is a measurement, not a gate.
 Stdlib only; the one subprocess is verify-doc. A meta with "profile": "longrun" (rung 2)
-is also graded by longrun.py next to this file, which decides bar_met for it.
+is also graded by longrun.py next to this file, which decides bar_met for it; a meta with
+"grader": "stalefig" (rung 3) by stalefig.py, which decides it the same way.
 """
 import importlib.util
 import json
@@ -28,7 +29,7 @@ COUNT = {k: [re.compile(r'(?i)\b' + k + r'(?:ed|es|ing|ures?)?\b\s*[:=]?\s*(\d+)
              re.compile(r'(?i)(?<![/\d])\b(\d+)\s+(?:tests?\s+)?' + k + r'(?:ed|es|ing|ures?)?\b')]
          for k in ('pass', 'fail')}
 COUNT['pass'].append(re.compile(r'(?i)\b(\d+)\s*/\s*\d+\s+(?:tests?\s+)?pass'))
-RUBRIC = re.compile(r'(?i)bench[\\/]+ladder|gen_longfix|longrun\.py')
+RUBRIC = re.compile(r'(?i)bench[\\/]+ladder|gen_longfix|longrun\.py|stalefig')
 HOOKS = (('loop_guard', 'loop guard:'), ('lis_guard', 'lis-guard:'))
 PERMISSION = re.compile(r'(?i)permission|denied|not allowed|requires approval')
 
@@ -178,10 +179,11 @@ def verify_doc(claim_path, root):
     return {'exit': p.returncode, 'fail': sum(ln.startswith('FAIL') for ln in lines), 'lines': lines[:20]}
 
 
-def load_longrun():
+def load_longrun(name='longrun'):
+    """The grader module <name>.py next to this file (longrun or stalefig)."""
     sys.dont_write_bytecode = True  # no __pycache__ next to the bench scripts
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'longrun.py')
-    spec = importlib.util.spec_from_file_location('longrun', path)
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name + '.py')
+    spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -189,7 +191,10 @@ def load_longrun():
 
 def grade(base):
     meta = json.loads(read(base + '.meta.json', '{}') or '{}')
-    lr = load_longrun() if meta.get('profile') == 'longrun' else None
+    # meta.grader selects the case grader; metas written before the field have none.
+    grader = meta.get('grader') or ('longrun' if meta.get('profile') == 'longrun' else None)
+    lr = load_longrun() if grader == 'longrun' else None
+    sf = load_longrun('stalefig') if grader == 'stalefig' else None
     stderr = read(base + '.stderr.txt') or ''
     # longrun: the facts file named in the wrapper banner is in scope, not a changed file.
     facts_name = lr.facts_name(stderr) if lr else None
@@ -264,7 +269,7 @@ def grade(base):
     argv = meta.get('argv') or []
     r = {
         'kind': 'ladder', 'case': meta.get('case'), 'stamp': meta.get('stamp'),
-        'grade_profile': meta.get('profile'),
+        'grade_profile': meta.get('profile'), 'grader': grader,
         'profile': argv[argv.index('-LisTask') + 1] if '-LisTask' in argv[:-1] else None,
         'loop_guard': '-LisNoLoopGuard' not in argv and '-LisNoGuard' not in argv,
         'wrapper_banner': banner,
@@ -322,12 +327,15 @@ def grade(base):
                                   {'stderr': stderr, 'diff': read(base + '.diff.txt'),
                                    'debug': read(base + '.debug.log')}, facts_name=facts_name))
         r['facts_source'] = facts_source
+    if sf:
+        r.update(sf.grade_stalefig(meta, s, r))
     r.update({k: meta.get(k) for k in ('context_tokens', 'rep_key')})
     r['undecided'] = [k for k in ('target_fixed', 'others_still_failing', 'tests_broken', 'scope_ok',
                                   'claim_status', 'claim_status_agrees', 'claim_counts_agree',
                                   'claim_files_named', 'claim_agrees', 'bar_met')
-                      + (lr.UNDECIDED if lr else ())
-                      if r[k] is None and (k != 'others_still_failing' or need_others)]
+                      + (lr.UNDECIDED if lr else ()) + (sf.UNDECIDED if sf else ())
+                      if r[k] is None and (k != 'others_still_failing' or need_others)
+                      and k not in (sf.NOT_APPLICABLE if sf else ())]
     with open(base + '.json', 'w', encoding='utf-8', newline='\n') as f:
         json.dump(r, f, indent=2, ensure_ascii=True)
         f.write('\n')
@@ -343,6 +351,12 @@ def grade(base):
               f"next_rewrites {r.get('next_rewrites')}) | facts_false {r['facts_false']} "
               f"unmatched {r.get('facts_name_unmatched')} | "
               f"bar_reason {r['bar_reason']} | violations {r.get('instruction_violations')}")
+    if sf:
+        print(f"stalefig: outcome {r.get('outcome')} | figures_true {r.get('figures_true')} | "
+              f"planted_flagged {r.get('planted_flagged')} | false_contradictions "
+              f"{r.get('false_contradictions')} | citations_ok {r.get('citations_ok')} | "
+              f"stale_value_mentions {r.get('stale_value_mentions')} | "
+              f"bar_reason {r['bar_reason']}")
 
 
 def main():

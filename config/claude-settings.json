@@ -97,7 +97,8 @@
       "Bash(python -I scripts/tests/verify_claims_report_test.py)",
       "Bash(node --test bench/loop/fixture/test/text.test.js)",
       "Bash(node --test longfix/test/all.test.js)",
-      "Bash(node --test --test-reporter=./longfix/reporter.mjs longfix/test/all.test.js)"
+      "Bash(node --test --test-reporter=./longfix/reporter.mjs longfix/test/all.test.js)",
+      "Bash(node --test tallyctl/test/all.test.js)"
     ],
     "ask": [
       "Edit(~/.claude/**)",

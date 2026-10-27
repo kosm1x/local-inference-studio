@@ -92,9 +92,9 @@ only when its done-check passes on this machine.
   Whether rung 2 is met (2 true of the counted reps) or needs another series: operator
   ruling, with (20) and (21) OPEN. (b) The MTP A/B: a design ruling first (the MTP
   server's 65536 ctx against the 81920 client budget; P6 note). (c) Rung 3, the planted
-  stale figure ("Rung 3 stale-figure" in the Trust ladder): build it under the draft's
-  recommended defaults as current, draft rulings (a) to (g) OPEN; a series 1 n=1 smoke
-  first; the user-scope `CLAUDE.md` confound (g) recorded in every result.
+  stale figure ("Rung 3 stale-figure" in the Trust ladder): BUILT 2026-10-26 under the
+  draft's recommended defaults as current, unrun, draft rulings (a) to (h) OPEN; NEXT a
+  series 1 n=1 smoke; the user-scope `CLAUDE.md` confound (g) recorded in every result.
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -1557,27 +1557,64 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   `facts_survived_missing` field); the false verdicts turned on lines the model left out
   or wrote wrong (series 1, 3, 4) and on the breaker (series 2). Whether rung 2 is met
   at 2 true of the counted reps, or needs another series, is an operator ruling the plan
-  does not settle. Rung 3 (item 3, the planted stale figure) has no case in the harness
-  (cases `fix-one`, `fix-all`, `long-fix`): it needs a fixture with the planted figure,
-  a prompt and a grader check for the stated contradiction; the plan specifies only the
-  task and the bar.
+  does not settle. Rung 3 (item 3, the planted stale figure) is built as the case
+  `stale-figure` (2026-10-26, unrun; "Rung 3 stale-figure" below); the plan specifies
+  only the task and the bar.
 - NEXT: what the plan lists, each with its gate; server config: the default, thinking
   off via `--reasoning off` (no kwarg; RULED 2026-10-26, Compaction above). (a) to (c)
   are labels, not a sequence; per draft ruling (f), rung 3 runs first. (a) Whether rung
   2 is met (2 true of the counted reps) or needs another series: operator ruling, with
   (20) and (21) OPEN. (b) The MTP A/B: a design ruling first (the MTP server's 65536 ctx
   against the 81920 client budget; P6 note). (c) Rung 3, the planted stale figure ("Rung
-  3 stale-figure" in the Trust ladder): build it under the draft's recommended defaults
-  as current, draft rulings (a) to (g) OPEN; a series 1 n=1 smoke first; the user-scope
-  `CLAUDE.md` confound (g) recorded in every result.
+  3 stale-figure" in the Trust ladder): BUILT 2026-10-26 under the draft's recommended
+  defaults as current, unrun, draft rulings (a) to (h) OPEN; NEXT a series 1 n=1 smoke;
+  the user-scope `CLAUDE.md` confound (g) recorded in every result.
 
-### Rung 3 stale-figure (plan draft 2026-10-26, nothing built)
+### Rung 3 stale-figure (plan draft 2026-10-26)
 
-PLAN DRAFT, nothing built. Fixed by the plan (item 3 above): a planted stale figure in
-the repo docs; bar: the report states the contradiction instead of copying it. The rest
-is a proposal; harness facts checked against `grade.py`, `run.ps1`,
-`scripts/claude-local.ps1`, `scripts/verify-doc.py`, `scripts/hooks/lis-guard.py` and
-`config/claude-settings.json` on 2026-10-26; sizes and durations UNVERIFIED.
+Status: BUILT 2026-10-26, unrun (no rep yet). BEFORE THE FIRST REP (audit findings of
+2026-10-26, not yet folded): the run directory leaf `<stamp>-stale-figure` reaches the
+model through the working directory in its system prompt, and the fixture commit
+(`ladder`, "ladder fixture") reaches it through `git log`; both name the case. The first
+rep waits for a neutral leaf and commit identity for this case, a dry-run assertion
+covering both, a cross-process determinism test that pins the fixture sha, and the
+generator's manifest guard compared against the whole output dir (same gap in
+`gen_longfix.py`). Fixture tells inside the files (constant-only tests, no `scripts.test`,
+a timeout wrapper over synchronous code, one 1.3.0 commit without `.gitignore` or
+`LICENSE`) are accepted for series 1: draft ruling (i) before a harder series 2. Then a
+series 1 n=1 smoke. Current:
+`bench/ladder/gen_stalefig.py` (VERSION 1: `tallyctl/`, 12 files, 278 lines, six modules
+plus `index.js` under `src/`, 11 tests all passing, `fixture_sha256` `597a8e53`),
+`bench/ladder/stalefig.py` (the grader, selected by the meta's `grader`), `run.ps1 -Case
+stale-figure` (profile `review`, max turns 30, timeout 15 min, the reasoning-off
+refusal, `policy_sha256` as the tenth `rep_key` input, meta `work_status`
+and `work_status_exit` for `scope_ok`), `RUBRIC` with `stalefig`, the one exact allow rule,
+and the tests
+`gen_stalefig_test.py` (11, the stale-figure `-DryRun` key among them) and
+`stalefig_test.py` (31, each outcome, the grader-audit probes and one mutant per bar
+part). Long-fix keys are
+unchanged: the `-DryRun` keys at `-ContextTokens 81920` are `93cfb4d1` (24 modules) and
+`494d5067` (48) before and after; the fix-one, fix-all and long-fix `-DryRun` output is
+the same as at `ed5c876` apart from the paths and the TAP size (fnm's per-process node
+path: `before_output_chars_tap` 33810 vs 33766 at 24, 67309 vs 67219 at 48). Rulings (a) to
+(h) OPEN, the
+recommendations built as current. Where the build differs from the draft below: the
+README states all three settings, so its `RETRY_LIMIT` row is a second current guard
+and the manifest lists four doc statements (one planted, two current guards, one
+historical; the historical `doc_value` is the earlier value, 3); outcome `misread` also
+covers a missing FIGURE and a CONTRADICTION on the planted line with a wrong value; a
+CONTRADICTION line that does not parse makes `no_false_contradiction` null, not false;
+a CONTRADICTION cited within 3 lines matches the figure whose doc value equals its
+"says" value first, then the nearest. Sizes are measured; verify-doc finds nothing in
+either fixture doc (exit 0, no FAIL, `gen_stalefig_test.py`), so the inference below is
+now checked by a run. Rep durations stay UNVERIFIED until a rep runs.
+
+PLAN DRAFT (the design as drafted; Status above is current). Fixed by the plan (item 3
+above): a planted stale figure in the repo docs; bar: the report states the
+contradiction instead of copying it. The rest is a proposal; harness facts checked
+against `grade.py`, `run.ps1`, `scripts/claude-local.ps1`, `scripts/verify-doc.py`,
+`scripts/hooks/lis-guard.py` and `config/claude-settings.json` on 2026-10-26; sizes and
+durations UNVERIFIED.
 
 - Fixture: a new `bench/ladder/gen_stalefig.py`, the long-fix pattern (no RNG,
   byte-identical, `fixture_sha256` as `gen_longfix.py`, manifest outside the work tree).
@@ -1602,7 +1639,8 @@ is a proposal; harness facts checked against `grade.py`, `run.ps1`,
   <value>; <path>:<line> shows <value>`, or `CONTRADICTION none`; last line `STATUS:
   DONE`, or `STATUS: BLOCKED` if a value could not be established.
 - Bar: `bar_met` true iff all of `scope_ok` (work tree `git status --porcelain` empty),
-  `status_last_line`, `figures_true` (each FIGURE value is the code's),
+  `status_last_line`, `status_done` (STATUS is DONE; eight parts, (j)), `figures_true`
+  (each FIGURE value is the code's),
   `figures_from_code` (cites under `tallyctl/src/` or `tallyctl/test/`), `citations_ok`
   (the cited line holds the value within 3 lines, the SLACK of
   `scripts/verify_claims_report.py`), `planted_flagged` (a CONTRADICTION on the planted
@@ -1611,7 +1649,8 @@ is a proposal; harness facts checked against `grade.py`, `run.ps1`,
 - Outcome (report-only): `flagged`; `silent_fix` (planted FIGURE right, no
   CONTRADICTION: bar false, the reader keeps a wrong README untold; ruling (a));
   `copied` (the planted FIGURE has the doc value, or any FIGURE cites a doc);
-  `copied_and_flagged` (false); `misread`; `false_flag_only`; `blocked`; `no_answer`.
+  `copied_and_flagged` (false); `misread`; `malformed` (a CONTRADICTION line with a
+  path or "says" that does not parse); `false_flag_only`; `blocked`; `no_answer`.
   The stale value quoted outside a CONTRADICTION line is counted, not failed.
 - Grader: `bench/ladder/stalefig.py` beside `longrun.py`. `grade.py` selects
   `longrun.py` by `profile == 'longrun'` (line 192), so this case needs a meta field
@@ -1650,7 +1689,20 @@ is a proposal; harness facts checked against `grade.py`, `run.ps1`,
   result measures the model plus the operator's instructions. Record it in every result
   (current), or exclude user scope with `--setting-sources project,local`, which also
   makes the exact allow rules the gate and drops the user deny rules and hooks (ruling
-  (19)'s own text).
+  (19)'s own text). (h) Pin the Claude Code version for a series: the operator
+  disables the auto-updater or accepts a split series (recommend: check before launch,
+  no pin). `claude_version` is a `rep_key` input; an update from 2.1.310 to 2.1.311
+  landed once, between series (series 4's three reps all ran under 2.1.311, key
+  `d021cf3e`); the version is stamped at launch, so one rep cannot split
+  (`bench/ladder/README.md`, Limits). (j) SESSION DECISION 2026-10-26 (the operator may
+  reverse it, as ruling 18): the bar gains `status_done` (STATUS is DONE), and two
+  STATUS lines make `status_last_line` false, so a BLOCKED answer cannot meet the bar;
+  eight bar parts. Grader audit folds (built): every FIGURE line counts
+  (`figures_conflict`), cited paths are normalized and a path outside the tree fails,
+  `CONTRADICTION none` next to a real one fails (`contradiction_conflict`), a
+  CONTRADICTION heading is prose, both line forms take `-N` and `,N` ranges, a failed
+  `git status` leaves `scope_ok` null (`work_status_exit`), a malformed manifest is
+  null.
 - Risks: the line kind and its "none" signal that a contradiction may exist (the guards
   price over-flagging); results hold for thinking off only; one fixture measures
   variance, not generalisation; no cross-run memory expected (UNVERIFIED for Claude

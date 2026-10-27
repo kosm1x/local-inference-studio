@@ -822,6 +822,69 @@ class LongRun(unittest.TestCase):
         self.assertEqual([lr.run_ok(crlf, t) for t in (A, B, G)], [True, False, False])
         self.assertEqual(lr.run_counts(crlf), {'pass': 1, 'fail': 2})
 
+    def test_test_runs_short(self):
+        # Series 4 rep 1 (175551): 3 test-command runs where the prompt asks for 14.
+        p48 = ('Run the test command once before any change, then after m04, m08, m12, m16, '
+               'm20, m24, m28, m32, m36, m40, m44 and m48, and once more before your report.')
+        r = self.grade(meta_extra={'prompt': p48})
+        self.assertEqual((r['test_runs_instructed'], r['test_runs_exact']), (14, 3))
+        self.assertIn('test_runs_short:11', r['instruction_violations'])
+        self.assertEqual((r['bar_met'], r['bar_reason']), (True, None))  # report-only
+        r = self.grade()  # no checkpoint list in the prompt: unknown, no violation
+        self.assertEqual((r['test_runs_instructed'], r['test_runs_exact']), (None, 3))
+        self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
+
+    def test_compliant_runs_and_checks_have_no_violation(self):
+        # 4 runs for "after m01 and m02" (before, m01, m02, report), each later run a CHECK.
+        last = 'CHECK pass 3, fail 0'
+        steps = good(self.work) + [
+            ('Bash', {'command': CMD}, run_out(3, 0, [A, B]), False),
+            ('Edit', {'file_path': os.path.join(self.work, FACTS), 'old_string': text(L2[1:]),
+                      'new_string': text(L2[1:] + [last])}, 'ok', False)]
+        prompt = 'then after m01 and m02, and once more before your report.'
+        r = self.grade(steps, final=L1 + L2 + [last], meta_extra={'prompt': prompt})
+        self.assertEqual((r['test_runs_instructed'], r['test_runs_exact']), (4, 4))
+        self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
+        self.assertEqual((r['facts_lines_at_boundaries'], r['facts_fixed_at_boundaries']),
+                         ([3], [1]))  # BEFORE, CHECK, FIXED (not NEXT) held at the boundary
+        # One run more than instructed (with its CHECK) is not short.
+        extra = 'CHECK pass  3 fail 0'
+        steps += [('Bash', {'command': CMD}, run_out(3, 0, [A, B]), False),
+                  ('Edit', {'file_path': os.path.join(self.work, FACTS),
+                            'old_string': last + '\n', 'new_string': text([last, extra])},
+                   'ok', False)]
+        r = self.grade(steps, final=L1 + L2 + [last, extra], meta_extra={'prompt': prompt})
+        self.assertEqual((r['test_runs_instructed'], r['test_runs_exact']), (4, 5))
+        self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
+
+    def test_run_without_check_is_check_missing(self):
+        # The run before the report (step 8) gets FIXED but no CHECK line.
+        steps = good(self.work)
+        steps[9] = ('Edit', dict(steps[9][1], new_string='NEXT m02\n' + text(L2[1:])),
+                    'ok', False)
+        r = self.grade(steps, final=L1 + L2[1:])
+        self.assertIn('check_missing:1', r['instruction_violations'])
+        # A middle run (step 3) without a CHECK: the next run's CHECK does not cover it.
+        steps2 = good(self.work)
+        no_check = L1[:1] + L1[2:]
+        steps2[4] = ('Edit', dict(steps2[4][1], new_string=text(no_check)), 'ok', False)
+        r = self.grade(steps2, final=no_check + L2)
+        self.assertIn('check_missing:1', r['instruction_violations'])
+        # Replay null: the boundary counts and check_missing are unknown.
+        steps.insert(5, ('Bash', {'command': f"sed -i 's/m02/m03/' {FACTS}"}, '', False))
+        r = self.grade(steps, final=L1 + L2[1:])
+        self.assertEqual((r['facts_lines_at_boundaries'], r['facts_fixed_at_boundaries']),
+                         ([None], [None]))
+        self.assertFalse([v for v in r['instruction_violations']
+                          if v.startswith('check_missing')])
+
+    def test_no_test_cmd_has_no_run_count(self):
+        prompt = 'then after m01 and m02, and once more before your report.'
+        r = self.grade(meta_extra={'test_cmd': None, 'prompt': prompt})
+        self.assertEqual((r['test_runs_instructed'], r['test_runs_exact']), (4, None))
+        self.assertFalse([v for v in r['instruction_violations']
+                          if v.startswith('test_runs_short')])
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)

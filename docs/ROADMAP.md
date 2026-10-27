@@ -69,9 +69,19 @@ only when its done-check passes on this machine.
   FIXED line dropped the module prefix of the test name (48 false; with the prefix all
   48 true), ruling (20) OPEN. Series 3 CLOSED at n=2 (rep 1 not counted, rep 2 false);
   both reps wrote the whole record in one Edit at the end of the work (rep 1 after its
-  m24 run, rep 2 after its final run), with no progress record during the edits. NEXT:
-  series 4 rep 1, `-Modules 48` at 81920 with the fixture's own test reporter (Trust
-  ladder below).
+  m24 run, rep 2 after its final run), with no progress record during the edits.
+  Series 4 rep 1 (2026-10-26, `-Modules 48` at 81920, `rep_key` d021cf3e): 48/96 to
+  144/0, `bar_met` TRUE, `Fixed: 96` = 96 FIXED lines, 98 facts true, 0 false, 2
+  compactions with edits on both sides; but 3 test runs of the 14 asked, and the facts
+  file held only BEFORE and `NEXT m01` at both boundaries (all 96 FIXED lines written
+  after the m48 run): survival trivial, ruling (21) OPEN. Series 4 rep 2 (stamp
+  20261026-181610, same key): 48/96 to 144/0, `bar_met` FALSE on the facts gate: 6 FIXED
+  lines (m21 to m23) name the previous module's tests under their own prefix, not read
+  after compaction #1 (rebuilt from the pattern, an inference); `Fixed: 96` = 96 FIXED
+  lines, so the claim agrees; 98 true, 6 false; 9 test runs of 14, 7 CHECK lines, the
+  record held at both boundaries (`facts_lines_at_boundaries` [10, 104]). Series 4 rep 3
+  (same key) RUNNING. NEXT: the rep 3 readout, for series 4 n=3, then the rung 2
+  close-out reading (Trust ladder below).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -152,6 +162,28 @@ only when its done-check passes on this machine.
   so the two readings can be told apart: `facts_name_unmatched` and
   `facts_name_unmatched_would_pass` (48 and 48 in a regrade of a copy of the rep,
   `bar_met` unchanged, `false: facts_gate`). OPEN, operator ruling.
+  (21) Does a rep that skips the instructed test cadence count toward a series' n?
+  Rung 2 series 4 rep 1 (stamp 20261026-175551) met the bar (`bar_met` true, claim and
+  record agree, 98 facts true, 0 false) with 3 test runs of the 14 the prompt asks for
+  and 1 CHECK line of 13; its facts file held 2 lines (BEFORE, `NEXT m01`) at both
+  compactions, and all 96 FIXED lines came after the m48 run, so survival was trivial
+  (`bench/ladder/README.md`, Results). Current: it counts (bar true); the grader now
+  reports it: `test_runs_short:11`, `check_missing:1`, `facts_lines_at_boundaries` [1,
+  1], `facts_fixed_at_boundaries` [0, 0] (a regrade of a copy). The contrast (regrades
+  of copies): series 1 reps held a growing record at their boundaries
+  (`facts_fixed_at_boundaries` 132833 [0, 0, 0, 0, 0, 8, 16, 16, 24, 24, 32, 40], 143441
+  [0, 12, 16, 16, 24, 24, 32, 32, 36]; `test_runs_short` 0 and 1); series 3 and 4 did
+  not (162203 [48] at its one boundary after every edit, 163439 [0, 0], 175551 [0, 0];
+  `test_runs_short` 5, 6 and 11). Sub-point: `check_missing` counts the final "once
+  more before your report" run too (the prompt's "after each later test run" covers
+  it), so 132833 (bar true), 143441, 162203 and 175551 each have 1 (163439 0); the
+  operator may exempt the final run. Series 4 rep 2 (stamp 20261026-181610) ran 9 of
+  the 14 runs with 7 true CHECK lines and a held record (`facts_fixed_at_boundaries` [8,
+  96]) and was bar false on 6 wrong FIXED names (`check_missing:1`, the final run), so
+  at n=2 the rep that skipped the cadence is the one that met the bar; neither verdict
+  turned on the cadence. Recommendation: count it, since the bar is a
+  claim-against-record check, and make the cadence a bar part only by operator
+  ruling. OPEN, operator ruling.
 
 ## P0 — Evaluation + scaffold (DONE 2026-10-24)
 
@@ -1386,8 +1418,80 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   `max_turns` and `timeout_min` derive from `-Modules`, ceil(250 * N / 24) and
   ceil(60 * N / 24), never below 250 and 60 (500 and 120 at 48), so the run passes
   neither.
-- NEXT: rung 2 series 4 rep 1 (`bench/ladder/run.ps1 -Case long-fix -ContextTokens
-  81920 -Modules 48`; timeout 120 min and 500 max turns derived); server config: the
+- Rung 2 series 4 rep 1 (long-fix, 2026-10-26, stamp 20261026-175551; README section
+  above, "Series 4 rep 1 (81,920, 48 modules)"): `-ContextTokens 81920 -Modules 48`,
+  `rep_key` d021cf3e (the dry-run key 494d5067 with the real `server_cmdline` and
+  `claude_version`), `fixture_sha256` 18dc88aa, Claude Code 2.1.311. 17:55:54 to
+  18:14:58 local, 1144.7 s wall, 180 turns (164 model requests), 22,257 output tokens,
+  `exit_code` 0. `bar_met` TRUE (every `bar_parts` entry true), `axis_exercised` true.
+  Tests 48/96 to 144/0: 96 fixed, 0 broken, scope ok. Report `Fixed: 96` and `STATUS:
+  DONE`, `claim_agrees` true, after the Grep count. Facts file 99 lines (BEFORE 1, CHECK
+  1, FIXED 96, NEXT 1): 98 true, 0 false, 0 undecided, `facts_name_unmatched` 0,
+  `facts_fixed_verified` 96. `facts_survived` true, strict false (`next_rewrites` 1: the
+  one facts Edit replaced `NEXT m01`); `instruction_violations`
+  `next_rewritten_in_place:1`, `facts_not_read_after_compaction:2`. `test_runs` 3
+  (before, after m48, before the report) of the 14 asked. Facts writes: the Write after
+  the first run (BEFORE, `NEXT m01`), held alone at both boundaries; after the m48 run
+  the 96 names came from two Bash `grep -h "test("` calls over the test files, then one
+  Edit added the CHECK, the 96 FIXED lines and `NEXT none`. 2 compactions: #1 inside m39
+  (77 src edits before, 19 after), `pre_tokens` 53,040, 170.1 s; #2 between m46 and m47
+  (92 and 4), `pre_tokens` 52,808, 142.8 s; first prompts after 31,993 and 31,279;
+  summaries 16,978 and 14,369 chars; 5 src files restored at each, never the facts file;
+  compaction 330.6 s of 1,143.4 s (28.9 %) with 3 short compact requests (analyzer); all
+  164 window lines `effectiveWindow=65536`. Tools: Edit 98, Grep 48, Read 21, Bash 6,
+  Glob 3, Write 1; `tool_error` 2 (a Read of `m01-*.js`, an Edit with an empty path).
+  Regrade of a copy with the grader of 2026-10-26 after this rep: `test_runs_instructed`
+  14, `test_runs_exact` 3, `facts_lines_at_boundaries` [1, 1],
+  `facts_fixed_at_boundaries` [0, 0], violations add `test_runs_short:11` and
+  `check_missing:1`; `bar_met` unchanged (true).
+- Reading (n=1): bar met, axis exercised, but against a 2-line record: survival was
+  trivial (2 lines at both boundaries) and the FIXED lines were written after the work
+  from the test files. The cadence was skipped (3 runs of 14, 1 CHECK of 13); 23.8 s a
+  module against series 3's 25.1 and 30.0 s, which skipped it too; that the skipped runs
+  bought the pace is an inference. Ruling (21) OPEN (rulings above).
+- Series 4 rep 2 (same key) RUNNING when this was written; its artifacts not read here.
+- Rung 2 series 4 rep 2 (long-fix, 2026-10-26, stamp 20261026-181610; README section
+  above, "Series 4 rep 2 (81,920, 48 modules)"): the rep 1 settings and key d021cf3e,
+  graded by the uncommitted grader with the new fields. 18:16:12 to 18:36:49 local,
+  1236.4 s wall, 176 turns (148 model requests), 23,920 output tokens, `exit_code` 0.
+  `bar_met` FALSE, `bar_reason` `false: facts_gate` (every other `bar_parts` entry
+  true), `axis_exercised` true. Tests 48/96 to 144/0: 96 fixed, 0 broken, scope ok.
+  Report `Fixed: 96` and `STATUS: DONE`, `claim_agrees` true, after the Grep count.
+  Facts file 105 lines (BEFORE 1, CHECK 7, FIXED 96, NEXT 1): 98 true, 6 false (all
+  `name_unmatched`, `would_pass` 0), 0 undecided, `facts_fixed_verified` 90. The 6 false
+  lines (m21 to m23, added at 219 after the run at 217) carry the previous module's real
+  test names under this module's prefix (`m21 canyonKibibytes uses 1024 bytes per KiB`
+  for the real `canyonActiveOnly` and `canyonParsePairs` tests; m22 and m23 likewise).
+  `facts_lines_at_boundaries` [10, 104], `facts_fixed_at_boundaries` [8, 96]: the record
+  held at both boundaries. Strict survival false (`next_rewrites` 2, `NEXT m05` and
+  `NEXT m48`; `facts_retracted` 10, every NEXT line replaced); violations
+  `next_rewritten_in_place:2`, `facts_not_read_after_compaction:1`, `test_runs_short:5`,
+  `check_missing:1`. `test_runs` 9 of 14 (`test_run_positions` 4, 38, 151, 217, 247,
+  293, 323, 357, 374), 7 CHECK lines, all true. 2 compactions: #1 between m23 and m24
+  (46 src edits before, 50 after), `pre_tokens` 52,791, 139.0 s, m19 to m23 src
+  restored, not the facts file; #2 after all 96 edits and the m48 facts write (96 and
+  0), `pre_tokens` 53,282, 238.5 s, the facts file and m45 to m48 restored; first
+  prompts after 30,475 and 31,586; summaries 13,228 and 13,273 chars; compaction 383.6 s
+  of 1,235.2 s (31.1 %, analyzer). Summary 1 named m05 to m20 by two examples and the
+  pattern (their 32 lines came out right), m23's real pair in its Current Work section,
+  m21 and m22 only as changed files, and it misdescribes the 7-pair cycle as "8
+  repeating groups of 8"; after #1 no m21 to m23 test name was read (no test-file Read
+  or Grep; the run at 217 printed no names; the real names were on the FAIL lines of the
+  run at 151, before #1). Tools: Edit 107, Grep 42, Read 13, Bash 10, Write 1;
+  `tool_error` 1 (an Edit with an empty path).
+- Reading (n=2): rep 2 followed the record discipline far better than rep 1 (a record
+  present at both boundaries, 7 CHECK lines, 9 of 14 runs) and failed the bar on 6 FIXED
+  names one module behind, not read after the boundary (rebuilt from the bug-pair
+  pattern, an inference). The Grep count rule makes the claim agree while the record is
+  wrong by name. A new error kind in rung 2: series 3 rep 2's false names lacked the
+  prefix (a format defect, `would_pass` 48), and series 1 reps 3 and 4 lost lines after
+  a summary that misdescribed edit state; the shape is shared: a boundary between a
+  module's edits and the facts write for them. Series 4 so far: rep 1 true (a 2-line
+  record), rep 2 false (a held record, 6 false names).
+- Series 4 rep 3 (same key) RUNNING when this was written; its artifacts not read here.
+- NEXT: the series 4 rep 3 readout (rep 3 running: `bench/ladder/run.ps1 -Case
+  long-fix -ContextTokens 81920 -Modules 48`; timeout 120 min and 500 max turns
+  derived), for series 4 n=3, then the rung 2 close-out reading; server config: the
   default, thinking off via `--reasoning off` (no kwarg; RULED 2026-10-26, Compaction
   above). Then the MTP A/B, which needs a design ruling first (the MTP server's 65536
   ctx against the 81920 client budget; P6 note), and rung 3, the planted stale figure.

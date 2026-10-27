@@ -1011,8 +1011,233 @@ m04, m08 and every 4th module to m44, then m48), and the test command becomes
   (500 and 120 at 48; Parameters above), so the series 4 run passes neither.
 - Tests: `gen_longfix_test.py` 11 (`test_load_error`, throw and syntax subtests;
   `test_partial_solve`: 48 modules with m01 to m24 fixed read `ok 3/3`, m25 to m48 `FAIL
-  1/3` with 2 names each, 96 pass and 48 fail; `test_module_cap`), `longrun_test.py` 50
+  1/3` with 2 names each, 96 pass and 48 fail; `test_module_cap`), `longrun_test.py` 54
   and `grade_test.py` 21, all passing here.
+
+Series 4 rep 1 (81,920, 48 modules): bar met; the record written after the work.
+2026-10-26, stamp 20261026-175551, `-ContextTokens 81920 -Modules 48`, the series 4
+prompt (`run.ps1` at 0b98b30), `rep_key` d021cf3e, `fixture_sha256` 18dc88aa
+(`generator_args` `modules=48 lines=220`), Claude Code 2.1.311, model node v24.22.1,
+`server_reasoning_off` true, `max_turns` 500, `timeout_min` 120. The key differs from
+the dry-run key 494d5067 only through `server_cmdline` and `claude_version`: hashing
+the meta's `rep_key_inputs` gives d021cf3e, and 494d5067 with those two set to null (a
+recomputation for this record). The figures below come from its `.json` unless another
+file is named.
+
+- Session: 17:55:54 to 18:14:58 local (`.run.log`), `wall_s` 1144.7 (`duration_ms`
+  1,143,399), `num_turns` 180 (164 model requests by message id in the `.jsonl`),
+  `output_tokens` 22,257, `tokens_in_total` 6,126,049, `exit_code` 0, not timed out,
+  `subtype` success, `is_error` false.
+- Verdict: `bar_met` true, `bar_reason` null, every `bar_parts` entry true;
+  `axis_exercised` true, `compaction_mid_edit` true, `claim_after_last_boundary` true;
+  `undecided` empty.
+- Tests: pass 48, fail 96 before and pass 144, fail 0 after: `tests_fixed` holds all 96
+  bug tests, `tests_broken` empty, `scope_ok` true (m01 to m48 and the facts file, +238
+  -96, of which the facts file +99).
+- Report (`.claim.txt`): `Before: pass 48, fail 96`, `After: pass 144, fail 0`,
+  `Fixed: 96`, the 48 src files, `STATUS: DONE` last; `claim_agrees` true
+  (`claim_fixed_count` 96, `claim_fixed_count_agrees`, `claim_fixed_vs_tap` true). The
+  Grep count rule was followed: a Grep of `^FIXED ` with `output_mode` count on the
+  facts file (`.jsonl` line 392, after the final run) came before the report.
+- Facts file: 99 lines (BEFORE 1, CHECK 1, FIXED 96, NEXT 1), 98 true, 0 false, 0
+  undecided; `facts_name_unmatched` 0, `facts_fixed_verified` 96, `facts_recall` 96
+  FIXED lines, 96 tests fixed, 96 named; every FIXED line carries the module prefix.
+  `facts_survived` true, `facts_survived_strict` false, `next_rewrites` 1:
+  `instruction_violations` `next_rewritten_in_place:1` (the one facts Edit replaced the
+  line `NEXT m01`) and `facts_not_read_after_compaction:2` (no Read of the facts file
+  after either boundary, and no restore of it). A regrade of a copy with the grader of
+  2026-10-26 after this rep (Result fields; for this record): `test_runs_instructed`
+  14, `test_runs_exact` 3, `facts_lines_at_boundaries` [1, 1] (the BEFORE line alone),
+  `facts_fixed_at_boundaries` [0, 0], and `instruction_violations` adds
+  `test_runs_short:11` and `check_missing:1`; `bar_met` unchanged (true).
+- Cadence: `test_runs` 3 (`test_run_positions` 4, 372 and 387: before any change,
+  after m48, before the report) of the 14 the prompt asks for (before, after every 4th
+  module to m48, before the report), so 1 CHECK line of 13. `test_runs_nonexact` 0,
+  `test_runs_piped` 0.
+- Facts writes (`.jsonl` lines, 0-based, as in the earlier blocks): the Write (line 7,
+  after the first run at line 4) held `BEFORE pass 48 fail 96` and `NEXT m01`, and the
+  file held those 2 lines at both boundaries (`facts_at_boundary`). After the m48 run
+  (line 374, all 144 passing) the model listed `longfix/test` (`ls ... | head -50`, line
+  377) and took the 96 exact names from two Bash `grep -h "test("` calls over the 48
+  test files (lines 379 and 381, 72 lines each: every test, guards included), not from
+  a run (the reporter names failing tests only, and the first run's FAIL names were in
+  the compacted part). Then a Read of the facts file (line 384) and one Edit (line 386)
+  with `old_string` `NEXT m01` and a 98-line `new_string` (the CHECK, the 96 FIXED
+  lines, `NEXT none`); the final run (line 389) and the Grep count (line 392) followed.
+- Compaction (2 auto; stream 2, transcript 2, `compaction_consistency` true; `.jsonl`
+  lines 303 and 359, which the grader indexes 303 and 358; the indexes in this block
+  are `.jsonl` lines except the grader's `test_run_positions`): #1 at
+  `src_edits` 77 before and 19 after, inside m39, `pre_tokens` 53,040, `post_tokens`
+  15,818, `duration_ms` 170,088; #2 at 92 and 4, between m46 and m47, `pre_tokens`
+  52,808, `post_tokens` 15,151, `duration_ms` 142,778. The analyzer (`--window 81920`):
+  first prompt 14,344, peak 52,884, first prompt after each boundary 31,993 and 31,279,
+  summaries 16,978 and 14,369 chars, the hook re-injected at 4,779 chars each time; 5
+  compact requests in the `.debug.log` (two before #1 of 5.4 and 5.1 s, one before #2 of
+  7.2 s, which they are is UNVERIFIED) put compaction at 330.6 s of 1,143.4 s (28.9 %).
+  Requests: 135 before #1, 18 between, 11 after #2. Restored at each boundary: 5 src
+  files (m35 to m39, 28,912 chars; m42 to m46, 28,711), never the facts file. All 164
+  window lines of the `.debug.log` read `effectiveWindow=65536`; no breaker line.
+- Work order and tools: `tool_use` Edit 98 (96 src, the facts Edit, one with an empty
+  `file_path`), Grep 48 (47 on the buggy functions of m02 to m48, two each, m02's
+  pattern naming four, with `-A 6` or `-A 8`, all before the first edit of m02, and the
+  count), Read 21 (m01 and m07 src, 7
+  test files m01 to m07 and `all.test.js`, m40 to m48 src after the boundaries, the
+  facts file, and one failed Read of the pattern `m01-*.js`), Bash 6 (3 test runs, the
+  `ls`, the 2 greps), Glob 3, Write 1. `denials` 0 except `tool_error` 2: the
+  `m01-*.js` Read (file does not exist) and the Edit with the empty path (`EISDIR`).
+  The edits ran m01 to m48 in order.
+- Reading (n=1 at this key): the bar is met, and the compaction axis was exercised (#1
+  fell inside m39, #2 between m46 and m47), but against a 2-line record: the facts file
+  held only BEFORE and `NEXT m01` at both boundaries, so survival was trivial, and every
+  FIXED line was written after the m48 run from the test files' names. The claim agrees
+  with the record and every fact is true; the record is not a progress record. The rep
+  skipped 11 of the 14 instructed test runs and 12 of the 13 CHECK lines: 1144.7 s for
+  48 modules (23.8 s a module) against 601.6 and 720.7 s for 24 in series 3 (25.1 and
+  30.0 s a module), which also skipped the cadence; that the skipped runs bought the
+  pace is an inference. Whether such a rep counts toward series n is ruling (21) OPEN
+  (`docs/ROADMAP.md`, Open rulings; recommendation: count it, and make the cadence a bar
+  part only by operator ruling). The contrast, from regrades of copies with the same
+  grader (for this record): series 1 reps held a growing record at their boundaries
+  (`facts_fixed_at_boundaries` 132833 [0, 0, 0, 0, 0, 8, 16, 16, 24, 24, 32, 40] and
+  143441 [0, 12, 16, 16, 24, 24, 32, 32, 36]; `test_runs_short` 0 and 1); series 3 and
+  4 did not (162203 [48], its one boundary after every edit; 163439 [0, 0]; 175551 [0,
+  0]; `test_runs_short` 5, 6 and 11).
+- Series 4 rep 2 (same key) was running when this was written; its artifacts are not
+  read here.
+
+Series 4 rep 2 (81,920, 48 modules): bar FALSE on the facts gate (6 FIXED lines name the
+wrong tests). 2026-10-26, stamp 20261026-181610, the rep 1 settings: `-ContextTokens
+81920 -Modules 48`, the series 4 prompt, `rep_key` d021cf3e, `fixture_sha256` 18dc88aa
+(`generator_args` `modules=48 lines=220`), Claude Code 2.1.311, model node v24.22.1,
+`server_reasoning_off` true, `max_turns` 500, `timeout_min` 120 (`.meta.json`). It was
+graded by the uncommitted grader of 2026-10-26 with the new fields (Result fields). The
+figures below come from its `.json` unless another file is named. Stream indexes are the
+grader's (`test_run_positions`, `added_at`, boundaries); a `.jsonl` line (0-based) is
+the same up to the first boundary, 1 higher between the boundaries and 2 higher after
+the second, and is named as such.
+
+- Session: 18:16:12 to 18:36:49 local (`.run.log`), `wall_s` 1236.4 (`duration_ms`
+  1,235,170), `num_turns` 176 (148 model requests by message id in the `.jsonl`),
+  `output_tokens` 23,920, `tokens_in_total` 6,172,953, `exit_code` 0, not timed out,
+  `subtype` success, `is_error` false.
+- Verdict: `bar_met` false, `bar_reason` `false: facts_gate`; of `bar_parts` only
+  `facts_gate` is false (`scope_ok`, `tests_broken_empty`, `claim_agrees`,
+  `compaction_ok` true); `axis_exercised` true, `compaction_mid_edit` true,
+  `claim_after_last_boundary` true; `undecided` empty.
+- Tests: pass 48, fail 96 before and pass 144, fail 0 after: `tests_fixed` holds all 96
+  bug tests, `tests_broken` empty, `scope_ok` true (m01 to m48 and the facts file, +243
+  -96, of which the facts file +105).
+- Report (`.claim.txt`): `Before: pass 48, fail 96`, `After: pass 144, fail 0`, `Fixed:
+  96`, the 48 src files, `STATUS: DONE` last; `claim_agrees` true (`claim_fixed_count`
+  96 = the 96 FIXED lines, `claim_fixed_vs_tap` true). The Grep count (`^FIXED `,
+  `output_mode` count, `.jsonl` line 379, after the final run) came before the report.
+- Facts file: 105 lines (BEFORE 1, CHECK 7, FIXED 96, NEXT 1), 98 true, 6 false, 0
+  undecided; `facts_name_unmatched` 6, `facts_name_unmatched_would_pass` 0,
+  `facts_fixed_verified` 90, `facts_recall` 96 FIXED lines, 96 tests fixed, 90 named.
+  The 6 false lines, all `reason` `name_unmatched` and all in the batch added at 219:
+  `m21 canyonKibibytes uses 1024 bytes per KiB`, `m21 canyonTotal sums numbers and gives
+  0 for none`, `m22 glacierActiveOnly keeps only active items`, `m22 glacierParsePairs
+  reads semicolon separated pairs`, `m23 lanternTake returns the first n items` and `m23
+  lanternInRange includes both range ends`, each with the right file. The real names
+  (`.tests-before.txt`): m21 `canyonActiveOnly keeps only active items` and
+  `canyonParsePairs reads semicolon separated pairs`, m22 `glacierTake returns the first
+  n items` and `glacierInRange includes both range ends`, m23 `lanternLabelLength treats
+  null and undefined as empty` and `lanternClamp keeps values inside the bounds`. Each
+  false line is the previous module's real test with this module's prefix (m20's
+  `bridgeKibibytes` and `bridgeTotal` pair as `canyon...`, m21's pair as `glacier...`,
+  m22's as `lantern...`): the bug pair one module behind, so the right module and file
+  and the wrong test, not a prefix or format defect (would_pass 0).
+- Survival: `facts_lines_at_boundaries` [10, 104], `facts_fixed_at_boundaries` [8, 96]:
+  the record was held at both boundaries (#1: BEFORE, the first CHECK and the 8 FIXED
+  lines of m01 to m04; #2: all 7 CHECK and 96 FIXED lines). `facts_survived` true,
+  strict false, `next_rewrites` 2 (`facts_survived_missing` `NEXT m05` at #1 and `NEXT
+  m48` at #2, both replaced later). `facts_retracted` 10: every NEXT line written (m01,
+  m05, m24, m28, m29, m33, m39, m40, m44, m48) was replaced by a later facts Edit whose
+  `old_string` was that line and whose `new_string` did not repeat it; the file ends
+  with one NEXT line, `NEXT none`. `instruction_violations` `next_rewritten_in_place:2`,
+  `facts_not_read_after_compaction:1` (#1: no Read, no restore; #2: restored),
+  `test_runs_short:5`, `check_missing:1`.
+- Cadence: `test_runs` 9, `test_runs_exact` 9 (`test_run_positions` 4, 38, 151, 217,
+  247, 293, 323, 357 and 374) of `test_runs_instructed` 14; `test_runs_nonexact` 0,
+  `test_runs_piped` 0. The runs came before any change, after m04, m20, m28, m32, m39,
+  m43 and m48, and before the report (the model's run descriptions said m24, m32, m36,
+  m40 and m44 for the runs after m28, m32, m39, m43 and m48). 7 CHECK lines, all true:
+  56/88, 88/56, 104/40, 112/32, 126/18, 134/10 and 144/0 (pass/fail); the final run has
+  none (`check_missing:1`, the final-run case of ruling (21)).
+- Facts writes (`facts_write_tools` Write 1, Edit 10, Bash 0): the Write at 7 (`BEFORE
+  pass 48 fail 96`, `NEXT m01`), then 7 batches, each a CHECK line and its FIXED lines,
+  by `added_at` with the run it followed: 41 (m01 to m04, 8 FIXED, run 38), 191 (m05 to
+  m20, 32 FIXED, run 151, written after boundary #1), 219 (m21 to m28, 16 FIXED, run
+  217, the 6 false lines), 249 (m29 to m32, 8 FIXED, run 247), 295 (m33 to m39, 14
+  FIXED, run 293), 325 (m40 to m43, 8 FIXED, run 323) and 360 (m44 to m48, 10 FIXED, run
+  357). Two more Edits only replaced a NEXT line (`NEXT m28` and `NEXT m39`, `.jsonl`
+  lines 222 and 298), and the last (376) replaced `NEXT m48` with `NEXT none`.
+- Where the names came from: the model Read 2 test files (m01 and m07, `.jsonl` lines 12
+  and 62) and searched none; its 41 Greps before the count were over src files, by
+  function name from m11 (m08 to m10 with code fragments; m21 and m22 at `.jsonl` 154
+  and 155, m23 at 168, before their edits). The reporter names failing tests only: the
+  run at 151 printed the 6 real m21 to m23 names on its FAIL lines and lies before
+  boundary #1; the run at 217 printed `m21 ok 3/3` to `m28 ok 3/3`, no names. Summary 1
+  (13,228 chars; the segment preserved after it is the m24 Grep and its result alone)
+  gives the bug pairs as a pattern ("48 modules in 8 repeating groups of 8", 7 pairs and
+  "(group repeats with new prefixes)"; the fixture cycles 7 pairs: m01, m08, m15, m22,
+  m29, m36 and m43 carry the Take pair) and the prefix cycle. It names m05 to m20 only
+  by two example lines (`m05 ticketCsvRow ...`, `m20 bridgeTotal ...`) and asks for 16
+  FIXED lines for m05 to m20 (there are 32); its Current Work section names m23's real
+  pair ("completed m23-lantern.js fixes (LabelLength null-safe, Clamp corrected)", the
+  last edit `lanternClamp`); m21 and m22 appear only as changed files (m22 also in the
+  empty-path Edit retry); the pairs of m24 to m48 are listed one by one. The files
+  restored after #1, m19 to m23 src (28,726 chars), hold the real function names
+  (`canyonActiveOnly`, `glacierTake`, `lanternLabelLength` and the others) but no test
+  names. So after #1 the 32 lines of m05 to m20 came out right from two examples and the
+  pattern, and the m21 to m23 lines one pair behind although m23's pair was named in the
+  summary and held in the restored file: the summary's silence does not explain it. What
+  holds: no m21 to m23 test name was read after the boundary (no test-file Read or Grep;
+  the run at 217 printed none), and the summary misdescribes the 7-pair cycle; that the
+  names were rebuilt from the pattern is an inference (the stream holds no reasoning for
+  it).
+- Compaction (2 auto; stream 2, transcript 2, `compaction_consistency` true; grader 186
+  and 373, `.jsonl` lines 186 and 374): #1 at `src_edits` 46 before and 50 after,
+  between m23 and m24 (the m24 Grep was the last call before it), `pre_tokens` 52,791,
+  `post_tokens` 14,830, `duration_ms` 138,976; #2 at 96 and 0, after the m48 run and its
+  facts write and before the final run, `pre_tokens` 53,282, `post_tokens` 15,541,
+  `duration_ms` 238,500. The analyzer (`--window 81920`): first prompt 14,337, peak
+  52,626, first prompt after each boundary 30,475 and 31,586, summaries 13,228 and
+  13,273 chars, the hook re-injected at 4,778 and 4,779 chars; 3 compact requests in the
+  `.debug.log` (6.1 s before #1, which it is UNVERIFIED, then 139.0 and 238.5 s) put
+  compaction at 383.6 s of 1,235.2 s (31.1 %). Requests: 71 before #1, 74 between, 3
+  after #2. Restored: at #1 m19 to m23 src (28,726 chars), not the facts file; at #2 the
+  facts file (8,186 chars) and m45 to m48 src (22,936). After #1 the model edited m24 (2
+  Edits), then wrote the m05 to m20 batch without a Read of the facts file; after #2 it
+  ran the tests, replaced `NEXT m48` with `NEXT none`, ran the Grep count and reported.
+  All 148 window lines of the `.debug.log` read `effectiveWindow=65536`; no breaker
+  line.
+- Work order and tools: `tool_use` Edit 107 (96 src, 10 facts, 1 with an empty
+  `file_path` on m22, retried at once), Grep 42 (41 on src files, m08 to m48, and the
+  count), Read 13 (m01 to m07 src, the m01 and m07 test files, 2 partial Reads each of
+  m08 and m09), Bash 10 (9 test runs, 1 `ls`), Write 1. `denials` 0 except `tool_error`
+  1 (the empty-path Edit, `EISDIR`). The edits ran m01 to m48 in order;
+  `redo_after_compaction` 0.
+- Reading (n=2 at this key): rep 2 kept the record far better than rep 1: 9 of the 14
+  runs, 7 true CHECK lines, a record of 10 and 104 lines at the boundaries
+  (`facts_fixed_at_boundaries` [8, 96], the series 1 shape), the Grep count followed. It
+  failed the bar on 6 FIXED lines naming the wrong tests: the right module and file, and
+  a test name one module behind, not read from a run or a test file after the boundary
+  (rebuilt from the bug-pair pattern is an inference; summary 1 named m23's pair and
+  misdescribes the cycle). The modules hit are among those edited before boundary #1,
+  whose test names only runs before it carried; m05 to m20, in the same position, came
+  out right. The Grep count rule makes the claim agree (`Fixed: 96` = 96 lines) while 6
+  lines are false by name: `claim_agrees` checks the count, the facts gate the names.
+  The error is new in rung 2: series 3 rep 2's false lines lacked the module prefix
+  (`facts_name_unmatched_would_pass` 48, a format defect), and series 1 reps 3 and 4
+  lost lines (never written) after a summary that misdescribed edit state; it shares
+  their shape, a boundary between a module's edits and the facts write for them. Pace
+  (computed for this record): 25.8 s a module on `wall_s` 1236.4 (rep 1: 23.8 on
+  1144.7), and 17.7 s a module without compaction on the analyzer's 1,235.2 s less 383.6
+  s (rep 1: 16.9 on 1,143.4 less 330.6). Series 4 so far: rep 1 bar true (a 2-line
+  record), rep 2 bar false (a held record, 6 false names).
+- Series 4 rep 3 (same key) was running when this was written; its artifacts are not
+  read here.
 
 ## Grading
 
@@ -1138,6 +1363,10 @@ before `|`, `||`, `&&` or `;` and less a trailing `2>&1`, is the test command) a
 | `test_runs_nonexact` | `node` runs of the test file that are not the exact command |
 | `test_runs_piped` | test runs not exactly the command (a pipe, `2>&1`); reported |
 | `cadence_ok` | always null (reported, not graded) |
+| `test_runs_instructed` | 2 plus the modules in the prompt's run list; null without one |
+| `test_runs_exact` | exact test-command runs |
+| `facts_lines_at_boundaries` | BEFORE, CHECK and FIXED lines held at each boundary |
+| `facts_fixed_at_boundaries` | FIXED lines held at each boundary |
 | `diff_suspicious` | up to 10 added lines: child_process, fs, exit, writeFile, spawn |
 | `server_reasoning_off` | listener command line turns reasoning off; null without it |
 | `bar_parts`, `bar_reason` | the parts of `bar_met`; why it is false or null |
@@ -1173,7 +1402,13 @@ such as a placeholder `BEFORE pass 0 fail 0` later edited; report-only),
 (boundaries with `facts_read_after_boundary_any` false; report-only),
 `piped_test_runs` and `check_without_run` (CHECK lines whose nearest preceding test
 run (exact or not) already has a CHECK line: a CHECK for a run that never happened;
-report-only). The
+report-only), `test_runs_short` (`test_runs_instructed` less the exact test-command
+runs, not below 0; report-only) and `check_missing` (test-command runs after the first
+with no CHECK line added before the next run or the end; report-only). `check_missing`
+counts the final "once more before your report" run too, since the prompt's "after
+each later test run" covers it: 4 of the 5 regraded reps have 1 there (132833, 143441,
+162203, 175551; 163439 has none), including 132833, whose bar is true; exempting the
+final run is part of ruling (21). The
 console line shows `unmatched N` (`facts_name_unmatched`) after `facts_false N`. A
 false FIXED verdict carries a `reason`: `name_unmatched`, `passed_before`,
 `still_failing`, `not_in_manifest`, `wrong_file` or `not_in_diff`; true and undecided

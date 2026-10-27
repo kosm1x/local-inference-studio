@@ -27,6 +27,13 @@ A test-command run is a Bash command whose first segment (before | || && ;), les
 trailing 2>&1, is the meta's test_cmd. A non-exact run is any other Bash command whose first
 segment, after leading cd segments, starts with node and names the test file (extra flags,
 a cd . && prefix); a read such as cat or grep of the test file is neither.
+test_runs_instructed is 2 plus the modules the prompt lists in 'then after m04, ... and mNN,'
+(null without that list); test_runs_short (violation) is that minus the test-command runs
+(not below 0). check_missing (violation) counts the test-command runs after the first with no
+CHECK line added before the next one (or the end); only CHECK lines held in the final file
+count (a retracted CHECK leaves its run missing). facts_lines_at_boundaries and
+facts_fixed_at_boundaries count the BEFORE, CHECK and FIXED lines, and the FIXED lines, held
+at each boundary (report-only, like every violation).
 The facts content at each compaction boundary is rebuilt by replaying Write (content), Edit
 (old -> new, replace_all honoured) and these Bash writes on the facts file (the target is
 one token whose basename is the facts name; > instead of >> rewrites the whole file):
@@ -68,6 +75,8 @@ import re
 import shlex
 
 FACTS_NAME = re.compile(r'lis-facts-\d{8}-\d{6}\.md')
+# The prompt's test-run checkpoints: "then after m04, m08, ... and m24, and once more".
+CHECKPOINTS = re.compile(r'then after ((?:m\d+,\s*)*m\d+\s+and\s+m\d+),\s+and once more')
 FACT = (('BEFORE', re.compile(r'^BEFORE\s+pass\s+(\d+),?\s+fail\s+(\d+)$')),
         ('CHECK', re.compile(r'^CHECK\s+pass\s+(\d+),?\s+fail\s+(\d+)$')),
         ('FIXED', re.compile(r'^FIXED\s+(.+?)\s*\|\s*(.+)$')),
@@ -460,6 +469,16 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
     # A CHECK line whose run an earlier CHECK line already recorded is no record of a run.
     check_without_run = sum(n - 1 for n in collections.Counter(
         k for k in check_runs if k is not None).values())
+    # Test-command runs after the first with no CHECK line added before the next run (or end).
+    pos = sorted(run_ids.values())
+    check_adds = [x['added_at'] for x in verdicts
+                  if x['kind'] == 'CHECK' and x['added_at'] is not None]
+    check_missing = None if not ok else sum(
+        not any(a < i < b for i in check_adds) for a, b in zip(pos[1:], pos[2:] + [len(ev)]))
+    cp = CHECKPOINTS.search(str(meta.get('prompt') or ''))
+    instructed = 2 + len(re.findall(r'm\d+', cp[1])) if cp else None
+    exact = len(run_ids) if test_cmd else None
+    short = None if instructed is None or exact is None else max(instructed - exact, 0)
 
     bounds = [e for e in ev if e['kind'] == 'system' and e['subtype'] == 'compact_boundary']
     restores = transcript_restores(transcript_path, name)
@@ -580,7 +599,12 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         'facts_name_unmatched_would_pass': None if before is None or after is None
         else would_pass,
         'facts_undecided': undecided,
-        'facts_replay_ok': ok, 'facts_at_boundary': at_b, 'facts_survived': survived,
+        'facts_replay_ok': ok, 'facts_at_boundary': at_b,
+        'facts_lines_at_boundaries': [None if x is None else sum(parse_line(y)[0] in GRADED
+                                                                 for y in x) for x in at_b],
+        'facts_fixed_at_boundaries': [None if x is None else sum(parse_line(y)[0] == 'FIXED'
+                                                                 for y in x) for x in at_b],
+        'facts_survived': survived,
         'facts_survived_strict': strict, 'next_rewrites': next_rewrites,
         'facts_survived_missing': gone_all[:20] if ok else None,
         'facts_survived_missing_total': len(gone_all) if ok else None,
@@ -621,7 +645,8 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         'target_fixed': target_fixed, 'claim_status_agrees': status_agrees,
         'claim_agrees': claim_agrees,
         'test_runs': len(run_ids) if test_cmd else None,
-        'test_run_positions': sorted(run_ids.values()),
+        'test_run_positions': pos,
+        'test_runs_instructed': instructed, 'test_runs_exact': exact,
         'test_runs_nonexact': len(nonexact) if test_cmd else None,
         'test_runs_piped': piped,
         'cadence_ok': None,  # reported only: the prompt's positions need module order
@@ -639,5 +664,6 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
             ('facts_not_read_after_compaction',
              sum(x['facts_read_after_any'] is False for x in blist)),
             ('piped_test_runs', piped),
-            ('check_without_run', check_without_run)) if v],
+            ('check_without_run', check_without_run),
+            ('test_runs_short', short), ('check_missing', check_missing)) if v],
     }

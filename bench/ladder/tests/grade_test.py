@@ -1,8 +1,9 @@
 """Unit tests for bench/ladder/grade.py. Run: python -I bench/ladder/tests/grade_test.py
 
 Each case writes synthetic run.ps1 artifacts (meta, TAP before/after, numstat, a
-stream-json stdout) into a temp dir and grades them. No session, no server. Exit 0 =
-all pass.
+stream-json stdout) into a temp dir and grades them. No session, no server. Then cli():
+grade.py from an empty temp cwd with --help, -h, -x and no argument must print its usage,
+exit 2 and write nothing. Exit 0 = all pass.
 """
 import contextlib
 import importlib.util
@@ -10,6 +11,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -73,9 +75,27 @@ def main():
     root = tempfile.mkdtemp(prefix='ladder-grade-')
     try:
         os.makedirs(os.path.join(root, 'work'))
-        return tests(root)
+        rc = tests(root)
     finally:
         shutil.rmtree(root)
+    return 1 if cli() else rc
+
+
+def cli():
+    """grade.py's argv check: a dash argument (it wrote '--help.json' before) or no argument
+    prints the usage and exits 2, writing nothing in the cwd. Returns the failure count."""
+    fails, calls = 0, (['--help'], ['-h'], ['-x'], [])
+    for argv in calls:
+        with tempfile.TemporaryDirectory(prefix='ladder-cli-') as cwd:
+            p = subprocess.run([sys.executable, '-I', os.path.join(HERE, '..', 'grade.py'), *argv],
+                               cwd=cwd, capture_output=True, encoding='utf-8', errors='replace',
+                               timeout=60)
+            left = os.listdir(cwd)
+        if p.returncode != 2 or 'Usage' not in p.stdout or left:
+            fails += 1
+            print(f'FAIL cli {argv}: exit {p.returncode}, files written {left}')
+    print(f'cli: {len(calls) - fails}/{len(calls)} passed')
+    return fails
 
 
 def tests(root):

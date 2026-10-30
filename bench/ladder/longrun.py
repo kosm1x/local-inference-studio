@@ -59,6 +59,7 @@ is a character and token check, not a bash parser: it does not model full bash e
 (aliases, functions, IFS, history) and fails toward null, so some real reads null the
 replay (sed -n '$p' <facts>, grep '[0-9]' <facts>). Any other Bash command naming the
 file, or an Edit whose old_string is not found, makes the replay null (unknown, not false).
+facts_replay_ok is null when the final facts file is missing or empty (report-only).
 A boundary's lines other than NEXT survived (facts_survived, the bar input) when they
 appear in the final facts file, trimmed, exact, in order; NEXT only is exempt (parsed, not
 graded). facts_survived_strict applies that test to every line. facts_survived_missing
@@ -616,7 +617,9 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         'facts_name_unmatched_would_pass': None if before is None or after is None
         else would_pass,
         'facts_undecided': undecided,
-        'facts_replay_ok': ok, 'facts_at_boundary': at_b,
+        # Null without a facts file or with an empty one: no replay to check against (the
+        # replay itself, which the boundaries use, still runs; the gate is false then).
+        'facts_replay_ok': ok if final else None, 'facts_at_boundary': at_b,
         'facts_lines_at_boundaries': [None if x is None else sum(parse_line(y)[0] in GRADED
                                                                  for y in x) for x in at_b],
         'facts_fixed_at_boundaries': [None if x is None else sum(parse_line(y)[0] == 'FIXED'

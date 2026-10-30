@@ -8,7 +8,9 @@ Usage (from the repo root):
 --numstat --no-renames after git add -A in the work tree). Writes <base>.claim.txt (the
 final answer), runs scripts/verify-doc.py on it with the work tree as root, writes
 <base>.json and prints one summary line. A field the harness cannot decide is null and
-is listed in "undecided". Exit code is always 0: this is a measurement, not a gate.
+is listed in "undecided". Exit code is 0 once it grades: this is a measurement, not a
+gate. A call without exactly one argument, or whose argument starts with - (--help, -h),
+prints this text and exits 2 without writing anything.
 Stdlib only; the one subprocess is verify-doc. A meta with "profile": "longrun" (rung 2)
 is also graded by longrun.py next to this file, which decides bar_met for it; a meta with
 "grader": "stalefig" (rung 3) by stalefig.py, which decides it the same way.
@@ -329,7 +331,9 @@ def grade(base):
         r['facts_source'] = facts_source
     if sf:
         r.update(sf.grade_stalefig(meta, s, r))
-        # Report-only: run.ps1 -Hint, the prompt's doc check; metas before the field: named.
+        # Report-only: run.ps1 -Hint, the prompt's doc check. Metas written before the field
+        # (series 1, all -Hint named) have none: named, although run.ps1 defaults to grammar
+        # since ruling 38.
         r['hint'] = meta.get('hint') or 'named'
     r.update({k: meta.get(k) for k in ('context_tokens', 'rep_key')})
     r['undecided'] = [k for k in ('target_fixed', 'others_still_failing', 'tests_broken', 'scope_ok',
@@ -348,7 +352,9 @@ def grade(base):
           f"turns {r['num_turns']} | "
           f"wall {r['wall_s']} s | out {r['output_tokens']} | undecided {r['undecided']} -> {base}.json")
     if lr:
+        replay = r.get('facts_replay_ok')
         print(f"longrun: axis {r['axis_exercised']} | fired {r['compaction_fired']} | "
+              f"replay_ok {replay}{' (facts file missing or empty)' if replay is None else ''} | "
               f"survived {r['facts_survived']} (strict {r.get('facts_survived_strict')}, "
               f"next_rewrites {r.get('next_rewrites')}) | facts_false {r['facts_false']} "
               f"unmatched {r.get('facts_name_unmatched')} | "
@@ -363,9 +369,9 @@ def grade(base):
 
 def main():
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 2 or sys.argv[1].startswith('-'):
         print(__doc__)
-        return
+        sys.exit(2)  # a usage error, not a grade: nothing is written
     grade(sys.argv[1])
 
 

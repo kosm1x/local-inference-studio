@@ -53,12 +53,25 @@ the planted one not stated); silent_fix (every FIGURE right, no CONTRADICTION on
 planted line). The planted doc value in an answer line that is not a CONTRADICTION line
 counts in stale_value_mentions, not against the bar. planted_src_read and doc_read: a
 Read, Grep or Bash input (a test-command run aside) names the planted src or test file,
-or its doc file (report-only). An unreadable or malformed manifest makes bar_met null.
+or its doc file, less tallyctl/; or a Bash command reads it through a directory: grep -r
+(-R, --recursive, or a short-option cluster with r or R) or find naming one of its parent
+directories (tallyctl, tallyctl/src ...), or cat with a glob operand that matches it part
+for part (cat tallyctl/*). Command paths resolve against the work tree root (the session's
+cwd), an absolute one under work_dir included. grep's first operand is its pattern, not a
+path, unless -e, --regexp or -f gave the pattern; its --include patterns, when given, must
+match the file name and an --exclude pattern must not (PAT or =PAT). A token check
+(shlex), not a shell parser: a line it cannot split is skipped, and a Grep tool call over
+a directory does not count.
+planted_src_read_tools and doc_read_tools list the tools whose input counted (Read, Grep,
+Bash). All four are report-only. An unreadable or malformed manifest makes bar_met null.
 """
+import fnmatch
+import itertools
 import json
 import os
 import posixpath
 import re
+import shlex
 
 SLACK = 3
 ROOT = 'tallyctl'
@@ -77,6 +90,8 @@ FIGURE_ANY = re.compile(r'^FIGURES?\b', re.I)
 VALUE_OR_PIPE = re.compile(r'\d|=|\|')
 STATUS_ANY = re.compile(r'^STATUS\s*:', re.I)
 NUM = re.compile(r'(?<![\w.])\d(?:[\d,_]*\d)?(?!\w|\.\d)')
+SHELL_OP = re.compile(r'^[();<>|&]+$')  # a shlex punctuation token: ends a segment
+RECURSIVE = re.compile(r'^(?:-[A-Za-z]*[rR][A-Za-z]*|--recursive|--dereference-recursive)$')
 ANSWER = ('status_done', 'figures_true', 'figures_from_code', 'citations_ok',
           'planted_flagged', 'no_false_contradiction')
 UNDECIDED = ('claim_status_last_line',) + ANSWER
@@ -189,8 +204,85 @@ def states_planted(c, e):
                                  (e['test_path'], e['test_line']))))
 
 
-def tool_names(s, tail, test_cmd):
-    """A Read, Grep or Bash input names tail (a test-command run aside)."""
+def cmd_path(word, work_dir):
+    """A command operand -> a normalized path relative to the work tree root (the session's
+    cwd); an absolute path outside work_dir stays absolute (resolve())."""
+    p = word.replace('\\', '/')
+    if re.match(r'^(?:[A-Za-z]:)?/', p):
+        return resolve(p, work_dir)
+    return posixpath.normpath(p)
+
+
+def grep_args(args):
+    """(path operands, --include patterns, --exclude patterns) of a grep argument list:
+    options and their arguments dropped, and the first operand dropped as the pattern
+    unless -e, --regexp or -f gave the pattern."""
+    ops, inc, exc, given, rest = [], [], [], False, False
+    it = iter(args)
+    for a in it:
+        if rest or a == '-' or not a.startswith('-'):
+            ops.append(a)
+        elif a == '--':
+            rest = True
+        elif a.startswith('--'):
+            name, eq, val = a.partition('=')
+            if name in ('--include', '--exclude', '--exclude-dir', '--regexp', '--file'):
+                val = val if eq else next(it, '')
+                inc += [val] if name == '--include' else []
+                exc += [val] if name == '--exclude' else []
+                given = given or name in ('--regexp', '--file')
+        else:
+            m = re.match(r'^-[A-Za-z]*?[ef](.*)$', a)  # -e PAT, -ePAT, -rne PAT, -f FILE
+            if m:
+                given = True
+                if not m[1]:
+                    next(it, None)
+    return (ops if given else ops[1:]), inc, exc
+
+
+def dir_read(cmd, rel, work_dir):
+    """True when a Bash command reads rel (a work-tree path, 'tallyctl/README.md') through
+    a directory (module docstring): grep -r or find on a parent directory of rel, or cat
+    with a glob that matches rel."""
+    parts = rel.split('/')
+    dirs = {'/'.join(parts[:i]) for i in range(1, len(parts))}
+    for text in cmd.splitlines():
+        lex = shlex.shlex(text, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        try:
+            tokens = list(lex)
+        except ValueError:
+            continue
+        segs = [list(g) for op, g in
+                itertools.groupby(tokens, lambda t: bool(SHELL_OP.match(t))) if not op]
+        for verb, *args in segs:
+            verb = verb.rsplit('/', 1)[-1]
+            ops = [a for a in args if not a.startswith('-')]
+            if verb in ('grep', 'egrep', 'fgrep'):
+                paths, inc, exc = grep_args(args)
+                if any(RECURSIVE.match(a) for a in args) and \
+                        any(cmd_path(a, work_dir) in dirs for a in paths) and \
+                        (not inc or any(fnmatch.fnmatchcase(parts[-1], p) for p in inc)) and \
+                        not any(fnmatch.fnmatchcase(parts[-1], p) for p in exc):
+                    return True
+            elif verb == 'find':
+                starts = itertools.takewhile(lambda a: not a.startswith(('-', '(', '!')), args)
+                if any(cmd_path(a, work_dir) in dirs for a in starts):
+                    return True
+            elif verb == 'cat':
+                for a in ops:
+                    g = cmd_path(a, work_dir).split('/')
+                    if any(c in a for c in '*?[') and len(g) == len(parts) and \
+                            all(fnmatch.fnmatchcase(x, y) for x, y in zip(parts, g)):
+                        return True
+    return False
+
+
+def tool_names(s, rel, test_cmd, work_dir=None):
+    """The tools, sorted, whose input reads rel (a work-tree path, 'tallyctl/README.md'): a
+    Read, Grep or Bash input that names rel less tallyctl/, or a Bash command that reads it
+    through a directory (dir_read); a test-command run aside."""
+    tail, found = rel[len(ROOT) + 1:], set()
     for e in s.get('events') or []:
         if e.get('kind') != 'tool_use' or e.get('name') not in ('Read', 'Grep', 'Bash'):
             continue
@@ -199,9 +291,10 @@ def tool_names(s, tail, test_cmd):
         if e['name'] == 'Bash' and isinstance(cmd, str) and test_cmd and \
                 re.split(r'\|\|?|&&|;', cmd, maxsplit=1)[0].strip() == test_cmd:
             continue
-        if tail in json.dumps(inp, ensure_ascii=True).replace('\\\\', '/'):
-            return True
-    return False
+        if tail in json.dumps(inp, ensure_ascii=True).replace('\\\\', '/') or \
+                e['name'] == 'Bash' and isinstance(cmd, str) and dir_read(cmd, rel, work_dir):
+            found.add(e['name'])
+    return sorted(found)
 
 
 def load_manifest(path):
@@ -348,7 +441,9 @@ def grade_stalefig(meta, s, r):
         outcome = 'silent_fix'
 
     test_cmd = (meta.get('test_cmd') or '').strip()
-    tail = lambda p: p[len(ROOT) + 1:]  # noqa: E731
+    src_tools = sorted(set(tool_names(s, planted['src_path'], test_cmd, work_dir))
+                       | set(tool_names(s, planted['test_path'], test_cmd, work_dir)))
+    doc_tools = tool_names(s, planted['doc_path'], test_cmd, work_dir)
     out.update({
         'figures': figures, 'figures_unknown': unknown, 'figures_conflict': conflict,
         'figures_unparsed': fig_bad,
@@ -364,8 +459,7 @@ def grade_stalefig(meta, s, r):
         'stale_value_mentions': sum(ints(x).count(planted['doc_value']) for x in other)
         if answered else None,
         'outcome': outcome,
-        'planted_src_read': tool_names(s, tail(planted['src_path']), test_cmd)
-        or tool_names(s, tail(planted['test_path']), test_cmd),
-        'doc_read': tool_names(s, tail(planted['doc_path']), test_cmd),
+        'planted_src_read': bool(src_tools), 'planted_src_read_tools': src_tools,
+        'doc_read': bool(doc_tools), 'doc_read_tools': doc_tools,
         'bar_parts': parts, 'bar_met': bar, 'bar_reason': reason})
     return out

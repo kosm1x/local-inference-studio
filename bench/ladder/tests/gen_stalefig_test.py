@@ -7,10 +7,12 @@ the fixture's own test suite (node) and its size, refusals that write nothing, a
 fixture_sha256 of a fresh `python -I` process against the pinned FIXTURE_SHA256. The last
 test runs `run.ps1 -Case stale-figure -DryRun` (pwsh; no session, no server request) and
 checks the printed fixture_sha256 against the pin, the run-dir leaf and fixture commit for
-words that name the case, the policy_sha256 against the wrapper's -LisPrintArgs output and
-the rep_key against the ten inputs; the one after it runs it with -Hint grammar (the prompt's
-doc-check sentence only, a new rep_key, the same fixture and policy). Both are skipped
-without pwsh.
+words that name the case, the fixture commit hash against its pin (dates pinned by run.ps1),
+the policy_sha256 against the wrapper's -LisPrintArgs output and the rep_key against the ten
+inputs, under the default -Hint grammar; the one after it runs it with -Hint named (the
+prompt's doc-check sentence only, a new rep_key, the same fixture, commit and policy). The
+last runs a copy of run.ps1 -Case fix-one -DryRun in a temp repo layout whose fixture has no
+test file: a failed precondition exits 1. All three are skipped without pwsh.
 """
 import hashlib
 import importlib.util
@@ -46,6 +48,9 @@ FIXTURE_SHA256 = '597a8e5356da75d0d1102e2373d9d74330320cc1cbdea0914d47cd61dbfc54
 # series 1 prompt); a deliberate prompt change updates these.
 PROMPT_SHA256 = {'named': '81fbd15fbe9b610b74239f87a9fba4833d4bdecbe8a5fd699dc7a9393bac850c',
                  'grammar': 'cb9a0679a9fd6be17122326a910b041ae03de4ff0a261434e0a8c0b2bdda89eb'}
+# The work tree's commit as run.ps1 makes it (identity and dates pinned): the same in every
+# dry run and real run of this fixture; a fixture or commit change updates it.
+FIXTURE_COMMIT_SHA = 'ecefb910e650d96df7a945a5a910b7a20a26fec7'
 
 
 def tree(root):
@@ -235,9 +240,12 @@ class DryRun(unittest.TestCase):
         output, entries left in -WorkRoot)."""
         if extra not in DryRun.runs:
             with tempfile.TemporaryDirectory(prefix='sfd-', ignore_cleanup_errors=True) as root:
-                # GIT_* identity variables override git's -c user.*: run.ps1 must pin them.
+                # GIT_* identity and date variables override git's -c user.* and the
+                # clock: run.ps1 must pin them.
                 leak = {'GIT_AUTHOR_NAME': 'leak', 'GIT_AUTHOR_EMAIL': 'leak@x',
-                        'GIT_COMMITTER_NAME': 'leak', 'GIT_COMMITTER_EMAIL': 'leak@x'}
+                        'GIT_COMMITTER_NAME': 'leak', 'GIT_COMMITTER_EMAIL': 'leak@x',
+                        'GIT_AUTHOR_DATE': '2000-01-01T00:00:00Z',
+                        'GIT_COMMITTER_DATE': '2000-01-01T00:00:00Z'}
                 p = subprocess.run(['pwsh', '-NoProfile', '-File', RUN_PS1,
                                     '-Case', 'stale-figure', '-DryRun', '-WorkRoot', root,
                                     '-OutDir', root, *extra], cwd=REPO, capture_output=True,
@@ -261,7 +269,7 @@ class DryRun(unittest.TestCase):
         def field(rx):
             return self.field(out, rx)
         self.assertIn('precondition: ok, pass 11 of 11', out)
-        self.assertEqual(field(r'^hint: (\S+) '), 'named')
+        self.assertEqual(field(r'^hint: (\S+) '), 'grammar')  # the default (ruling 38)
         fixture = field(r'^fixture_sha256: ([0-9a-f]{64}) \(generator version=1; tree hash matches\)')
         self.assertEqual(fixture, FIXTURE_SHA256)
         # The model sees its cwd (the leaf) and git log (the commit): neither names the case.
@@ -273,10 +281,11 @@ class DryRun(unittest.TestCase):
         self.assertIsNone(tell.search(commit.split(': ', 1)[1]), commit)
         self.assertEqual(commit, 'fixture_commit: dev <dev@localhost> '
                                  '(committer dev <dev@localhost>) "release 1.3.0"')
+        self.assertEqual(field(r'^fixture_commit_sha: ([0-9a-f]{40}) '), FIXTURE_COMMIT_SHA)
         ctx = field(r'^case: stale-figure \(profile review, loop guard on, context_tokens (\d+)')
         node = field(r'\| model_node_version: (v\d+\.\d+\.\d+) ')
         prompt = field(r'^prompt \(\d+ chars, one argv string\):\n  (.*)$')
-        self.assertEqual(hashlib.sha256(prompt.encode('utf-8')).hexdigest(), PROMPT_SHA256['named'])
+        self.assertEqual(hashlib.sha256(prompt.encode('utf-8')).hexdigest(), PROMPT_SHA256['grammar'])
         policy = field(r'^policy_sha256: ([0-9a-f]{64}) ')
         key = field(r'^rep_key: ([0-9a-f]{64}) ')
 
@@ -294,21 +303,22 @@ class DryRun(unittest.TestCase):
         self.assertEqual(key, digest(nine + [policy]))
         self.assertNotEqual(key, digest(nine))
 
-    def test_hint_grammar_dry_run(self):
-        # -Hint grammar: only the doc-check sentence differs, so a new key (the prompt is an
-        # input) on the same fixture and policy.
-        code, out, left = self.dry_run('-Hint', 'grammar')
+    def test_hint_named_dry_run(self):
+        # -Hint named (the series 1 prompt): only the doc-check sentence differs, so a new key
+        # (the prompt is an input) on the same fixture, commit and policy.
+        code, out, left = self.dry_run('-Hint', 'named')
         self.assertEqual(code, 0, out[-3000:])
         self.assertEqual(left, [])
-        self.assertEqual(self.field(out, r'^hint: (\S+) '), 'grammar')
+        self.assertEqual(self.field(out, r'^hint: (\S+) '), 'named')
         prompt_rx = r'^prompt \(\d+ chars, one argv string\):\n  (.*)$'
-        prompt = self.field(out, prompt_rx)
-        self.assertEqual(hashlib.sha256(prompt.encode('utf-8')).hexdigest(), PROMPT_SHA256['grammar'])
-        self.assertNotIn('check every statement', prompt)
-        self.assertIn('If anything you read in tallyctl/', prompt)
+        named = self.field(out, prompt_rx)
+        self.assertEqual(hashlib.sha256(named.encode('utf-8')).hexdigest(), PROMPT_SHA256['named'])
+        self.assertIn('check every statement', named)
         code0, out0, _ = self.dry_run()
         self.assertEqual(code0, 0, out0[-3000:])
-        named = self.field(out0, prompt_rx)
+        prompt = self.field(out0, prompt_rx)
+        self.assertNotIn('check every statement', prompt)
+        self.assertIn('If anything you read in tallyctl/', prompt)
         self.assertEqual(prompt, named.replace(
             'Then check every statement about these three settings in tallyctl/README.md and '
             'tallyctl/CHANGELOG.md against the code. For each one the code contradicts, one line:',
@@ -316,10 +326,37 @@ class DryRun(unittest.TestCase):
             'than the code does, add one line for each:').replace(
             "If there is none, the line 'CONTRADICTION none'.",
             "If you found none, the line 'CONTRADICTION none'."))
-        for rx in (r'^fixture_sha256: ([0-9a-f]{64}) ', r'^policy_sha256: ([0-9a-f]{64}) '):
+        for rx in (r'^fixture_sha256: ([0-9a-f]{64}) ', r'^policy_sha256: ([0-9a-f]{64}) ',
+                   r'^fixture_commit_sha: ([0-9a-f]{40}) '):
             self.assertEqual(self.field(out, rx), self.field(out0, rx), rx)
         key_rx = r'^rep_key: ([0-9a-f]{64}) '
         self.assertNotEqual(self.field(out, key_rx), self.field(out0, key_rx))
+
+    def test_failed_precondition_exits_1(self):
+        # A copy of run.ps1 in a temp repo layout (fixture without its test file, a stub
+        # wrapper that exits 0): the BEFORE tests find none of the targets, so -DryRun prints
+        # 'precondition: FAIL' and exits 1 with the reason on stderr, as a real run refuses.
+        with tempfile.TemporaryDirectory(prefix='sfp-', ignore_cleanup_errors=True) as root:
+            lad, wr = os.path.join(root, 'bench', 'ladder'), os.path.join(root, 'wr')
+            os.makedirs(lad)
+            os.makedirs(os.path.join(root, 'scripts'))
+            for name in ('run.ps1', 'grade.py'):
+                shutil.copyfile(os.path.join(REPO, 'bench', 'ladder', name),
+                                os.path.join(lad, name))
+            shutil.copytree(os.path.join(REPO, 'bench', 'loop', 'fixture'),
+                            os.path.join(root, 'bench', 'loop', 'fixture'))
+            os.remove(os.path.join(root, 'bench', 'loop', 'fixture', 'test', 'text.test.js'))
+            with open(os.path.join(root, 'scripts', 'claude-local.ps1'), 'w') as f:
+                f.write('exit 0\n')
+            p = subprocess.run(['pwsh', '-NoProfile', '-File', os.path.join(lad, 'run.ps1'),
+                                '-Case', 'fix-one', '-DryRun', '-WorkRoot', wr, '-OutDir', wr],
+                               cwd=root, capture_output=True, encoding='utf-8',
+                               errors='replace', timeout=300)
+            left = os.listdir(wr) if os.path.isdir(wr) else []
+        self.assertIn('precondition: FAIL', p.stdout, p.stdout[-3000:] + p.stderr[-2000:])
+        self.assertEqual(p.returncode, 1, p.stderr[-2000:])
+        self.assertIn('is invalid, precondition FAIL: truncate keeps', p.stderr)
+        self.assertEqual(left, [])  # the work tree is deleted before the exit
 
 
 if __name__ == '__main__':

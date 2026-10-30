@@ -18,8 +18,9 @@
   2. Work tree <WorkRoot>\<stamp>-<case>\work with bench/loop/fixture copied to the same
      relative path, so the allow rule `Bash(node --test bench/loop/fixture/test/text.test.js)`
      of config/claude-settings.json (rule set A) runs the test command without a prompt;
-     git init + one commit (author ladder, message 'ladder fixture'), so scope is a git
-     diff. WorkRoot is not %TEMP% (bench/loop:
+     git init + one commit (author ladder, message 'ladder fixture', author and committer
+     date pinned to 2026-01-01T00:00:00Z, so the commit hash is reproducible), so scope is a
+     git diff. WorkRoot is not %TEMP% (bench/loop:
      Git Bash shows it as /tmp/..., which the Write tool misreads). long-fix instead
      runs bench/ladder/gen_longfix.py --modules <-Modules> into the work tree (longfix/src,
      longfix/test), manifest to <base>.manifest.json, outside the work tree; the allow rule is
@@ -72,7 +73,10 @@
   Never starts or stops the server. -DryRun prepares the work tree, runs the BEFORE
   tests, runs the wrapper with -LisPrintArgs (which never starts claude), prints the
   exact wrapper argv, the run-dir leaf (work_leaf) and the fixture commit as git log shows
-  it (fixture_commit), and deletes the work tree; it sends no request to the server.
+  it (fixture_commit, then its hash, fixture_commit_sha), and deletes the work tree; it
+  sends no request to the server. A failed precondition (the BEFORE tests or, for
+  stale-figure, a figure line) prints 'precondition: FAIL' and exits 1 with the message
+  on stderr, as a real run refuses it before launch.
 .PARAMETER Modules
   long-fix only (refused for the other cases): passed to gen_longfix.py as --modules N. The
   fixture has 3*N tests, 2*N of them failing before (2 planted bugs + 1 guard per module).
@@ -88,11 +92,12 @@
   the whole task in one window. Before-run output with the fixture's reporter: 2,754 chars
   at 24 modules, 5,470 at 48 (no paths, same on Node 22 and 24); fixing tests shortens it.
 .PARAMETER Hint
-  stale-figure only (refused for the other cases): the prompt's doc check. named (default,
-  the prompt as before) tells the model to check tallyctl/README.md and tallyctl/CHANGELOG.md
-  against the code; grammar drops that instruction and keeps only the CONTRADICTION line
-  format, for whatever the model read in tallyctl/. The grader is the same for both. The
-  prompt is a rep_key input, so grammar has its own key; meta and result field hint.
+  stale-figure only (refused for the other cases): the prompt's doc check. grammar (the
+  default since ruling 38 of 2026-10-30; the prompt of record, ruling 24) keeps only the
+  CONTRADICTION line format, for whatever the model read in tallyctl/; named (the series 1
+  prompt) also tells the model to check tallyctl/README.md and tallyctl/CHANGELOG.md against
+  the code. The grader is the same for both. The prompt is a rep_key input, so each has its
+  own key; meta and result field hint.
 .EXAMPLE
   pwsh bench/ladder/run.ps1 -Case fix-one -DryRun
 .EXAMPLE
@@ -106,7 +111,7 @@
 .EXAMPLE
   pwsh bench/ladder/run.ps1 -Case stale-figure -DryRun
 .EXAMPLE
-  pwsh bench/ladder/run.ps1 -Case stale-figure -Hint grammar -DryRun
+  pwsh bench/ladder/run.ps1 -Case stale-figure -Hint named -DryRun
 #>
 [CmdletBinding()]
 param(
@@ -120,7 +125,7 @@ param(
     # long-fix only: gen_longfix.py --modules (.PARAMETER Modules).
     [ValidateRange(7, 79)][int]$Modules = 24,
     # stale-figure only: the prompt's doc check (.PARAMETER Hint).
-    [ValidateSet('named', 'grammar')][string]$Hint = 'named',
+    [ValidateSet('named', 'grammar')][string]$Hint = 'grammar',
     [string]$WorkRoot = (Join-Path $env:LOCALAPPDATA 'lis-ladder'),
     [string]$OutDir = (Join-Path $PSScriptRoot '..\results'),
     [switch]$AllowReasoningOn,
@@ -140,8 +145,8 @@ $shownTotal = 9500
 # long-fix prompt: the last module, and the test runs after every 4th module and the last.
 $mLast = 'm{0:D2}' -f $Modules
 $mRuns = (@(for ($i = 4; $i -lt $Modules; $i += 4) { 'm{0:D2}' -f $i }) -join ', ') + " and $mLast"
-# stale-figure prompt, by -Hint: named names the two docs to check; grammar keeps only the
-# CONTRADICTION line format.
+# stale-figure prompt, by -Hint: grammar (the default) keeps only the CONTRADICTION line
+# format; named (the series 1 prompt) names the two docs to check.
 $staleCheck = if ($Hint -eq 'grammar') {
     "If anything you read in tallyctl/ states a different value for one of these settings than the code does, add one line for each: 'CONTRADICTION <doc path>:<line> says <value>; <path>:<line> shows <value>'. A statement about an earlier version that was true for that version is not a contradiction. If you found none, the line 'CONTRADICTION none'."
 } else {
@@ -423,9 +428,10 @@ if ($isGen) {
 & git -C $work init -q
 & git -C $work add -A
 # GIT_AUTHOR_*/GIT_COMMITTER_* in the environment override -c user.*, so they are set for
-# this one commit and restored after it.
+# this one commit and restored after it. Fixed dates: the commit hash is reproducible.
 $gitIdEnv = [ordered]@{ GIT_AUTHOR_NAME = $commitId[0]; GIT_AUTHOR_EMAIL = $commitId[1]
-    GIT_COMMITTER_NAME = $commitId[0]; GIT_COMMITTER_EMAIL = $commitId[1] }
+    GIT_COMMITTER_NAME = $commitId[0]; GIT_COMMITTER_EMAIL = $commitId[1]
+    GIT_AUTHOR_DATE = '2026-01-01T00:00:00Z'; GIT_COMMITTER_DATE = '2026-01-01T00:00:00Z' }
 $gitIdSaved = @{}
 foreach ($k in $gitIdEnv.Keys) {
     $gitIdSaved[$k] = if (Test-Path "env:$k") { (Get-Item "env:$k").Value } else { $null }
@@ -571,7 +577,7 @@ if ($DryRun) {
         Write-Host ("precondition: " + $(if ($bad.Count) { "FAIL: $(@($bad | Select-Object -First 5) -join ' | ')" }
                 else { "ok, pass $nPass of $($want.Count) as the manifest expects; every figure line holds its value" }))
         Write-Host "allowed files: none (git status --porcelain of the work tree must stay empty)"
-        Write-Host "hint: $Hint (-Hint: the prompt's doc check; meta and result field hint)"
+        Write-Host "hint: $Hint (-Hint, default grammar: the prompt's doc check; meta and result field hint)"
         Write-Host "prompt ($($c.prompt.Length) chars, one argv string):"
         Write-Host "  $($c.prompt)"
     } else {
@@ -587,8 +593,9 @@ if ($DryRun) {
         Write-Host "precondition: $(if ($bad.Count) { "FAIL, these do not fail before: $($bad -join ' | ')" } else { 'ok' })"
     }
     Write-Host "work_leaf: $(Split-Path -Leaf $runDir)"
-    $shown = @(& git -C $work log -1 '--format=%an <%ae> (committer %cn <%ce>)%n%s')
+    $shown = @(& git -C $work log -1 '--format=%an <%ae> (committer %cn <%ce>)%n%s%n%H')
     Write-Host "fixture_commit: $($shown[0]) `"$($shown[1])`""
+    Write-Host "fixture_commit_sha: $($shown[2]) (author and committer date pinned)"
     $nArgs = if ($printedArgs) { $printedArgs.Count } else { $null }
     Write-Host "wrapper -LisPrintArgs (claude not started): exit $printCode, $nArgs claude arguments; stderr banner:"
     foreach ($l in @($printed | Where-Object { $_ -is [Management.Automation.ErrorRecord] })) { Write-Host "  $l" }
@@ -606,6 +613,13 @@ if ($DryRun) {
         "are null, so a real run's key differs)")
     Write-Host "server: not queried in -DryRun$(if ($isGen) { " (a real $Case run refuses a server with reasoning on unless -AllowReasoningOn)" })"
     Remove-WorkTree
+    # A real run throws on a failed precondition before launch; a dry run exits 1 after
+    # printing it, so a script that chains dry runs sees the failure.
+    if ($bad.Count) {
+        [Console]::Error.WriteLine("run.ps1 -DryRun: case $Case is invalid, precondition FAIL: " +
+            "$(@($bad | Select-Object -First 5) -join ' | ')")
+        exit 1
+    }
     return
 }
 

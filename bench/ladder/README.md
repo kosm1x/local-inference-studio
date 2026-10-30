@@ -42,8 +42,10 @@ before-run output fits 9,000 chars, 8,982; `run.ps1` help) sets the
 fixture size; long-fix derives the `-MaxTurns` and `-TimeoutMin` defaults from it as
 ceil(250 * N / 24) and ceil(60 * N / 24), never below 250 and 60 (500 and 120 at 48
 modules), so a series 4 run passes neither.
-`-Hint named|grammar` (stale-figure only, refused for the other cases; default `named`,
-the series 1 prompt) sets the prompt's doc check. `grammar` keeps the CONTRADICTION line
+`-Hint named|grammar` (stale-figure only, refused for the other cases; default `grammar`,
+the prompt of record by ruling 24, since ruling 38 of 2026-10-30; `named`, the series 1
+prompt and the default before, stays selectable) sets the prompt's doc check. `grammar`
+keeps the CONTRADICTION line
 kind and drops the sentence that names the README and CHANGELOG check; in its place:
 "If anything you read in tallyctl/ states a different value for one of these settings
 than the code does, add one line for each: 'CONTRADICTION <doc path>:<line> says
@@ -53,8 +55,10 @@ true for that version is not a contradiction. If you found none, the line
 and nothing tells the model to check, but the `<doc path>` slot in the CONTRADICTION
 format and the kept earlier-version caveat still say that docs are where contradictions
 live. Neither variant states that a contradiction exists. The prompt is a `rep_key`
-input, so `grammar` has its own key (dry run 0d193da9); `hint` is in the meta and,
-report-only, in the result (`named` for a meta without the field).
+input, so each variant has its own key (dry run: plain or `-Hint grammar` 0d193da9,
+`-Hint named` 6baefcac); `hint` is in the meta and, report-only, in the result (`named`
+for a meta without the field: the series 1 metas, which predate it and all ran
+`named`; `grade.py` keeps that fallback after the default flip).
 
 What `run.ps1` does:
 
@@ -105,7 +109,10 @@ What `run.ps1` does:
    committer are both set, through `-c user.*` and through `GIT_AUTHOR_*` and
    `GIT_COMMITTER_*` for that one call (restored after it), since those variables
    override `-c` (checked: a dry run with `GIT_COMMITTER_NAME=leak` committed as `leak`
-   before the fix).
+   before the fix). `GIT_AUTHOR_DATE` and `GIT_COMMITTER_DATE` are pinned the same way,
+   to `2026-01-01T00:00:00Z` (ruling 39), so a fixture's commit hash is the same in
+   every run (stale-figure: `ecefb910`, pinned in `gen_stalefig_test.py`). No
+   `rep_key` input and no dry-run key holds a commit hash, so no key changed.
 3. Tests before (`node --test --test-reporter=tap`). Every target test and every
    keep-failing test must fail, or the case is invalid and nothing launches.
    long-fix: the TAP results must equal the manifest's `expect_before` exactly (48
@@ -153,10 +160,15 @@ What `run.ps1` does:
    to `<base>.facts.md` (meta `facts_copy`), and `grade.py` grades that copy; without
    one it grades the file in the kept work tree (`facts_source`).
 6. `python -I bench/ladder/grade.py <base>` writes `<base>.json` and one summary line.
+   Any other call (no argument, more than one, or one starting with `-` such as
+   `--help`) prints the usage and exits 2 without writing; `--help` wrote
+   `--help.json` in the cwd before ruling 39.
 
 `-DryRun` does steps 2 and 3, runs the wrapper with `-LisPrintArgs` (which never
 starts claude) to show its banner, prints the exact wrapper argv and the grade command,
-and deletes the work tree; it sends no request to the server. For `-Case long-fix` it
+and deletes the work tree; it sends no request to the server. A failed precondition
+(step 3) prints `precondition: FAIL`, then exits 1 with the reason on stderr after the
+work tree is deleted (exit 0 before ruling 39). For `-Case long-fix` it
 prints, in order:
 
 1. `case:` profile `longrun`, loop guard on, and `context_tokens` with its source
@@ -176,7 +188,8 @@ prints, in order:
    was over the 25,000 budget, and the run went on).
 9. `allowed files:`, then `prompt` and its text.
 10. `work_leaf:` the run directory's leaf and `fixture_commit:` the fixture commit's
-    author, committer and message as `git log` shows them; then the wrapper's
+    author, committer and message as `git log` shows them, then `fixture_commit_sha:`
+    its hash (dates pinned, step 2); then the wrapper's
     `-LisPrintArgs` result and stderr banner, then `session` (cwd, timeout and argv)
     and `capture:` (stdout and stderr files).
 11. Two `then:` lines: the transcript copy and the facts copy to `<base>.facts.md`.
@@ -185,16 +198,17 @@ prints, in order:
 
 fix-one and fix-all print the same as before, with `context_tokens` in the case line, a
 `fixture_sha256:` line (tree hash of `bench/loop/fixture`) and the `node:` line after the
-work tree, `work_leaf:` and `fixture_commit:` before the wrapper lines, and `rep_key:`
-before the server line.
+work tree, `work_leaf:`, `fixture_commit:` and `fixture_commit_sha:` before the wrapper
+lines, and `rep_key:` before the server line.
 
 stale-figure prints `case:` (profile review), `work tree:`, `manifest:`,
 `fixture_sha256:` (generator `version=1`, tree hash of `tallyctl`), `node:`, `tests
 before:`, one `figure` line per manifest figure (doc line and value, src and test line
 and the code's value), `precondition:`, `allowed files: none`, the prompt,
 `work_leaf: <stamp>-w1`, `fixture_commit: dev <dev@localhost> (committer dev
-<dev@localhost>) "release 1.3.0"`, the wrapper lines, then `policy_sha256:` and
-`hint:` (`named` or `grammar`) before `rep_key:`.
+<dev@localhost>) "release 1.3.0"`, `fixture_commit_sha: ecefb910...`, the wrapper
+lines, then `policy_sha256:` and `hint:` (`grammar`, the default, or `named`) before
+`rep_key:`.
 
 ## Cases
 
@@ -1510,7 +1524,8 @@ prompt or not: RULED 2026-10-30, the prompt of record is `-Hint grammar` and thi
 series the guided calibration baseline that does not decide the rung, ruling 24 in
 `docs/ROADMAP.md`, "Rulings 2026-10-30"). Against every rep meeting the bar: not met;
 under the pass rule, RULED 2026-10-30 as 2 of 3 whole bars on one key (ruling 22): 2 of
-3, but not the deciding series. `run.ps1` still defaults to `-Hint named`.
+3, but not the deciding series. `run.ps1` defaulted to `-Hint named` then; flipped to
+`-Hint grammar` by ruling 38 on 2026-10-30.
 Leave at least 20 s between reps (Limits).
 
 Series 2 (2026-10-30, `-Hint grammar`, `rep_key` 9c89857a, n=3): run from `158d009`,
@@ -1658,8 +1673,9 @@ no meaning here (no target tests, no counts asked for); they stay null and are l
 of `undecided`. Tests: `python -I bench/ladder/tests/stalefig_test.py` (each outcome and
 one mutant per bar part) and `python -I bench/ladder/tests/gen_stalefig_test.py` (the
 fixture, its `fixture_sha256` from a fresh process against a pinned value, and the
-stale-figure `-DryRun` key, run-directory leaf and fixture commit, the dry run started
-with `GIT_AUTHOR_*` and `GIT_COMMITTER_*` set to other values).
+stale-figure `-DryRun` key, run-directory leaf, fixture commit and its pinned hash, the
+dry run started with `GIT_AUTHOR_*` and `GIT_COMMITTER_*`, dates included, set to other
+values; and a failed precondition's exit 1).
 
 A field the harness cannot decide is null and listed in `undecided`; read
 `claim_text` for those. The grader's own tests run on synthetic artifacts, with no
@@ -1724,6 +1740,7 @@ before `|`, `||`, `&&` or `;` and less a trailing `2>&1`, is the test command) a
 | `facts_name_unmatched_would_pass` | of those, the module-tagged name went fail to pass |
 | `facts_source` | `facts_copy` (`<base>.facts.md`) or `work_dir`; null: neither found |
 | `facts_replay_ok` | the replay of the facts file's writes worked (Bash forms below) |
+| | null when the final facts file is missing or empty (true before ruling 39) |
 | `facts_bash_appends` | parseable Bash writes of the facts file, errored calls included |
 | `facts_bash_reads` | read-only Bash commands on the facts file (replay skips them) |
 | `facts_at_boundary` | lines at each boundary |
@@ -1873,7 +1890,8 @@ grammar) and set `scope_ok`, `bar_met` and `bar_reason`:
 | `stale_value_copied` | a planted FIGURE line has the doc value |
 | `stale_value_mentions` | the doc value in answer lines that are not CONTRADICTION |
 | `outcome` | one per rep (Grading) |
-| `planted_src_read`, `doc_read` | an input names the planted code or doc file |
+| `planted_src_read`, `doc_read` | an input names the planted code or doc file (Limits) |
+| `planted_src_read_tools`, `doc_read_tools` | the tools whose input counted |
 | `compaction_fired` | `compact_boundary` records in the stream (expected 0) |
 | `work_status`, `work_status_exit`, `policy_sha256` | from the meta, as `manifest` |
 
@@ -1946,8 +1964,9 @@ adds `.manifest.json`.
 - stale-figure matches a CONTRADICTION to a doc line by path and line within 3, the
   equal "says" value first: a typo such as `README.md:17 says 5000` matches the
   `TIMEOUT_MS` guard row and counts as a false flag (accepted; read the line by hand).
-- `-DryRun` exits 0 on a failed precondition (it prints `precondition: FAIL`), while a
-  real run throws before launch; the same for every case.
+- `-DryRun` exited 0 on a failed precondition (it printed `precondition: FAIL`) while
+  a real run throws before launch; since ruling 39 it exits 1, the reason on stderr,
+  for every case (`gen_stalefig_test.py`, `test_failed_precondition_exits_1`).
 - stale-figure measures the model plus the operator's instructions (ruling (g), RULED
   2026-10-30: kept; whether it is cited is recorded by hand in each series record
   from the streams, not a result field): user-scope
@@ -1962,16 +1981,38 @@ adds `.manifest.json`.
   denied (lis-guard denies critical writes only). A cite within 3 lines of a doc line
   matches by value first, so a CONTRADICTION cited one row off in the Limits table can
   still state the planted figure; one cited 4 or more lines off is unmatched.
-  `planted_src_read` and `doc_read` see only a tool input that names the file (a Grep
-  over a directory is not counted). Series 1 reps ran 30.8 to 39.3 s wall (Results).
+  `planted_src_read` and `doc_read` see a tool input that names the file, or a Bash
+  read through a directory (next item); a Grep tool call over a directory is not
+  counted. Series 1 reps ran 30.8 to 39.3 s wall (Results).
 - `doc_read` and `planted_src_read` key on a Read, Grep or Bash input that names the
-  file less `tallyctl/` (`tool_names`, `stalefig.py` lines 192 to 204; `doc_read`
-  looks for `README.md`, line 369). A shell read that names only the directory is not
-  seen: series 2 rep 3 used Bash only (`grep -rn ... tallyctl/ --include="*.md"`,
-  `cat tallyctl/CHANGELOG.md`) and flagged the planted figure with both fields false.
-  Series 3 reps 1 (a Grep over the directory) and 3 (a shell grep) show `doc_read`
-  false the same way (Results).
-  Both undercount reads and are report-only; read the `.jsonl` (recorded, not fixed).
+  file less `tallyctl/` (`tool_names`, `stalefig.py` lines 281 to 297; `doc_read`
+  looks for `README.md`, line 446). Through series 3 a shell read that named only the
+  directory was not seen: series 2 rep 3 used Bash only (`grep -rn ... tallyctl/
+  --include="*.md"`, `cat tallyctl/CHANGELOG.md`) and flagged the planted figure with
+  both fields false; series 3 reps 1 (a Grep over the directory) and 3 (a shell grep)
+  show `doc_read` false the same way (Results, the recorded `.json`). Since ruling 39 a
+  Bash command also counts when it reads the file through a directory (`dir_read`,
+  lines 243 to 278, `grep_args` 216 to 240): `grep` with `-r`, `-R` or
+  `--recursive`, or `find`, naming a parent directory (`tallyctl`, `tallyctl/src`), or
+  `cat` with a glob that matches the file (`cat tallyctl/*`); grep's first operand is
+  its pattern unless `-e`, `--regexp` or `-f` gave it (`grep -rn tallyctl bench/` does
+  not count); `--include` patterns must match the file name and `--exclude` patterns
+  must not (`--include PAT` or `--include=PAT`); paths
+  resolve against the work tree root, so `grep -r X .` does not count. Those reads are
+  listed as `Bash` in `doc_read_tools` and `planted_src_read_tools`. It is a token
+  check (shlex), not a shell parser: `cd tallyctl && grep -r X .` and a Grep tool call
+  over the directory are still missed, and a `find` that only lists names counts.
+  Report-only; `bar_met` reads neither field (bar parts: Grading).
+- Regrade of copies of the nine stale-figure sets (2026-10-30, ruling 39; the recorded
+  `.json` files unchanged): `doc_read` / `planted_src_read`, recorded then regraded.
+  Series 1 072309, 072426, 072559 and series 2 074820, 074920: true / true both times.
+  Series 2 075029: false / false, then true / true (Bash). Series 3 110617: false /
+  true both times (its directory read is a Grep tool call); 110715: true / true both
+  times (Read; also `find tallyctl` in Bash); 110818: false / true, then true / true
+  (Bash). `bar_met` unchanged in all nine (true, false, true, true, false, false,
+  true, false, true); other than the new `*_tools` fields, the only other field that
+  differs is `hint` in the series 1 results, graded before the field existed (`named`
+  now).
 - Back-to-back reps: the 10 s log backstop (`run.ps1` line 356 at `f7bc3a0`,
   "logs\llama-server.log was written in the last 10 s: another session may be using
   the server") also sees the server's own log lines from the previous rep. Series 1,

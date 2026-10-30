@@ -4,7 +4,9 @@ python -I bench/ladder/tests/stalefig_test.py
 Each case generates the real stale-figure fixture (gen_stalefig.py) as the kept work tree,
 writes synthetic run.ps1 artifacts (meta with grader stalefig, manifest, TAP before/after,
 numstat, a stream-json stdout whose result is the answer) and grades them. No session, no
-server. One mutant per bar part turns exactly that part false.
+server. One mutant per bar part turns exactly that part false. test_directory_reads holds
+doc_read and planted_src_read against Bash reads through a directory (series 2 rep 3 and
+series 3 rep 3 commands among them).
 """
 import contextlib
 import importlib.util
@@ -371,6 +373,48 @@ class StaleFig(unittest.TestCase):
                                     ('Bash', {'command': 'cat bench/ladder/gen_stalefig.py'})])
         self.assertEqual((r['doc_read'], r['planted_src_read'], r['rubric_seen']),
                          (False, True, True))
+        self.assertEqual((r['doc_read_tools'], r['planted_src_read_tools']), ([], ['Grep']))
+
+    def test_directory_reads(self):
+        # (Bash command, doc_read, planted_src_read): a recursive grep, find or cat glob on
+        # a parent directory of the file counts as a Bash read; the bar never moves.
+        abs_dir = self.work.replace('\\', '/') + '/tallyctl'
+        cases = [
+            ('grep -rn "MAX_BATCH\\|TIMEOUT_MS\\|RETRY_LIMIT" tallyctl/ --include="*.js" '
+             '--include="*.md" --include="*.json" --include="*.ts" 2>/dev/null; echo "---"; '
+             'ls tallyctl/', True, True),
+            ('ls tallyctl/ && grep -rn "MAX_BATCH\\|TIMEOUT_MS\\|RETRY_LIMIT" tallyctl/ '
+             '--include="*" | head -50', True, True),
+            ('grep -rn MAX_BATCH tallyctl --include="*.md"', True, False),
+            ('grep -Rn MAX_BATCH ./tallyctl/src/', False, True),
+            ('grep --recursive MAX_BATCH ' + abs_dir, True, True),
+            ('cat tallyctl/*', True, False),
+            ('cat tallyctl/src/*.js', False, True),
+            ('find tallyctl -type f | sort', True, True),
+            ('find tallyctl/src -name "*.js"', False, True),
+            ('cd x\ngrep -r MAX_BATCH tallyctl/', True, True),
+            # Not reads through a directory: no -r, a listing, the cwd, another directory.
+            ('grep -n MAX_BATCH tallyctl/', False, False),
+            ('ls -R tallyctl', False, False),
+            ('grep -rn MAX_BATCH .', False, False),
+            ('grep -rn MAX_BATCH bench/', False, False),
+            # grep's first operand is the pattern unless -e or -f gave it; --include and
+            # --exclude in both forms.
+            ('grep -rn tallyctl bench/', False, False),
+            ('grep -rn -e X tallyctl/', True, True),
+            ("grep -rn --include '*.js' X tallyctl/", False, True),
+            ("grep -rn --exclude='*.md' X tallyctl/", False, True),
+            ('cat tallyctl/CHANGELOG.md', False, False),
+            ('grep -rn "unclosed tallyctl/', False, False),
+        ]
+        for cmd, doc, src in cases:
+            r = self.grade(GOOD, calls=[('Bash', {'command': cmd})])
+            want = (doc, src, ['Bash'] if doc else [], ['Bash'] if src else [], True)
+            self.assertEqual((r['doc_read'], r['planted_src_read'], r['doc_read_tools'],
+                              r['planted_src_read_tools'], r['bar_met']), want, cmd)
+        # A Grep tool call over the directory names neither file: not counted.
+        r = self.grade(GOOD, calls=[('Grep', {'pattern': 'MAX', 'path': 'tallyctl'})])
+        self.assertEqual((r['doc_read'], r['planted_src_read']), (False, False))
 
     # Mutants: each turns exactly one bar part false.
     def test_mutants_one_part_each(self):

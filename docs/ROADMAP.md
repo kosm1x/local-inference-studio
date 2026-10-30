@@ -57,8 +57,8 @@ fixture NO-GO (34), the uploader GO (35); P5 stays blocked (Open rulings below).
   but a different axis from the one rung 2 names.
 - Most NEXT items wait on operator rulings, not on building. After the 2026-10-30
   batch and the ladder's close (31) three are open ((14), the MTP default, (16)'s four
-  build rulings), plus the (22) with (26) question; the released items are ruled (32
-  to 36; Open rulings below). The order below takes the cheapest unblocked step first.
+  build rulings); the rest are ruled (32 to 39; Open rulings below). The order below
+  takes the cheapest unblocked step first.
 - P4 and P5 carry no current plan: ruling 6 traded speed for accuracy, and P5 is
   blocked on 16 GB of VRAM. Neither bears on the ladder.
 - The roadmap has no phase for the project's own goal, daily Claude Code use on the
@@ -93,6 +93,7 @@ fixture NO-GO (34), the uploader GO (35); P5 stays blocked (Open rulings below).
    `check_missing:1` to 0 (`bench/ladder/README.md`, Result fields).
 7. Bonsai: withdrawn (36).
 8. Uploader rule (35): DONE, docs/uploader-rule.md.
+9. (38) `-Hint` default to `grammar` and (39) five harness fixes: built (this commit).
 
 ### P7 — Daily use (proposed)
 
@@ -111,8 +112,9 @@ fixture NO-GO (34), the uploader GO (35); P5 stays blocked (Open rulings below).
 Recommendations only; each stays OPEN until the operator rules. Ruled on 2026-10-30
 (Rulings 2026-10-30 below): the rung pass rule (22), rung 2 (23), rung 3 drafts (a) to
 (j) (24 to 27; (g) with (19)), (17), (19), (20), (21), the MTP A/B design (28),
-series 3 (30), the ladder's close (31), the items it released (32 to 35) and the
-Bonsai withdrawal (36). Still OPEN:
+series 3 (30), the ladder's close (31), the items it released (32 to 35), the
+Bonsai withdrawal (36), the split-key question (37), the `-Hint` default (38) and five
+harness fixes (39). Still OPEN:
 
 - P7, the logon proof (the operator's): kept OPEN by (32); released by (31), not
   closed, no logon cycle scheduled. The other released items are ruled: the (9)
@@ -122,11 +124,10 @@ Bonsai withdrawal (36). Still OPEN:
   again now no thinking is enabled." The MTP A/B (28) gains a third arm, 131072 + MTP
   with thinking off, after a fit check; that MTP at 131072 costs GPU layers is an
   UNVERIFIED estimate (P6; 1,630 MiB free at 131072 q4_0). Server restarts for every
-  arm are the operator's. Recommend: rule on (14) from the three arms' results.
+  arm are the operator's. Recommend: rule on (14) from the three arms' results. The
+  operator runs the trial later; the session loop stops at this commit.
 - MTP default change: a separate ruling after the A/B; the default stays 131072
   without MTP until then.
-- (22) with (26): does a series split across two keys satisfy "one `rep_key`"?
-  (Inference; the operator to confirm.)
 - (16) SIZED 2026-10-30 (Rulings 2026-10-30): build OPEN on four further rulings: a
   main-server ctx or `-ub` change; router mode or a proxy; the GGUF download and its
   license; arming `CLAUDE_CODE_AUTO_MODE_MODEL` only after the 24-command bench. The
@@ -1751,8 +1752,8 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   go/no-go and the harder loop fixture NO-GO for now (34); the P3 uploader per model
   GO (35), delivered as docs/uploader-rule.md; P5 stays blocked. Still OPEN: (14)
   and the MTP A/B, three arms, each needing an operator server restart; the MTP
-  default (a separate ruling after the A/B); the (16) build (four further rulings);
-  the (22) with (26) split-key question.
+  default (a separate ruling after the A/B); the (16) build (four further rulings).
+  The (22) with (26) split-key question is ruled (37).
 
 ### Rung 3 stale-figure (plan draft 2026-10-26)
 
@@ -2173,8 +2174,8 @@ names the rung 3 draft letters it settles ("Rung 3 stale-figure", PLAN DRAFT).
 - (24) Rung 3 draft (b), the hint level: the prompt of record is `-Hint grammar`;
   series 1 (`named`) is the guided calibration baseline and does not decide the rung.
   Consequence: rung 3 NOT met at the ruling (series 2 1 of 3); series 3 runs at
-  `grammar` unchanged (30). `run.ps1` still defaults to `named`, so a counted rep
-  passes `-Hint grammar`. Outcome: series 3 2 of 3, RUNG 3 MET 2026-10-30 (Series 3).
+  `grammar` unchanged (30). `run.ps1` defaulted to `named` until (38), so a counted rep
+  passed `-Hint grammar`. Outcome: series 3 2 of 3, RUNG 3 MET 2026-10-30 (Series 3).
 - (25) Rung 3 drafts (a), (c), (d), (e), (f) and (j): CONFIRMED as built (silent fix =
   bar false; profile `review`; one planted figure and two guards; `policy_sha256` as a
   tenth key input for stale-figure only; rung 3 first; `status_done` in the bar).
@@ -2266,6 +2267,20 @@ names the rung 3 draft letters it settles ("Rung 3 stale-figure", PLAN DRAFT).
   `bin/ggml-base.dll` has `tq1_0`/`tq2_0` strings but no `ptq1` (checked 2026-10-30);
   the repo names no HF repo or file for the model; building from source is excluded.
   The operator withdrew the go. Consequence: no download, no bench.
+- (37) The (22) with (26) question (taken with (38) and (39) on 2026-10-30, about 12:05
+  local): a series split across two rep keys by a Claude Code auto-update counts as one
+  series; 2 of 3 across the two keys satisfies the pass rule. Consequence: the
+  question is CLOSED; no recorded verdict changes (every recorded rung 2 and rung 3
+  series ran on one key).
+- (38) The stale-figure `-Hint` default flips from `named` to `grammar`, the prompt of
+  record (24); `named` stays selectable; the default dry-run key becomes the former
+  `grammar` dry-run key; recorded keys unchanged. Consequence: built (this commit).
+- (39) Five recorded harness defects are fixed in one audited commit: `grade.py --help`
+  writing `--help.json`; `facts_replay_ok` true when the facts file is missing;
+  `-DryRun` exiting 0 on a failed precondition; `GIT_AUTHOR_DATE` and
+  `GIT_COMMITTER_DATE` unpinned; `doc_read` and `planted_src_read` keyed on the literal
+  file name, so grep-based reads showed false. Consequence: built (this commit);
+  report-only fields and CLI behaviour, no bar or prompt change.
 
 ## Phase 3 part A 2026-10-24
 

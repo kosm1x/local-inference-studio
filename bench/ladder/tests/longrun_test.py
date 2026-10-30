@@ -643,6 +643,20 @@ class LongRun(unittest.TestCase):
         self.assertFalse(r['facts_exists'])
         self.assertIsNone(r['facts_source'])
         self.assertFalse(r['bar_met'])
+        # The stream's facts writes replay cleanly, but there is no file to hold them
+        # against: null, not true (true before ruling 39), and the summary line says so.
+        self.assertIsNone(r['facts_replay_ok'])
+        self.assertIn('replay_ok None (facts file missing or empty)', self.out)
+
+    def test_empty_facts_file_nulls_replay_ok(self):
+        r = self.grade(final=[])
+        self.assertEqual((r['facts_exists'], r['facts_lines']), (True, 0))
+        self.assertIsNone(r['facts_replay_ok'])
+        self.assertEqual((r['facts_gate'], r['bar_met']), (False, False))  # gate, not replay_ok
+        self.assertIn('replay_ok None (facts file missing or empty)', self.out)
+        r = self.grade()
+        self.assertTrue(r['facts_replay_ok'])
+        self.assertIn('replay_ok True | ', self.out)
 
     def test_wrongly_named_facts_file_out_of_scope(self):
         r = self.grade(numstat=f'1\t1\t{S1}\n1\t1\t{S2}\n6\t0\tlis-facts.md\n')

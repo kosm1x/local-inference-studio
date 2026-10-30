@@ -13,7 +13,7 @@ same two kinds). Each buggy function has a contract comment that, with its test,
 one correct repair. No RNG: the same arguments give byte-identical files. The manifest
 (kept outside the work tree) lists files with sha256 and every test with expect_before.
 fixture_sha256 = sha256 over the files sorted by path, each as path NUL bytes NUL.
-Refuses a non-empty <work>/longfix. Stdlib only.
+Refuses a non-empty <work>/longfix and a manifest under <work>. Stdlib only.
 
 all.test.js sets Error.stackTraceLimit = 0, not 1: on Node 24 the spec reporter prints one
 absolute-path stack line per failure, and at 48 failures under a lis-ladder work path that
@@ -315,9 +315,11 @@ def generate(out, manifest, modules=24, lines=220, solve=False):
     root = os.path.join(out, 'longfix')
     if os.path.isdir(root) and os.listdir(root):
         raise SystemExit(f'refusing to write into non-empty {root}')
-    if os.path.normcase(os.path.abspath(manifest)).startswith(
-            os.path.normcase(os.path.abspath(root)) + os.sep):
-        raise SystemExit('the manifest must be outside the fixture tree')
+    # Anywhere under out (out itself included), not only under the fixture root; realpath,
+    # so a symlink or junction into out is refused too.
+    m, o = (os.path.normcase(os.path.realpath(p)) for p in (manifest, out))
+    if m == o or m.startswith(o.rstrip(os.sep) + os.sep):
+        raise SystemExit('the manifest must be outside --out')
     files, tests = {}, []
     for i in range(1, modules + 1):
         stem, src, test, names = module(i, lines, solve)

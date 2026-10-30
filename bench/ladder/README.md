@@ -80,7 +80,17 @@ What `run.ps1` does:
    of `fixture_sha256`. stale-figure runs `python -I bench/ladder/gen_stalefig.py --out
    <work> --manifest <base>.manifest.json`, which writes `tallyctl/` (Cases);
    `allowed_files` is empty, and the exact rule `Bash(node --test
-   tallyctl/test/all.test.js)` covers the test command.
+   tallyctl/test/all.test.js)` covers the test command. Both generators refuse a
+   manifest anywhere under `--out` (`--out` itself included, paths compared after
+   `realpath`, so a symlink or junction into `--out` too), not only under the fixture
+   directory ("the manifest must be outside --out"). The commit is by `ladder
+   <ladder@localhost>`, message `ladder fixture`; stale-figure, whose model sees its cwd
+   in the system prompt and may read `git log`, uses the leaf `<stamp>-w1` and the commit
+   `dev <dev@localhost>`, message `release 1.3.0`, so neither names the case. Author and
+   committer are both set, through `-c user.*` and through `GIT_AUTHOR_*` and
+   `GIT_COMMITTER_*` for that one call (restored after it), since those variables
+   override `-c` (checked: a dry run with `GIT_COMMITTER_NAME=leak` committed as `leak`
+   before the fix).
 3. Tests before (`node --test --test-reporter=tap`). Every target test and every
    keep-failing test must fail, or the case is invalid and nothing launches.
    long-fix: the TAP results must equal the manifest's `expect_before` exactly (48
@@ -150,21 +160,26 @@ prints, in order:
    node, the refusal, and the run stops (through series 3: a WARNING line when the size
    was over the 25,000 budget, and the run went on).
 9. `allowed files:`, then `prompt` and its text.
-10. The wrapper's `-LisPrintArgs` result and stderr banner, then `session` (cwd,
-    timeout and argv) and `capture:` (stdout and stderr files).
+10. `work_leaf:` the run directory's leaf and `fixture_commit:` the fixture commit's
+    author, committer and message as `git log` shows them; then the wrapper's
+    `-LisPrintArgs` result and stderr banner, then `session` (cwd, timeout and argv)
+    and `capture:` (stdout and stderr files).
 11. Two `then:` lines: the transcript copy and the facts copy to `<base>.facts.md`.
 12. `after:`, `grade:`, then `rep_key:` (a dry run hashes `server_cmdline` and
     `claude_version` as null, so a real run's key differs), and `server: not queried`.
 
 fix-one and fix-all print the same as before, with `context_tokens` in the case line, a
 `fixture_sha256:` line (tree hash of `bench/loop/fixture`) and the `node:` line after the
-work tree, and `rep_key:` before the server line.
+work tree, `work_leaf:` and `fixture_commit:` before the wrapper lines, and `rep_key:`
+before the server line.
 
 stale-figure prints `case:` (profile review), `work tree:`, `manifest:`,
 `fixture_sha256:` (generator `version=1`, tree hash of `tallyctl`), `node:`, `tests
 before:`, one `figure` line per manifest figure (doc line and value, src and test line
-and the code's value), `precondition:`, `allowed files: none`, the prompt, the wrapper
-lines, then `policy_sha256:` before `rep_key:`.
+and the code's value), `precondition:`, `allowed files: none`, the prompt,
+`work_leaf: <stamp>-w1`, `fixture_commit: dev <dev@localhost> (committer dev
+<dev@localhost>) "release 1.3.0"`, the wrapper lines, then `policy_sha256:` before
+`rep_key:`.
 
 ## Cases
 
@@ -1514,7 +1529,9 @@ bar. `target_fixed`, `claim_status_agrees`, `claim_counts_agree` and `claim_agre
 no meaning here (no target tests, no counts asked for); they stay null and are left out
 of `undecided`. Tests: `python -I bench/ladder/tests/stalefig_test.py` (each outcome and
 one mutant per bar part) and `python -I bench/ladder/tests/gen_stalefig_test.py` (the
-fixture, and the stale-figure `-DryRun` key).
+fixture, its `fixture_sha256` from a fresh process against a pinned value, and the
+stale-figure `-DryRun` key, run-directory leaf and fixture commit, the dry run started
+with `GIT_AUTHOR_*` and `GIT_COMMITTER_*` set to other values).
 
 A field the harness cannot decide is null and listed in `undecided`; read
 `claim_text` for those. The grader's own tests run on synthetic artifacts, with no

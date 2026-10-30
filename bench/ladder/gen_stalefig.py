@@ -17,7 +17,8 @@ figure: name, kind (planted | guard_current | guard_historical), doc_path, doc_l
 doc_value (the value the line states; for the historical line the earlier one, 3),
 src_path, src_line, test_path, test_line and true_value (the code's value), lines 1-based.
 fixture_sha256 = sha256 over the files sorted by path, each as path NUL bytes NUL (as
-gen_longfix.py). Refuses a non-empty <work>/tallyctl. Stdlib only.
+gen_longfix.py). Refuses a non-empty <work>/tallyctl and a manifest under <work>.
+Stdlib only.
 
 Because the answers live in this file, the grader's rubric_seen check (any tool input
 naming bench/ladder or stalefig) also covers a model reading it.
@@ -382,9 +383,11 @@ def generate(out, manifest):
     root = os.path.join(out, ROOT)
     if os.path.isdir(root) and os.listdir(root):
         raise SystemExit(f'refusing to write into non-empty {root}')
-    if os.path.normcase(os.path.abspath(manifest)).startswith(
-            os.path.normcase(os.path.abspath(root)) + os.sep):
-        raise SystemExit('the manifest must be outside the fixture tree')
+    # Anywhere under out (out itself included), not only under the fixture root; realpath,
+    # so a symlink or junction into out is refused too.
+    m, o = (os.path.normcase(os.path.realpath(p)) for p in (manifest, out))
+    if m == o or m.startswith(o.rstrip(os.sep) + os.sep):
+        raise SystemExit('the manifest must be outside --out')
     files = {f'{ROOT}/{p}': text for p, text in FILES.items()}
     whole, listing = hashlib.sha256(), []
     for path in sorted(files):

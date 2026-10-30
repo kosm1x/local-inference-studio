@@ -18,13 +18,16 @@
   2. Work tree <WorkRoot>\<stamp>-<case>\work with bench/loop/fixture copied to the same
      relative path, so the allow rule `Bash(node --test bench/loop/fixture/test/text.test.js)`
      of config/claude-settings.json (rule set A) runs the test command without a prompt;
-     git init + one commit, so scope is a git diff. WorkRoot is not %TEMP% (bench/loop:
+     git init + one commit (author ladder, message 'ladder fixture'), so scope is a git
+     diff. WorkRoot is not %TEMP% (bench/loop:
      Git Bash shows it as /tmp/..., which the Write tool misreads). long-fix instead
      runs bench/ladder/gen_longfix.py --modules <-Modules> into the work tree (longfix/src,
      longfix/test), manifest to <base>.manifest.json, outside the work tree; the allow rule is
      `Bash(node --test --test-reporter=./longfix/reporter.mjs longfix/test/all.test.js)`.
      stale-figure runs bench/ladder/gen_stalefig.py into the work tree (tallyctl/), manifest
-     the same way; the allow rule is `Bash(node --test tallyctl/test/all.test.js)`.
+     the same way; the allow rule is `Bash(node --test tallyctl/test/all.test.js)`. Its
+     leaf is <stamp>-w1 and its commit dev <dev@localhost>, 'release 1.3.0': the model sees
+     its cwd and git log, and neither names the case.
   3. Tests BEFORE (node --test, TAP): every target and keep-failing test must fail,
      or the case is invalid and nothing launches. After that run it resolves the node the
      model's Bash tool will run (Git Bash as a login shell, -lc; -ic when that finds none or
@@ -68,7 +71,8 @@
   <base> is -OutDir\ladder-<case>-<stamp> (gitignored). The work tree is kept for review.
   Never starts or stops the server. -DryRun prepares the work tree, runs the BEFORE
   tests, runs the wrapper with -LisPrintArgs (which never starts claude), prints the
-  exact wrapper argv and deletes the work tree; it sends no request to the server.
+  exact wrapper argv, the run-dir leaf (work_leaf) and the fixture commit as git log shows
+  it (fixture_commit), and deletes the work tree; it sends no request to the server.
 .PARAMETER Modules
   long-fix only (refused for the other cases): passed to gen_longfix.py as --modules N. The
   fixture has 3*N tests, 2*N of them failing before (2 planted bugs + 1 guard per module).
@@ -206,7 +210,11 @@ $serverLog = Join-Path $repo 'logs\llama-server.log'
 $OutDir = [IO.Path]::GetFullPath($OutDir)
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $base = Join-Path $OutDir "ladder-$Case-$stamp"
-$runDir = Join-Path ([IO.Path]::GetFullPath($WorkRoot)) "$stamp-$Case"
+# stale-figure: a leaf and a commit that name no case (the model sees its cwd and git log).
+$workLeaf = if ($isStale) { "$stamp-w1" } else { "$stamp-$Case" }
+$commitId = if ($isStale) { @('dev', 'dev@localhost', 'release 1.3.0') }
+else { @('ladder', 'ladder@localhost', 'ladder fixture') }
+$runDir = Join-Path ([IO.Path]::GetFullPath($WorkRoot)) $workLeaf
 $work = Join-Path $runDir 'work'
 # Outside the work tree; under -DryRun inside $runDir, so it goes with the work tree.
 $manifestPath = if ($DryRun) { Join-Path $runDir 'dryrun.manifest.json' } else { "$base.manifest.json" }
@@ -316,7 +324,7 @@ function Measure-Output([scriptblock]$Run) {
 }
 function Remove-WorkTree {
     $leaf = Split-Path -Leaf $runDir
-    if ($runDir.StartsWith([IO.Path]::GetFullPath($WorkRoot), [StringComparison]::OrdinalIgnoreCase) -and $leaf -eq "$stamp-$Case") {
+    if ($runDir.StartsWith([IO.Path]::GetFullPath($WorkRoot), [StringComparison]::OrdinalIgnoreCase) -and $leaf -eq $workLeaf) {
         Remove-Item -LiteralPath $runDir -Recurse -Force -ErrorAction Ignore
         if (Test-Path -LiteralPath $runDir) { Write-Host "work tree NOT deleted: $runDir" }
     }
@@ -394,7 +402,23 @@ if ($isGen) {
 }
 & git -C $work init -q
 & git -C $work add -A
-& git -C $work -c user.name=ladder -c user.email=ladder@localhost -c commit.gpgsign=false commit -qm 'ladder fixture'
+# GIT_AUTHOR_*/GIT_COMMITTER_* in the environment override -c user.*, so they are set for
+# this one commit and restored after it.
+$gitIdEnv = [ordered]@{ GIT_AUTHOR_NAME = $commitId[0]; GIT_AUTHOR_EMAIL = $commitId[1]
+    GIT_COMMITTER_NAME = $commitId[0]; GIT_COMMITTER_EMAIL = $commitId[1] }
+$gitIdSaved = @{}
+foreach ($k in $gitIdEnv.Keys) {
+    $gitIdSaved[$k] = if (Test-Path "env:$k") { (Get-Item "env:$k").Value } else { $null }
+    Set-Item "env:$k" $gitIdEnv[$k]
+}
+try {
+    & git -C $work -c "user.name=$($commitId[0])" -c "user.email=$($commitId[1])" -c commit.gpgsign=false commit -qm $commitId[2]
+} finally {
+    foreach ($k in $gitIdEnv.Keys) {
+        if ($null -eq $gitIdSaved[$k]) { Remove-Item "env:$k" -ErrorAction Ignore }
+        else { Set-Item "env:$k" $gitIdSaved[$k] }
+    }
+}
 if ($LASTEXITCODE) { Remove-WorkTree; throw "git commit in $work failed ($LASTEXITCODE)" }
 
 $tapBefore = Invoke-Tests
@@ -541,6 +565,9 @@ if ($DryRun) {
         Write-Host "allowed files: $($c.allowed -join ', ')"
         Write-Host "precondition: $(if ($bad.Count) { "FAIL, these do not fail before: $($bad -join ' | ')" } else { 'ok' })"
     }
+    Write-Host "work_leaf: $(Split-Path -Leaf $runDir)"
+    $shown = @(& git -C $work log -1 '--format=%an <%ae> (committer %cn <%ce>)%n%s')
+    Write-Host "fixture_commit: $($shown[0]) `"$($shown[1])`""
     $nArgs = if ($printedArgs) { $printedArgs.Count } else { $null }
     Write-Host "wrapper -LisPrintArgs (claude not started): exit $printCode, $nArgs claude arguments; stderr banner:"
     foreach ($l in @($printed | Where-Object { $_ -is [Management.Automation.ErrorRecord] })) { Write-Host "  $l" }

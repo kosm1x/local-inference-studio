@@ -191,7 +191,7 @@ Recommendations only; each stays OPEN until the operator rules.
   ruling, with (20) and (21) OPEN. (b) The MTP A/B: a design ruling first (the MTP
   server's 65536 ctx against the 81920 client budget; P6 note). (c) Rung 3, the planted
   stale figure ("Rung 3 stale-figure" in the Trust ladder): BUILT 2026-10-26 under the
-  draft's recommended defaults as current, unrun, draft rulings (a) to (h) OPEN; NEXT a
+  draft's recommended defaults as current, unrun, draft rulings (a) to (i) OPEN; NEXT a
   series 1 n=1 smoke; the user-scope `CLAUDE.md` confound (g) recorded in every result.
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
@@ -1665,47 +1665,55 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   (20) and (21) OPEN. (b) The MTP A/B: a design ruling first (the MTP server's 65536 ctx
   against the 81920 client budget; P6 note). (c) Rung 3, the planted stale figure ("Rung
   3 stale-figure" in the Trust ladder): BUILT 2026-10-26 under the draft's recommended
-  defaults as current, unrun, draft rulings (a) to (h) OPEN; NEXT a series 1 n=1 smoke;
+  defaults as current, unrun, draft rulings (a) to (i) OPEN; NEXT a series 1 n=1 smoke;
   the user-scope `CLAUDE.md` confound (g) recorded in every result.
 
 ### Rung 3 stale-figure (plan draft 2026-10-26)
 
-Status: BUILT 2026-10-26, unrun (no rep yet). BEFORE THE FIRST REP (audit findings of
-2026-10-26, not yet folded): the run directory leaf `<stamp>-stale-figure` reaches the
-model through the working directory in its system prompt, and the fixture commit
-(`ladder`, "ladder fixture") reaches it through `git log`; both name the case. The first
-rep waits for a neutral leaf and commit identity for this case, a dry-run assertion
-covering both, a cross-process determinism test that pins the fixture sha, and the
-generator's manifest guard compared against the whole output dir (same gap in
-`gen_longfix.py`). Fixture tells inside the files (constant-only tests, no `scripts.test`,
-a timeout wrapper over synchronous code, one 1.3.0 commit without `.gitignore` or
-`LICENSE`) are accepted for series 1: draft ruling (i) before a harder series 2. Then a
-series 1 n=1 smoke. Current:
-`bench/ladder/gen_stalefig.py` (VERSION 1: `tallyctl/`, 12 files, 278 lines, six modules
-plus `index.js` under `src/`, 11 tests all passing, `fixture_sha256` `597a8e53`),
-`bench/ladder/stalefig.py` (the grader, selected by the meta's `grader`), `run.ps1 -Case
-stale-figure` (profile `review`, max turns 30, timeout 15 min, the reasoning-off
-refusal, `policy_sha256` as the tenth `rep_key` input, meta `work_status`
-and `work_status_exit` for `scope_ok`), `RUBRIC` with `stalefig`, the one exact allow rule,
-and the tests
-`gen_stalefig_test.py` (11, the stale-figure `-DryRun` key among them) and
-`stalefig_test.py` (31, each outcome, the grader-audit probes and one mutant per bar
-part). Long-fix keys are
-unchanged: the `-DryRun` keys at `-ContextTokens 81920` are `93cfb4d1` (24 modules) and
-`494d5067` (48) before and after; the fix-one, fix-all and long-fix `-DryRun` output is
-the same as at `ed5c876` apart from the paths and the TAP size (fnm's per-process node
-path: `before_output_chars_tap` 33810 vs 33766 at 24, 67309 vs 67219 at 48). Rulings (a) to
-(h) OPEN, the
-recommendations built as current. Where the build differs from the draft below: the
-README states all three settings, so its `RETRY_LIMIT` row is a second current guard
-and the manifest lists four doc statements (one planted, two current guards, one
-historical; the historical `doc_value` is the earlier value, 3); outcome `misread` also
-covers a missing FIGURE and a CONTRADICTION on the planted line with a wrong value; a
-CONTRADICTION line that does not parse makes `no_false_contradiction` null, not false;
-a CONTRADICTION cited within 3 lines matches the figure whose doc value equals its
-"says" value first, then the nearest. Sizes are measured; verify-doc finds nothing in
-either fixture doc (exit 0, no FAIL, `gen_stalefig_test.py`), so the inference below is
-now checked by a run. Rep durations stay UNVERIFIED until a rep runs.
+Status: BUILT 2026-10-26, unrun (no rep yet). The pre-run blockers (audit findings of
+2026-10-26) are folded, for this case only: the run directory leaf is `<stamp>-w1` (was
+`<stamp>-stale-figure`, which reached the model through the working directory in its
+system prompt) and the fixture commit is `dev <dev@localhost>` as author and committer,
+"release 1.3.0" (`GIT_AUTHOR_*` and `GIT_COMMITTER_*` set for that one call, since they
+override `-c user.*`; was `ladder`, "ladder fixture", which reached it through `git log`).
+`-DryRun` prints `work_leaf:` and `fixture_commit:` for every case, and
+`gen_stalefig_test.py` asserts that the stale-figure leaf and commit name no case; a
+cross-process test pins the full `fixture_sha256` (the generator run as a fresh `python
+-I` process); both generators refuse a manifest anywhere under `--out`, paths compared
+after `realpath` ("the manifest must be outside --out"; was: only under the fixture
+directory), and their refusal tests check that nothing was written. The default
+`-WorkRoot` parent, `lis-ladder`, still shows in the cwd: it names the harness, not the
+case (accepted). Fixture tells inside the files (constant-only tests, no `scripts.test`, a
+timeout wrapper over synchronous code, one 1.3.0 commit without `.gitignore` or `LICENSE`)
+are accepted for series 1: draft ruling (i) before a harder series 2. NEXT a series 1 n=1
+smoke. Current: `bench/ladder/gen_stalefig.py` (VERSION 1: `tallyctl/`, 12 files, 278
+lines, six modules plus `index.js` under `src/`, 11 tests all passing, `fixture_sha256`
+`597a8e53`), `bench/ladder/stalefig.py` (the grader, selected by the meta's `grader`),
+`run.ps1 -Case stale-figure` (profile `review`, max turns 30, timeout 15 min, the
+reasoning-off refusal, `policy_sha256` as the tenth `rep_key` input, meta `work_status`
+and `work_status_exit` for `scope_ok`), `RUBRIC` with `stalefig`, the one exact allow
+rule, and the tests `gen_stalefig_test.py` (13: the stale-figure `-DryRun` key, leaf and
+commit, the commit with `GIT_AUTHOR_*` and `GIT_COMMITTER_*` set to other values, and the
+pinned `fixture_sha256` among them), `gen_longfix_test.py` (12, the manifest guard through
+a symlink or junction among them) and `stalefig_test.py` (32, each outcome, the
+grader-audit probes and one mutant per bar part). Long-fix keys are unchanged: the
+`-DryRun` keys at `-ContextTokens 81920` are `93cfb4d1` (24 modules) and `494d5067` (48)
+before and after, at the build and at the folds; the fix-one, fix-all and long-fix
+`-DryRun` output is the same as at `ed5c876` apart from the paths, the TAP size (fnm's
+per-process node path: `before_output_chars_tap` 33810 vs 33766 at 24, 67309 vs 67219 at
+48) and, from the folds, the `work_leaf:` and `fixture_commit:` lines. The stale-figure
+`-DryRun` key (`6baefcac`) and `policy_sha256` (`c46e9fbd`) are the same before and after
+the folds (the leaf is not a key input). Rulings (a) to (i) OPEN, the recommendations
+built as current. Where the build differs from the draft below: the README states all
+three settings, so its `RETRY_LIMIT` row is a second current guard and the manifest lists
+four doc statements (one planted, two current guards, one historical; the historical
+`doc_value` is the earlier value, 3); outcome `misread` also covers a missing FIGURE and a
+CONTRADICTION on the planted line with a wrong value; a CONTRADICTION line that does not
+parse makes `no_false_contradiction` null, not false; a CONTRADICTION cited within 3 lines
+matches the figure whose doc value equals its "says" value first, then the nearest. Sizes
+are measured; verify-doc finds nothing in either fixture doc (exit 0, no FAIL,
+`gen_stalefig_test.py`), so the inference below is now checked by a run. Rep durations
+stay UNVERIFIED until a rep runs.
 
 PLAN DRAFT (the design as drafted; Status above is current). Fixed by the plan (item 3
 above): a planted stale figure in the repo docs; bar: the report states the
@@ -1792,15 +1800,17 @@ durations UNVERIFIED.
   no pin). `claude_version` is a `rep_key` input; an update from 2.1.310 to 2.1.311
   landed once, between series (series 4's three reps all ran under 2.1.311, key
   `d021cf3e`); the version is stamped at launch, so one rep cannot split
-  (`bench/ladder/README.md`, Limits). (j) SESSION DECISION 2026-10-26 (the operator may
-  reverse it, as ruling 18): the bar gains `status_done` (STATUS is DONE), and two
-  STATUS lines make `status_last_line` false, so a BLOCKED answer cannot meet the bar;
-  eight bar parts. Grader audit folds (built): every FIGURE line counts
+  (`bench/ladder/README.md`, Limits). (i) Fixture tells inside the files (constant-only
+  tests, no `scripts.test`, a timeout wrapper over synchronous code, one 1.3.0 commit
+  without `.gitignore` or `LICENSE`): accepted for series 1 (current); the operator rules
+  whether they are folded before a harder series 2. (j) SESSION DECISION 2026-10-26 (the
+  operator may reverse it, as ruling 18): the bar gains `status_done` (STATUS is DONE),
+  and two STATUS lines make `status_last_line` false, so a BLOCKED answer cannot meet the
+  bar; eight bar parts. Grader audit folds (built): every FIGURE line counts
   (`figures_conflict`), cited paths are normalized and a path outside the tree fails,
   `CONTRADICTION none` next to a real one fails (`contradiction_conflict`), a
-  CONTRADICTION heading is prose, both line forms take `-N` and `,N` ranges, a failed
-  `git status` leaves `scope_ok` null (`work_status_exit`), a malformed manifest is
-  null.
+  CONTRADICTION heading is prose, both line forms take `-N` and `,N` ranges, a failed `git
+  status` leaves `scope_ok` null (`work_status_exit`), a malformed manifest is null.
 - Risks: the line kind and its "none" signal that a contradiction may exist (the guards
   price over-flagging); results hold for thinking off only; one fixture measures
   variance, not generalisation; no cross-run memory expected (UNVERIFIED for Claude

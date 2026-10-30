@@ -3,10 +3,12 @@ python -I bench/ladder/tests/gen_stalefig_test.py
 
 Generates the fixture into temp dirs: determinism and hash, the manifest figures against
 the files, the docs' numbers, the planted value's absence from the code, neutral names,
-the fixture's own test suite (node) and its size. The last test runs
-`run.ps1 -Case stale-figure -DryRun` (pwsh; no session, no server request) and checks the
-printed policy_sha256 against the wrapper's -LisPrintArgs output and the rep_key against
-the ten inputs; it is skipped without pwsh.
+the fixture's own test suite (node) and its size, refusals that write nothing, and the
+fixture_sha256 of a fresh `python -I` process against the pinned FIXTURE_SHA256. The last
+test runs `run.ps1 -Case stale-figure -DryRun` (pwsh; no session, no server request) and
+checks the printed fixture_sha256 against the pin, the run-dir leaf and fixture commit for
+words that name the case, the policy_sha256 against the wrapper's -LisPrintArgs output and
+the rep_key against the ten inputs; it is skipped without pwsh.
 """
 import hashlib
 import importlib.util
@@ -22,6 +24,7 @@ import unittest
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
+RUN_PS1 = os.path.join(REPO, 'bench', 'ladder', 'run.ps1')
 
 
 def load(name, path):
@@ -35,6 +38,34 @@ gen = load('gen_stalefig', 'gen_stalefig.py')
 sf = load('stalefig', 'stalefig.py')
 SETTING = re.compile(r'MAX_BATCH|TIMEOUT_MS|RETRY_LIMIT')
 DOCS = ('tallyctl/README.md', 'tallyctl/CHANGELOG.md')
+# The fixture of generator VERSION 1; a deliberate fixture change updates both.
+FIXTURE_SHA256 = '597a8e5356da75d0d1102e2373d9d74330320cc1cbdea0914d47cd61dbfc5402'
+
+
+def tree(root):
+    """{relative path: bytes} of the files under root, or None when root does not exist."""
+    if not os.path.exists(root):
+        return None
+    out = {}
+    for d, _, names in os.walk(root):
+        for n in names:
+            with open(os.path.join(d, n), 'rb') as f:
+                out[os.path.relpath(os.path.join(d, n), root)] = f.read()
+    return out
+
+def link_dir(target, link):
+    """A directory symlink to target, else (Windows) a junction; False when neither works."""
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return True
+    except OSError:
+        pass
+    try:
+        import _winapi
+        _winapi.CreateJunction(target, link)
+        return True
+    except (ImportError, OSError):
+        return False
 
 
 class GenStaleFig(unittest.TestCase):
@@ -72,11 +103,47 @@ class GenStaleFig(unittest.TestCase):
             self.assertEqual(f1.read(), f2.read())
 
     def test_refusals(self):
+        # A non-empty fixture tree, then a manifest under out: in the fixture tree, directly
+        # in out, in a subdir of out, out itself. Each refusal writes nothing.
+        e = os.path.join(self.root, 'e')
+        for out, manifest in ((self.work, os.path.join(self.root, 'c.json')),
+                              (os.path.join(self.root, 'd'),
+                               os.path.join(self.root, 'd', 'tallyctl', 'm.json')),
+                              (e, os.path.join(e, 'm.json')),
+                              (e, os.path.join(e, 'sub', 'm.json')),
+                              (e, e)):
+            before = tree(out)
+            with self.assertRaises(SystemExit):
+                gen.generate(out, manifest)
+            self.assertEqual(tree(out), before, out)
+            if manifest != out:
+                self.assertFalse(os.path.exists(manifest), manifest)
+
+    def test_refuses_manifest_through_link(self):
+        # A manifest reached through a symlink or junction into out; writes nothing.
+        out, lnk = os.path.join(self.root, 'lnk-out'), os.path.join(self.root, 'lnk')
+        os.makedirs(out)
+        if not link_dir(out, lnk):
+            self.skipTest('no directory link')
         with self.assertRaises(SystemExit):
-            gen.generate(self.work, os.path.join(self.root, 'c.json'))
-        with self.assertRaises(SystemExit):
-            gen.generate(os.path.join(self.root, 'd'),
-                         os.path.join(self.root, 'd', 'tallyctl', 'm.json'))
+            gen.generate(out, os.path.join(lnk, 'm.json'))
+        self.assertEqual(tree(out), {})
+
+    def test_cross_process_sha_pinned(self):
+        # A fresh interpreter, as run.ps1 runs the generator: import-time nondeterminism
+        # passes test_deterministic_and_hash (one process) but not this.
+        with tempfile.TemporaryDirectory(prefix='sfg-') as out, \
+                tempfile.TemporaryDirectory(prefix='sfg-') as mdir:
+            p = subprocess.run([sys.executable, '-I', 'bench/ladder/gen_stalefig.py', '--out', out,
+                                '--manifest', os.path.join(mdir, 'm.json')], cwd=REPO,
+                               capture_output=True, encoding='utf-8', errors='replace',
+                               timeout=120)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            with open(os.path.join(mdir, 'm.json'), 'rb') as f:
+                doc = json.loads(f.read().decode('ascii'))
+        self.assertEqual(doc['generator']['version'], 1)
+        self.assertEqual(doc['fixture_sha256'], FIXTURE_SHA256)
+        self.assertEqual(self.doc['fixture_sha256'], FIXTURE_SHA256)
 
     def test_figures_hold_their_values(self):
         kinds = [f['kind'] for f in self.doc['figures']]
@@ -158,11 +225,14 @@ class DryRun(unittest.TestCase):
     def test_stale_figure_dry_run(self):
         root = tempfile.mkdtemp(prefix='sfd-')
         try:
-            p = subprocess.run(['pwsh', '-NoProfile', '-File',
-                                os.path.join(REPO, 'bench', 'ladder', 'run.ps1'),
+            # GIT_* identity variables override git's -c user.*: run.ps1 must pin them.
+            leak = {'GIT_AUTHOR_NAME': 'leak', 'GIT_AUTHOR_EMAIL': 'leak@x',
+                    'GIT_COMMITTER_NAME': 'leak', 'GIT_COMMITTER_EMAIL': 'leak@x'}
+            p = subprocess.run(['pwsh', '-NoProfile', '-File', RUN_PS1,
                                 '-Case', 'stale-figure', '-DryRun', '-WorkRoot', root,
                                 '-OutDir', root], cwd=REPO, capture_output=True,
-                               encoding='utf-8', errors='replace', timeout=300)
+                               encoding='utf-8', errors='replace', timeout=300,
+                               env={**os.environ, **leak})
             left = os.listdir(root)
         finally:
             shutil.rmtree(root, ignore_errors=True)
@@ -176,9 +246,16 @@ class DryRun(unittest.TestCase):
             return m.group(1)
         self.assertIn('precondition: ok, pass 11 of 11', out)
         fixture = field(r'^fixture_sha256: ([0-9a-f]{64}) \(generator version=1; tree hash matches\)')
-        self.assertEqual(fixture, gen.generate(os.path.join(tempfile.mkdtemp(prefix='sfh-'), 'w'),
-                                               os.path.join(tempfile.gettempdir(),
-                                                            'sfh-manifest.json'))['fixture_sha256'])
+        self.assertEqual(fixture, FIXTURE_SHA256)
+        # The model sees its cwd (the leaf) and git log (the commit): neither names the case.
+        leaf = field(r'^work_leaf: (\S+)$')
+        commit = field(r'^(fixture_commit: .+)$')
+        self.assertRegex(leaf, r'^\d{8}-\d{6}-w1$')
+        tell = re.compile(r'(?i)stale|figure|ladder|fixture|bench|planted')
+        self.assertIsNone(tell.search(leaf), leaf)
+        self.assertIsNone(tell.search(commit.split(': ', 1)[1]), commit)
+        self.assertEqual(commit, 'fixture_commit: dev <dev@localhost> '
+                                 '(committer dev <dev@localhost>) "release 1.3.0"')
         ctx = field(r'^case: stale-figure \(profile review, loop guard on, context_tokens (\d+)')
         node = field(r'\| model_node_version: (v\d+\.\d+\.\d+) ')
         prompt = field(r'^prompt \(\d+ chars, one argv string\):\n  (.*)$')

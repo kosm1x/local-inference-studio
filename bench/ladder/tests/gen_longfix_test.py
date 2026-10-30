@@ -49,6 +49,21 @@ MODULE_LINE = re.compile(r'(m\d\d|\?) (ok|FAIL) (\d+)/(\d+)(?:: (.+))?')
 def node_version():
     return subprocess.run(['node', '--version'], capture_output=True, text=True).stdout.strip()
 
+def link_dir(target, link):
+    """A directory symlink to target, else (Windows) a junction; False when neither works."""
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return True
+    except OSError:
+        pass
+    try:
+        import _winapi
+        _winapi.CreateJunction(target, link)
+        return True
+    except (ImportError, OSError):
+        return False
+
+
 
 class GenLongfix(unittest.TestCase):
     @classmethod
@@ -119,10 +134,33 @@ class GenLongfix(unittest.TestCase):
                 self.assertLessEqual(abs(f['lines'] - 120), 5, f['path'])
 
     def test_refusals(self):
+        # A non-empty fixture tree, --lines too large, then a manifest under out: in the
+        # fixture tree, directly in out, in a subdir of out, out itself. Each refusal writes
+        # nothing: out is unchanged (or still absent) and the manifest does not exist.
+        e = os.path.join(self.tmp, 'e')
+        for out, manifest, kw in ((self.b, os.path.join(self.tmp, 'again.json'), {}),
+                                  (os.path.join(self.tmp, 'big'), os.path.join(self.tmp, 'x.json'),
+                                   {'lines': 291}),
+                                  (e, os.path.join(e, 'longfix', 'm.json'), {}),
+                                  (e, os.path.join(e, 'm.json'), {}),
+                                  (e, os.path.join(e, 'sub', 'm.json'), {}),
+                                  (e, e, {})):
+            before = self.tree(out) if os.path.exists(out) else None
+            with self.assertRaises(SystemExit):
+                gen.generate(out, manifest, **kw)
+            self.assertEqual(self.tree(out) if os.path.exists(out) else None, before, out)
+            if manifest != out:
+                self.assertFalse(os.path.exists(manifest), manifest)
+
+    def test_refuses_manifest_through_link(self):
+        # A manifest reached through a symlink or junction into out; writes nothing.
+        out, lnk = os.path.join(self.tmp, 'lnk-out'), os.path.join(self.tmp, 'lnk')
+        os.makedirs(out)
+        if not link_dir(out, lnk):
+            self.skipTest('no directory link')
         with self.assertRaises(SystemExit):
-            gen.generate(self.b, os.path.join(self.tmp, 'again.json'))
-        with self.assertRaises(SystemExit):
-            gen.generate(os.path.join(self.tmp, 'big'), os.path.join(self.tmp, 'x.json'), lines=291)
+            gen.generate(out, os.path.join(lnk, 'm.json'))
+        self.assertEqual(self.tree(out), {})
 
     def run_node(self, cwd):
         r = subprocess.run(TEST_CMD, cwd=cwd, capture_output=True,

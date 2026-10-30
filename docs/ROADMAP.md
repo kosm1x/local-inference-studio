@@ -17,10 +17,10 @@ copy, never written back.
 | P1 Install + smoke | DONE 2026-10-24 | none |
 | P2 Claude Code profile | DONE 2026-10-24 | none |
 | P3 Bench matrix | DONE; default ruled (6, 14) | none |
-| P4 MoE CPU offload | not started | released (31); awaits a go |
-| P5 SGLang / vLLM in WSL2 | BLOCKED (KV capacity), accepted (9) | released (31) |
+| P4 MoE CPU offload | not started | NO-GO for now (34) |
+| P5 SGLang / vLLM in WSL2 | BLOCKED (KV capacity), accepted (9) | stays blocked (31) |
 | P6 MTP | measured; off in the default (ruling 14) | A/B (28): operator restarts |
-| P7 Daily use (new, proposed) | partial | released (31); awaits a go |
+| P7 Daily use (new, proposed) | partial | logon proof OPEN (32) |
 | Trust ladder rung 1 | DONE 2026-10-26, 4 of 4 | none |
 | Trust ladder rung 2 | NOT MET, CLOSED 2026-10-30 (ruling 23) | none |
 | Trust ladder rung 3 | MET 2026-10-30 at grammar: series 3 2 of 3 | none (no rung 4) |
@@ -34,7 +34,9 @@ series 3 rep 2). Under Rulings 2026-10-30 (below) the pass rule counts whole bar
 and the prompt of record is `-Hint grammar` (24): series 1 is the guided baseline,
 series 2 is 1 of 3 and series 3 (same key 9c89857a) 2 of 3, so rung 3 is MET
 (2026-10-30). Ruling 31 (2026-10-30) closes the ladder at rung 3, no rung 4; the items
-deferred until the close are released, each awaiting its own go (Open rulings below).
+deferred until the close were released and ruled the same day: P7's logon proof OPEN
+(32), Bonsai GO (33), then withdrawn, NO-GO for now (36), P4 and the harder loop
+fixture NO-GO (34), the uploader GO (35); P5 stays blocked (Open rulings below).
 
 ### Assessment
 
@@ -55,8 +57,8 @@ deferred until the close are released, each awaiting its own go (Open rulings be
   but a different axis from the one rung 2 names.
 - Most NEXT items wait on operator rulings, not on building. After the 2026-10-30
   batch and the ladder's close (31) three are open ((14), the MTP default, (16)'s four
-  build rulings), plus the (22) with (26) question; the released items each await a
-  go (Open rulings below). The order below takes the cheapest unblocked step first.
+  build rulings), plus the (22) with (26) question; the released items are ruled (32
+  to 36; Open rulings below). The order below takes the cheapest unblocked step first.
 - P4 and P5 carry no current plan: ruling 6 traded speed for accuracy, and P5 is
   blocked on 16 GB of VRAM. Neither bears on the ladder.
 - The roadmap has no phase for the project's own goal, daily Claude Code use on the
@@ -83,14 +85,14 @@ deferred until the close are released, each awaiting its own go (Open rulings be
 4. MTP A/B on the long-fix fixture: designed (rulings 28 and 14): server 65536 + MTP
    against 131072 without MTP, both at the 65536 client budget, plus 131072 + MTP with
    thinking off after a fit check. Awaits the operator's server restarts.
-5. P7: released 2026-10-30 (31; DEFERRED by (29) until the ladder closed); awaits a
-   go; its done-check is the logon start.
+5. P7: released 2026-10-30 (31; DEFERRED by (29) until the ladder closed); the logon
+   proof kept OPEN by (32), no logon cycle scheduled; its done-check is the logon start.
 6. DONE (this commit): the grader drops the final test run from `check_missing`
    when the session reported (ruling 21; report-only, the bar unchanged) and reports
    `check_missing_final_exempt`; regrades of copies: 6 of 10 long-fix reps go from
    `check_missing:1` to 0 (`bench/ladder/README.md`, Result fields).
-7. Ladder closed (31): the released items each await a go: P7 (logon proof,
-   operator), Bonsai, P4, P5 blocked, P3 uploader, harder loop fixture.
+7. Bonsai: withdrawn (36).
+8. Uploader rule (35): DONE, docs/uploader-rule.md.
 
 ### P7 — Daily use (proposed)
 
@@ -101,20 +103,21 @@ deferred until the close are released, each awaiting its own go (Open rulings be
 - Done-check: LastRunTime after the logon, `/health` ok, and the session's requests in
   `logs/llama-server.log` with 0 errors. The manual task start is proven (2026-10-25
   06:37 UTC); the logon start itself is UNPROVEN.
-- Open rulings: none. Released 2026-10-30 (31); awaiting a go (DEFERRED by (29) until
-  the ladder closed). The logon proof is the operator's.
+- Open rulings: the logon proof stays OPEN (32, 2026-10-30): released by (31), not
+  closed, no logon cycle scheduled. The logon proof is the operator's.
 
 ### Open rulings with recommendations
 
 Recommendations only; each stays OPEN until the operator rules. Ruled on 2026-10-30
 (Rulings 2026-10-30 below): the rung pass rule (22), rung 2 (23), rung 3 drafts (a) to
 (j) (24 to 27; (g) with (19)), (17), (19), (20), (21), the MTP A/B design (28),
-series 3 (30) and the ladder's close (31). Still OPEN:
+series 3 (30), the ladder's close (31), the items it released (32 to 35) and the
+Bonsai withdrawal (36). Still OPEN:
 
-- Released 2026-10-30 by (31), awaiting a go (DEFERRED by (9) and (29) until the
-  ladder closed): P7 (the logon proof, the operator's), the (9) Bonsai revisit, the P4
-  go/no-go, P5 (accepted as blocked), the P3 uploader per model and the harder loop
-  fixture. None is started by the ruling.
+- P7, the logon proof (the operator's): kept OPEN by (32); released by (31), not
+  closed, no logon cycle scheduled. The other released items are ruled: the (9)
+  Bonsai revisit GO (33), then withdrawn, NO-GO for now (36); the P4 go/no-go and
+  the harder loop fixture NO-GO for now (34); P5 stays blocked (accepted as blocked).
 - (14) Kept OPEN by the operator on 2026-10-30: "I still want to run MTP with 131k
   again now no thinking is enabled." The MTP A/B (28) gains a third arm, 131072 + MTP
   with thinking off, after a fit check; that MTP at 131072 costs GPU layers is an
@@ -254,9 +257,10 @@ series 3 (30) and the ladder's close (31). Still OPEN:
   2026-10-30; (9) Bonsai revisit (a dense 27B now IS the default and VRAM headroom is
   1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
   multi-file loop fixture should settle the accuracy question that the 3-test fixture
-  could not (every contender passed it): all three released 2026-10-30 (31); awaiting
-  a go (DEFERRED earlier that day until the ladder closed); (16) serve a second,
-  smaller model for the auto-mode classifier via `CLAUDE_CODE_AUTO_MODE_MODEL` (same
+  could not (every contender passed it): all three released 2026-10-30 (31), then
+  ruled: Bonsai GO (33), withdrawn by (36); P4 and the harder fixture NO-GO for now
+  (34); (16) serve a second, smaller model for the auto-mode classifier via
+  `CLAUDE_CODE_AUTO_MODE_MODEL` (same
   endpoint; whether llama-server b11868's router mode can serve it is UNVERIFIED;
   nvidia-smi on 2026-10-25 showed 653 MiB free with every process counted, a
   point-in-time value, while the 1,630 MiB in (9) is llama's projected fit for the
@@ -403,8 +407,9 @@ series 3 (30) and the ladder's close (31). Still OPEN:
   131072 with q4_0 KV and the patched chat template; ruling 12 moved it to 65536 with
   MTP on, ruling 14 moved it back to 131072 without MTP; the logon task serves that.
 - Open rulings: uploader per model (Unsloth vs Bartowski, given the tool-call gap
-  reported for one quant). Released 2026-10-30 (31); awaiting a go (DEFERRED by (9)
-  until the ladder closed).
+  reported for one quant). Released 2026-10-30 (31). DONE 2026-10-30 (35): rule in
+  docs/uploader-rule.md; no model changes uploader; the gap claim is untraceable
+  (UNVERIFIED).
 
 ## P4 — MoE CPU offload
 
@@ -413,8 +418,8 @@ series 3 (30) and the ladder's close (31). Still OPEN:
   sweep N; same bench as P3.
 - Done-check: bench JSON for at least two N values, compared with the P3 winner.
 - Open rulings: whether ~40 tok/s is acceptable for agentic use, with the P4
-  go/no-go: released 2026-10-30 (31); awaiting a go (DEFERRED by (9) until the ladder
-  closed).
+  go/no-go: NO-GO for now (34, declined 2026-10-30; revisit if a smaller MoE
+  appears).
 - Status 2026-10-24: not started. Ruling 6 accepted 45 tok/s for accuracy, so the
   bar for P4 is correctness on the loop fixture against the Orca default, not speed.
 
@@ -429,8 +434,8 @@ series 3 (30) and the ladder's close (31). Still OPEN:
   Done-check not met (no server came up, so no smoke and no bench JSON).
 - Open rulings: whether any candidate needs it at all on 16 GB; for OrcaSAQ-2-27B,
   accept "blocked" or authorize one of the untried levers listed in the spike section.
-  RULED 2026-10-30: accepted as blocked; released 2026-10-30 (31); awaiting a go
-  (DEFERRED by (9) until the ladder closed).
+  RULED 2026-10-30: accepted as blocked; released 2026-10-30 (31); stays blocked, no
+  go given.
 
 ## P6 — Speculative decoding / MTP
 
@@ -674,8 +679,7 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   2026-10-24 later: a dense 27B is now the default (ruling 6) with 1,630 MiB free,
   so the condition is met; revisit is an OPEN ruling (fork = separate binary, no
   `/v1/messages` guarantee; see `docs/evaluation-2026-10-24.md`). 2026-10-30: released
-  (31); awaiting a go (DEFERRED earlier that day until the ladder closed; Rulings
-  2026-10-30).
+  (31), GO (33), then withdrawn, NO-GO for now (36) (Rulings 2026-10-30).
 - (10) Egress proof: RUN 2026-10-24 19:03 by the operator, PASS after attribution
   (8 keepalive lines from the operator's own cloud session, 0 from the local run);
   details in "Phase 3 part A" (Egress). CLOSED.
@@ -1742,12 +1746,13 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   counted rep, and the verdicts failed on FIXED and CHECK lines left out or written
   wrong. Rung 3 (a planted stale figure): MET on series 3, 2 of 3 at `-Hint grammar`;
   the planted figure was flagged in 6 of 6 grammar reps, and the STATUS line was not
-  last in 3 of 6. Released, each awaiting its own go (none started by the ruling): P7
-  (29), the (9) Bonsai revisit, the P4 go/no-go, P5 (accepted as blocked), the P3
-  uploader per model and the harder loop fixture. Still OPEN: (14) and the MTP A/B,
-  three arms, each needing an operator server restart; the MTP default (a separate
-  ruling after the A/B); the (16) build (four further rulings); the (22) with (26)
-  split-key question.
+  last in 3 of 6. The released items, ruled the same day: P7's logon proof stays OPEN
+  (32); the (9) Bonsai revisit GO (33), then withdrawn, NO-GO for now (36); the P4
+  go/no-go and the harder loop fixture NO-GO for now (34); the P3 uploader per model
+  GO (35), delivered as docs/uploader-rule.md; P5 stays blocked. Still OPEN: (14)
+  and the MTP A/B, three arms, each needing an operator server restart; the MTP
+  default (a separate ruling after the A/B); the (16) build (four further rulings);
+  the (22) with (26) split-key question.
 
 ### Rung 3 stale-figure (plan draft 2026-10-26)
 
@@ -2240,6 +2245,27 @@ names the rung 3 draft letters it settles ("Rung 3 stale-figure", PLAN DRAFT).
   P7 (29), and under (9) the Bonsai revisit, the P4 go/no-go, P5 (accepted as
   blocked), the P3 uploader per model and the harder loop fixture. Each now needs its
   own go from the operator; none is started by this ruling.
+- (32) P7 logon proof: stays OPEN (taken with (33) to (35) on 2026-10-30, about 11:50
+  local, after (31); the operator chose "keep it open"). Released by (31), not closed;
+  no logon cycle is scheduled. Consequence: P7's done-check, the logon start, stays
+  UNPROVEN, and the logon proof stays the operator's.
+- (33) The (9) Bonsai revisit: GO. Bench the Bonsai contender against the current
+  default (Orca Qwen3.8-27B-Uncensored IQ3_XXS, 131072, q4_0 KV) on the P3 bench and
+  the loop fixture. Consequence: the server swap for each bench arm is the operator's
+  restart. Withdrawn by (36).
+- (34) P4 MoE CPU offload: NO-GO for now (declined 2026-10-30); revisit if a smaller
+  MoE appears. The harder loop fixture: NO-GO for now (declined 2026-10-30).
+  Consequence: P4 stays not started, and the loop fixture stays the 3-test fixture.
+- (35) P3 uploader per model (Unsloth vs Bartowski): GO. A documented rule per model,
+  with the evidence for the reported tool-call gap; no download unless the rule
+  changes the default. Consequence: the rule is documented; no download.
+  Delivered: docs/uploader-rule.md.
+- (36) The (9) Bonsai revisit: WITHDRAWN, NO-GO for now (2026-10-30, about 11:52
+  local; withdraws the GO of (33)). The quant (PTQ1_0) loads only in PrismML's
+  llama.cpp fork (per the reference repo, UNVERIFIED): the stock b11868
+  `bin/ggml-base.dll` has `tq1_0`/`tq2_0` strings but no `ptq1` (checked 2026-10-30);
+  the repo names no HF repo or file for the model; building from source is excluded.
+  The operator withdrew the go. Consequence: no download, no bench.
 
 ## Phase 3 part A 2026-10-24
 

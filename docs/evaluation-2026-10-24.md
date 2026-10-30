@@ -108,6 +108,7 @@ here; abliteration usually costs capability; the cards are gated so method
 and evals could not be read; tool-call reliability varies sharply by
 uploader and these are re-quants of an abliterated finetune, an extra
 unknown over the Unsloth / Bartowski stock quants.
+2026-10-30: the uploader claim has no traceable source; see `docs/uploader-rule.md`.
 
 ## Conclusion
 

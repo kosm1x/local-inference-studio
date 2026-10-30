@@ -94,6 +94,7 @@ Speeds are from an RTX 4080 16 GB llama.cpp bench at 19K / 64K context
   Quant quality varies by uploader (one test: Unsloth IQ3_XXS Qwen3.5-27B 5%
   vs Bartowski 100% tool-call success). The llama.cpp function-calling doc
   lags newer model families (UNVERIFIED).
+  2026-10-30: the uploader claim has no traceable source; see `docs/uploader-rule.md`.
 - **Thinking:** Qwen3.6/3.8 think by default. Control via
   `--chat-template-kwargs` with `enable_thinking` / `preserve_thinking` /
   `reasoning_effort` (PowerShell needs `\"` escaping). Sampling: temp 0.6-1.0,

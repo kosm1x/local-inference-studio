@@ -27,7 +27,9 @@ copy, never written back.
 
 The 2026-10-27 results check above predates rung 3 series 1 and 2 (both 2026-10-30);
 their figures come from their own result files (Rung 3 stale-figure, Series 1 and
-Series 2).
+Series 2). On the axis under test both series are 3 of 3 (the planted figure flagged,
+no false contradiction); series 2's two misses are `status_last_line` only, and whether
+the pass rule counts whole bars or parts is the operator's (pass rule below).
 
 ### Assessment
 

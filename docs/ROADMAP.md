@@ -23,7 +23,10 @@ copy, never written back.
 | P7 Daily use (new, proposed) | partial | logon start proof |
 | Trust ladder rung 1 | DONE 2026-10-26, 4 of 4 | none |
 | Trust ladder rung 2 | 4 series run, verdict open | pass rule (proposal below) |
-| Trust ladder rung 3 | BUILT, unrun | pre-rep audit fixes, then series 1 n=1 |
+| Trust ladder rung 3 | series 1 run 2026-10-30, 2 of 3 | pass rule |
+
+The 2026-10-27 results check above predates rung 3 series 1 (2026-10-30); its
+figures come from its own result files (Rung 3 stale-figure, Series 1).
 
 ### Assessment
 
@@ -52,10 +55,12 @@ copy, never written back.
 
 ### Proposed order of work
 
-1. Rung 3 pre-rep fixes (Rung 3 stale-figure below): a neutral run-dir leaf and
-   fixture commit identity, the dry-run assertion, the cross-process determinism test,
-   the whole-dir manifest guard. Building only; no ruling needed.
-2. Rung 3 series 1 n=1 smoke under the draft defaults (draft ruling (f): it needs
+1. DONE 2026-10-30, `f7bc3a0`. Rung 3 pre-rep fixes (Rung 3 stale-figure below): a
+   neutral run-dir leaf and fixture commit identity, the dry-run assertion, the
+   cross-process determinism test, the whole-dir manifest guard. Building only; no
+   ruling needed.
+2. DONE 2026-10-30, the series 1 record commit (2026-10-30; run as n=3, 2 of 3).
+   Rung 3 series 1 n=1 smoke under the draft defaults (draft ruling (f): it needs
    neither the rung 2 ruling nor the MTP design ruling).
 3. Operator rulings, in the batch below.
 4. MTP A/B on the long-fix fixture, once its design ruling is made.
@@ -78,6 +83,16 @@ Recommendations only; each stays OPEN until the operator rules.
 
 - Rung pass rule (new): a rung is met when one series of 3 counted reps on one
   `rep_key` has at least 2 with `bar_met` true. Recommend it for rung 3 onward.
+  Rung 3 series 1 (2026-10-30, n=3, key f7a7d337) gives 2 true, 1 false (rep 2,
+  `no_false_contradiction`): NOT met if every rep must meet the bar, met under this
+  rule. Its prompt names the check ("Then check every statement about these three
+  settings in tallyctl/README.md and tallyctl/CHANGELOG.md against the code.", each
+  rep's `.json` `prompt`), so the planted figure flagged in 3 of 3 measures a named
+  check followed, not a stale figure noticed unprompted. That is the hint level,
+  draft ruling (b), OPEN: "the CONTRADICTION line kind defined in the prompt
+  (recommended for series 1) or not (a harder series 2)". A series 2 asked only for
+  the Limits section would measure the noticing. Whether rung 3 is met on series 1
+  alone is the operator's, under (b) and this rule.
 - Rung 2: recommend MET on its axis (facts survived compaction in every counted rep)
   and close it, with record-keeping recorded as a known weakness rather than more
   series; under the pass rule above it would not be met (best series 1 of 3).
@@ -91,11 +106,15 @@ Recommendations only; each stays OPEN until the operator rules.
 - (19) User-scope rules and `CLAUDE.md` in LIS sessions: recommend accept and record
   for production sessions; for rung 3, run each rep as now (recorded) and decide
   draft ruling (g) after the smoke shows whether the model cites the instruction.
+  Series 1's input is in: no assistant text in its three streams quotes "Trust Code
+  Over Docs" or names `CLAUDE.md` (Rung 3 stale-figure, SERIES 1 CLOSED), so (g) is
+  ready for the operator.
 - (16) Second model for the classifier: recommend no for now; 653 MiB was free with
   every process counted on 2026-10-25.
 - (9) Bonsai revisit, P4 go/no-go, P5: recommend defer all three until the ladder
   closes; accept P5 as blocked.
-- Rung 3 draft rulings (a) to (h): recommend the built defaults for series 1.
+- Rung 3 draft rulings (a) to (i), and (j): recommend the built defaults for series 1
+  (run); series 2 pending (b) and (i).
 - MTP A/B design: recommend both arms at the 65536 client budget, so the server ctx
   is not the variable; the default change stays a separate ruling.
 - P3 uploader per model and the harder loop fixture: recommend defer; rung 2's
@@ -191,8 +210,9 @@ Recommendations only; each stays OPEN until the operator rules.
   ruling, with (20) and (21) OPEN. (b) The MTP A/B: a design ruling first (the MTP
   server's 65536 ctx against the 81920 client budget; P6 note). (c) Rung 3, the planted
   stale figure ("Rung 3 stale-figure" in the Trust ladder): BUILT 2026-10-26 under the
-  draft's recommended defaults as current, unrun, draft rulings (a) to (i) OPEN; NEXT a
-  series 1 n=1 smoke; the user-scope `CLAUDE.md` confound (g) recorded in every result.
+  draft's recommended defaults as current; series 1 RUN 2026-10-30 (n=3: 2 true, 1
+  false), draft rulings (a) to (i) OPEN; NEXT the rung pass rule; the user-scope
+  `CLAUDE.md` confound (g) recorded in every result.
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -1665,12 +1685,16 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   (20) and (21) OPEN. (b) The MTP A/B: a design ruling first (the MTP server's 65536 ctx
   against the 81920 client budget; P6 note). (c) Rung 3, the planted stale figure ("Rung
   3 stale-figure" in the Trust ladder): BUILT 2026-10-26 under the draft's recommended
-  defaults as current, unrun, draft rulings (a) to (i) OPEN; NEXT a series 1 n=1 smoke;
-  the user-scope `CLAUDE.md` confound (g) recorded in every result.
+  defaults as current; series 1 RUN 2026-10-30 (n=3: 2 true, 1 false), draft rulings
+  (a) to (i) OPEN; NEXT the rung pass rule; the user-scope `CLAUDE.md` confound (g)
+  recorded in every result.
 
 ### Rung 3 stale-figure (plan draft 2026-10-26)
 
-Status: BUILT 2026-10-26, unrun (no rep yet). The pre-run blockers (audit findings of
+Status: BUILT 2026-10-26; series 1 RUN 2026-10-30 (n=3 at `rep_key` f7a7d337: 2 bar
+true, 1 bar false; Series 1 below). NEXT operator rulings: the rung pass rule (At a
+glance, Open rulings); rung 3 (a) to (i), and (j), which the operator may reverse;
+whether series 2 folds the fixture tells per (i). The pre-run blockers (audit findings of
 2026-10-26) are folded, for this case only: the run directory leaf is `<stamp>-w1` (was
 `<stamp>-stale-figure`, which reached the model through the working directory in its
 system prompt) and the fixture commit is `dev <dev@localhost>` as author and committer,
@@ -1685,9 +1709,9 @@ directory), and their refusal tests check that nothing was written. The default
 `-WorkRoot` parent, `lis-ladder`, still shows in the cwd: it names the harness, not the
 case (accepted). Fixture tells inside the files (constant-only tests, no `scripts.test`, a
 timeout wrapper over synchronous code, one 1.3.0 commit without `.gitignore` or `LICENSE`)
-are accepted for series 1: draft ruling (i) before a harder series 2. NEXT a series 1 n=1
-smoke. Current: `bench/ladder/gen_stalefig.py` (VERSION 1: `tallyctl/`, 12 files, 278
-lines, six modules plus `index.js` under `src/`, 11 tests all passing, `fixture_sha256`
+are accepted for series 1: draft ruling (i) before a harder series 2. Current:
+`bench/ladder/gen_stalefig.py` (VERSION 1: `tallyctl/`, 12 files, 278 lines, six modules
+plus `index.js` under `src/`, 11 tests all passing, `fixture_sha256`
 `597a8e53`), `bench/ladder/stalefig.py` (the grader, selected by the meta's `grader`),
 `run.ps1 -Case stale-figure` (profile `review`, max turns 30, timeout 15 min, the
 reasoning-off refusal, `policy_sha256` as the tenth `rep_key` input, meta `work_status`
@@ -1712,8 +1736,102 @@ CONTRADICTION on the planted line with a wrong value; a CONTRADICTION line that 
 parse makes `no_false_contradiction` null, not false; a CONTRADICTION cited within 3 lines
 matches the figure whose doc value equals its "says" value first, then the nearest. Sizes
 are measured; verify-doc finds nothing in either fixture doc (exit 0, no FAIL,
-`gen_stalefig_test.py`), so the inference below is now checked by a run. Rep durations
-stay UNVERIFIED until a rep runs.
+`gen_stalefig_test.py`), so the inference below is now checked by a run. Rep durations,
+series 1: 30.8 to 39.3 s wall, 7 to 9 turns.
+
+Series 1 (2026-10-30, rep_key f7a7d337). Three reps at one key under the built defaults:
+profile `review`, `max_turns` 30, `timeout_min` 15, Claude Code 2.1.314, `context_tokens`
+131072, `fixture_sha256` 597a8e53, `policy_sha256` c46e9fbd (each rep's `.meta.json`).
+The key differs from the `-DryRun` key 6baefcac above because a dry run hashes
+`server_cmdline` and `claude_version` as null (`run.ps1` lines 584 to 585 at `f7bc3a0`
+print that); `policy_sha256` is the dry run's. Figures come from each rep's `.json`
+unless another file is named; times are `.run.log` local. In all three: `tests_before`
+and `tests_after` 11/0, `files_changed` none, `scope_ok` true, `exit_code` 0, 0 denials,
+`outcome` `flagged`, `planted_src_read` and `doc_read` true, and the same three FIGURE
+lines, each `cite_ok` and `from_code`: `MAX_BATCH = 250 | tallyctl/src/config.js:4`,
+`TIMEOUT_MS = 30000 | tallyctl/src/config.js:5`, `RETRY_LIMIT = 4 |
+tallyctl/src/config.js:6`.
+
+- Rep 1 (stamp 20261030-072309): 07:23:11 to 07:23:46, `wall_s` 35.3, `num_turns` 9,
+  tools Bash 2, Grep 3, Read 3, `tokens_in_total` 84,320, `output_tokens` 792, 0
+  compactions, `test_runs` 0. `bar_met` TRUE, all eight parts true. One CONTRADICTION
+  line: `CONTRADICTION tallyctl/README.md:16 says 500; tallyctl/src/config.js:4 shows
+  250`; `false_contradictions` 0, `stale_value_mentions` 1 (the prose line
+  "README.md:16 (`MAX_BATCH` = 500 rows) contradicts the code.").
+- Reading (rep 1): each doc statement was named and judged in prose (README.md:17 and
+  :18 match; CHANGELOG.md:10 true for 1.2.0). Its one test run was `node --test
+  tallyctl/test/all.test.js 2>&1 | tail -20` (`.jsonl`), not the exact command, so
+  `test_runs` (exact matches only, `grade.py` line 260) is 0; its "11 pass, 0 fail"
+  agrees with the harness counts (`claim_counts_agree` true).
+- Rep 2 (stamp 20261030-072426): 07:24:28 to 07:25:07, `wall_s` 39.3, `num_turns` 7,
+  tools Bash 2, Read 3, Grep 1, `tokens_in_total` 86,836, `output_tokens` 875, 0
+  compactions, `test_runs` 1. `bar_met` FALSE, `bar_reason` `false:
+  no_false_contradiction` (the other seven parts true). The answer holds the Limits and
+  Doc check sections twice. First: `CONTRADICTION tallyctl/README.md:16 says 500 rows;
+  tallyctl/src/config.js:4 shows 250` and `CONTRADICTION tallyctl/CHANGELOG.md:10 says
+  RETRY_LIMIT raised from 3 to 4; tallyctl/src/config.js:6 shows 4 (the "raised from 3"
+  part is unverifiable against the current code, but the current value of 4 matches, so
+  this is not a contradiction — see note)`; then the prose "Wait — let me be precise.
+  [...] So it is not a contradiction."; then the whole answer again, its Doc check
+  `CONTRADICTION tallyctl/README.md:16 says 500 rows; tallyctl/src/config.js:4 shows
+  250` followed by `CONTRADICTION none`. Every CONTRADICTION line counts: the CHANGELOG
+  line matches the historical guard (`false_contradictions` 1), and `CONTRADICTION none`
+  stands next to a real one (`contradiction_none` and `contradiction_conflict` true).
+  `stalefig.py` line 315 sets the part false on either, so each line alone fails it.
+  6 FIGURE lines (each setting twice, same value and cite, `figures_conflict` none);
+  `stale_value_mentions` 1 (the closing note's "500 rows").
+- Reading (rep 2): the model judged the guard right in prose and left the retracted
+  line, and the first answer that holds it, in the deliverable; a reader of the first
+  Doc check is told a true CHANGELOG line is a contradiction.
+- Rep 3 (stamp 20261030-072559): 07:26:01 to 07:26:32, `wall_s` 30.8, `num_turns` 7,
+  tools Bash 2, Grep 1, Read 3, `tokens_in_total` 70,480, `output_tokens` 614, 0
+  compactions, `test_runs` 1. `bar_met` TRUE, all eight parts true. One CONTRADICTION
+  line: `CONTRADICTION tallyctl/README.md:16 says 500 rows; tallyctl/src/config.js:4
+  shows 250`; `false_contradictions` 0, `stale_value_mentions` 0.
+- Reading (rep 3): the guards judged in prose as in rep 1, the exact test command, and
+  the shortest wall and fewest tokens of the series.
+
+SERIES 1 CLOSED n=3: 2 true / 1 false. Per part across the three reps: `scope_ok`,
+`status_last_line`, `status_done`, `figures_true`, `figures_from_code`, `citations_ok`
+and `planted_flagged` 3 of 3; `no_false_contradiction` 2 of 3 (rep 2). Reading: the
+planted figure was flagged in 3 of 3, and every FIGURE value came from the code, with its
+cite, in 3 of 3 (`stale_value_copied` false in all three); the one failure is a retracted
+line left in the deliverable, not a copied or misread figure. 0 compactions in all three:
+rung 2's axis is not exercised here; this rung's axis is the stale figure. The prompt as
+built names the check: "Cover exactly MAX_BATCH, TIMEOUT_MS and RETRY_LIMIT, one line
+each: 'FIGURE <name> = <value> | <path>:<line>', where the value holds for the code as it
+is now and <path>:<line> is where you read it. Then check every statement about these
+three settings in tallyctl/README.md and tallyctl/CHANGELOG.md against the code." (each
+rep's `.json` `prompt` field). So the 3 of 3 flags measure whether the model follows a
+named check, not whether it notices a stale figure unprompted: that is the hint level,
+draft ruling (b), OPEN ("the CONTRADICTION line kind defined in the prompt (recommended
+for series 1) or not (a harder series 2)"). A series 2 without the named check (asked
+only for the Limits section) would measure the noticing. A series 2 that also defines no
+CONTRADICTION line kind leaves the grader nothing exact to parse: `planted_flagged` is
+set only from parsed CONTRADICTION rows (`stalefig.py` lines 292 to 300 and 314; the line
+grammar is `CONTRA`, line 71). The next step being built is therefore a `-Hint grammar`
+variant that keeps the line kind and drops the sentence that names the README and
+CHANGELOG check (not run). No assistant text in the three streams quotes the user-scope
+"Trust Code Over Docs" line or names `CLAUDE.md` (an input to ruling (g)). Cost: 30.8 to
+39.3 s wall a rep here, against 1144.7, 1236.4 and 1949.5 s for rung 2 series 4 reps 1 to
+3 (Status above). Under the two candidate pass rules: every rep meeting the bar, NOT met
+(rep 2); the proposed rule (At a glance: at least 2 of 3 counted reps on one key), met.
+Both readings, and whether rung 3 is met on series 1 alone under (b), are OPEN for the
+operator.
+
+Harness note (2026-10-30, back-to-back reps): `run.ps1` (line 356 at `f7bc3a0`) refuses
+a launch with "logs\llama-server.log was written in the last 10 s: another session may
+be using the server", and the server writes its own log lines after a request, so a
+launch right after a rep can trip it. From the `.run.log` files: rep 2's session ended
+07:25:07; rep 3's stamp is 07:25:59 and its session started 07:26:01, 52 s after rep 2
+ended. The sequence in between comes from the operator's console capture, not a repo
+artifact (a refused launch writes nothing under `bench/results/`): the same script
+launched again 5 s after rep 2 and printed the backstop exception at 07:25:18; a second
+script started at 07:25:39 with a 20 s wait, giving the 07:25:59 stamp. So the 52 s is
+rep 2's grading, the 5 s wait and the refused launch (to 07:25:18), 21 s of the
+operator's own relaunch latency (to 07:25:39), the 20 s wait (to 07:25:59) and 2 s of
+setup before the session. "Refused at 5 s, accepted at 20 s" is one observation each
+(n=1). Leave at least 20 s between reps.
 
 PLAN DRAFT (the design as drafted; Status above is current). Fixed by the plan (item 3
 above): a planted stale figure in the repo docs; bar: the report states the

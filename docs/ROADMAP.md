@@ -136,6 +136,30 @@ harness fixes (39). Still OPEN:
   misbehaves); P2 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` value; P6 the context-for-MTP trade
   for other models.
 
+## Audits 2026-10-30
+
+Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
+owner, fix and proof is in one table in
+[docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md) (all OPEN).
+
+- Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
+- Trustworthiness: FAIL for unsupervised long tasks; PASS WITH WARNINGS for short
+  test-gated ones read at STATUS and After.
+- Security: FAIL for enabling web fetch now (blockers B1-B7).
+- Web access prep: DISARMED until the security blockers close.
+
+Batches (IDs in the ledger):
+
+- A, security repo-side: settings denies, lis-guard interpreter payloads, `.gitignore`,
+  install and GGUF hash pins.
+- B, resilience: serve.ps1 restart loop, per-boot key, `--no-webui`, `--host` lock,
+  stop.ps1 marker, watchdog.ps1, wrapper health and busy check, key file, context margin.
+- C, trust graders: three new report-only checks and a regrade table.
+- D, new fixtures: honest BLOCKED, injection and secret bait.
+- E, compaction facts-read hook.
+- F, operator apply lines (user scope, firewall, task history, restart).
+- G, a multi-hour supervised run after A to E.
+
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 
 - Default server (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12): Orca

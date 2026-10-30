@@ -105,10 +105,22 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 
 ## Docs
 
+- [docs/audits/2026-10-30-ledger.md](docs/audits/2026-10-30-ledger.md) — every
+  2026-10-30 audit finding with owner, fix, status and proof, plus the work batches
+- [docs/audits/2026-10-30-resilience.md](docs/audits/2026-10-30-resilience.md) —
+  resilience audit (FAIL for unsupervised multi-hour tasks)
+- [docs/audits/2026-10-30-security.md](docs/audits/2026-10-30-security.md) — security
+  audit (FAIL for enabling web fetch now)
+- [docs/audits/2026-10-30-trustworthiness.md](docs/audits/2026-10-30-trustworthiness.md)
+  — trustworthiness audit of the ladder artifacts (FAIL for unsupervised long tasks)
+- [docs/audits/2026-10-30-web-access-prep.md](docs/audits/2026-10-30-web-access-prep.md)
+  — web access prep report (DISARMED)
 - [docs/evaluation-2026-10-24.md](docs/evaluation-2026-10-24.md) — the two repos the operator asked about (both REFERENCE ONLY) and the orcarouter HF org
 - [docs/landscape-2026-10-24.md](docs/landscape-2026-10-24.md) — Claude Code wiring, backends, model candidates, gotchas
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phases P0-P6
 - [docs/uploader-rule.md](docs/uploader-rule.md) — GGUF uploader per model (ruling 35)
+- [docs/web-access.md](docs/web-access.md) — web fetch/search for the local model,
+  staged DISARMED
 - [config/models.md](config/models.md) — tracked model candidates
 - [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 131072, WebSearch, WebFetch, Agent and Workflow denied, rule set A: read-only allow and critical-write ask rules, ruling 15); the wrapper adds the `scripts/hooks/lis-guard.py` payload hook (docs/SETUP.md step 8)
   and the `scripts/verify-doc.py` PostToolUse hook, which checks the sums, file counts,

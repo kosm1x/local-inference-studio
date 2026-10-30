@@ -159,13 +159,17 @@ Batches (IDs in the ledger):
 - E, compaction facts-read hook.
 - F, operator apply lines (user scope, firewall, task history, restart).
 - G, a multi-hour supervised run after A to E.
+- Known divergence: the policy text says 131,072 tokens and `Bearer local`; the wrapper
+  now gives Claude Code 114,688 and a per-start key; changing the text re-keys the
+  stale-figure dry run (ruling needed).
 
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 
 - Default server (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12): Orca
   Qwen3.8-27B-Uncensored IQ3_XXS, ctx 131072, KV q4_0, patched chat template, no MTP,
   server thinking off (`--reasoning off`, RULED 2026-10-26); `claude-local.ps1` and
-  `config/claude-settings.json` default to a 131072 window. Cutover and the re-run
+  `config/claude-settings.json` default to a 114688 window (2026-10-30; the ladder and
+  benches pass 131072 explicitly). Cutover and the re-run
   grades: ruling (14), whose closing condition (disks and GPU correct, no compaction)
   RUN 5 met; kept OPEN 2026-10-30 for a 131072 + MTP arm (Rulings 2026-10-30). The
   ruling 14 commit: `134b4e9`.

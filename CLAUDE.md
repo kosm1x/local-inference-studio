@@ -18,5 +18,8 @@ Constraints for agents working in this repo:
   `python -I bench/ladder/tests/gen_stalefig_test.py`,
   `python -I bench/ladder/tests/stalefig_test.py`,
   `python -I scripts/tests/verify-doc_test.py`,
-  `python -I scripts/tests/verify_claims_report_test.py` and
+  `python -I scripts/tests/verify_claims_report_test.py`,
+  `python -I scripts/tests/resilience_test.py`,
+  `python -I scripts/tests/claude_settings_test.py`,
+  `python -I scripts/tests/install_verify_test.py` and
   `node --test bench/loop/fixture/test/text.test.js` (3 fail by design).

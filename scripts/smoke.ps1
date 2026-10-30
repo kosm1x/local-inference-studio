@@ -20,7 +20,12 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $base = "http://127.0.0.1:$Port"
-$headers = @{ 'x-api-key' = 'local'; 'anthropic-version' = '2023-06-01' }
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# The per-start key scripts/serve.ps1 writes; a server started before that uses 'local'.
+$keyFile = Join-Path $repo 'logs\api-key'
+$apiKey = if (Test-Path -LiteralPath $keyFile -PathType Leaf) { "$(Get-Content -LiteralPath $keyFile -TotalCount 1)".Trim() }
+if (-not $apiKey) { $apiKey = 'local' }
+$headers = @{ 'x-api-key' = $apiKey; 'anthropic-version' = '2023-06-01' }
 
 try {
     $health = Invoke-RestMethod -Uri "$base/health" -TimeoutSec 10

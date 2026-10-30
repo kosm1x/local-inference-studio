@@ -10,8 +10,11 @@
   battery (it neither waits for AC power nor stops when the machine switches to battery),
   no execution time limit, a second start is ignored while one runs, and a missed start
   runs when available. RestartCount 3 / RestartInterval 1 minute only retry a launch that
-  fails: once llama-server is running, a crash or scripts/stop.ps1 leaves it down until the
-  next logon or Start-ScheduledTask. The task stores absolute paths, so re-run this script
+  fails. Once llama-server is running, serve.ps1 itself restarts it after a non-zero exit
+  (up to 5 times within an hour, with backoff); scripts/stop.ps1 or a sixth failure leaves
+  it down until the next logon or Start-ScheduledTask. scripts/register-watchdog.ps1 adds a
+  second logon task that restarts a server failing /health (scripts/watchdog.ps1). The
+  command line below is unchanged by those. The task stores absolute paths, so re-run this script
   after moving the repo. An existing task with the same name is replaced. Start now:
   Start-ScheduledTask -TaskName LocalInferenceStudio-llama-server.
   Remove: scripts/unregister-task.ps1.

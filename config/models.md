@@ -27,8 +27,9 @@ only for this default file, only at `-Ctx` 65536 or below and only without `-NoM
 every other `-Model` runs without MTP. The default start (131072) adds none and warns
 nothing; an explicit `-Ctx` above 65536 skips them with a warning (`-NoMtp` silences
 it): MTP costs about 1.1 GB, so `--fit` would move layers to CPU (estimate, UNVERIFIED
-at 131072). `scripts/claude-local.ps1` and `config/claude-settings.json` default to a
-131072 context window to match; the wrapper passes a per-run copy of the
+at 131072). `config/claude-settings.json` and `scripts/claude-local.ps1` default to a
+114688 context window, a margin below the server's 131072 (the ladder and benches pass
+131072 explicitly); the wrapper passes a per-run copy of the
 settings file with `CLAUDE_CODE_AUTO_COMPACT_WINDOW` rewritten to `-LisContextTokens`
 and, unless `-LisFull`, the lean set (7 tools, no MCP, one-model policy; ruling 13; it
 saves about 9,172 prompt tokens against `-LisFull` in the same cwd, 9,560 before the

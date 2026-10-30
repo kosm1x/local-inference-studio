@@ -31,7 +31,12 @@
   Permissions (ruling 15): the per-run settings carry rule set A from
   config/claude-settings.json plus a PreToolUse Bash hook, scripts/hooks/lis-guard.py
   (run as `python -I <repo path>`), added here so the committed JSON holds no absolute
-  path. The hook denies critical writes, also inside interpreter and ssh payloads,
+  path. It also turns the Edit(~/...) and Read(~/...) rules into absolute home paths and
+  denies Edit on this repo's guard files (scripts/hooks, the serve/stop/watchdog and
+  task scripts, this file, config, bin, .gitignore, .gitattributes, logs/api-key and the
+  logs/.stop-requested-<port> files, and the three scripts/tests files the guard hook
+  exempts from its content scan) by absolute path.
+  The hook denies critical writes, also inside interpreter and ssh payloads,
   and allows read-only commands and read-only scripts; see docs/SETUP.md step 8.
   A PostToolUse Write|Edit hook, scripts/verify-doc.py --hook, checks the figures in
   every .md the session writes inside the working directory and feeds them back.
@@ -55,16 +60,31 @@
   would override what it fixes (--tools, --settings, system-prompt options, permission
   bypass, --allowedTools, --mcp-config, --plugin-dir, --add-dir).
   -LisPrintArgs prints the claude argument list and the settings JSON to stdout and
-  exits 0 without writing temp files, changing the environment or launching claude.
+  exits 0 without writing temp files, changing the environment, querying the server or
+  launching claude.
+
+  Server preflight (not under -LisPrintArgs): before any env change, GET /health on
+  127.0.0.1:8080 must return status ok, else the script throws with the start command;
+  then GET /slots: a slot that is processing (another session on the single slot) prints
+  a warning to stderr and the session starts anyway (it queues behind the other one),
+  unless -LisStrictSlot, which throws instead. A failed /slots call throws (a 401 means
+  the key below does not match the running server).
+  API key: ANTHROPIC_AUTH_TOKEN and the /slots bearer are the first line of logs/api-key
+  under this repo, the per-start key scripts/serve.ps1 writes; when that file is missing
+  (a server started by an older serve.ps1) the old fixed key `local` is used.
 
   There is deliberately no param() block. A declared parameter binds claude's
   positional prompt (or any unmatched token such as --model) to itself and claims
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The script options, -LisContextTokens N, -LisFull, -LisNoGuard,
-  -LisNoLoopGuard, -LisTask NAME and -LisPrintArgs, are taken out of $args here.
-  -LisContextTokens defaults to 131072, the default server ctx (ruling 14); keep it <=
-  the server's -Ctx.
+  -LisNoLoopGuard, -LisStrictSlot, -LisTask NAME and -LisPrintArgs, are taken out of
+  $args here.
+  -LisContextTokens defaults to 114688: the default server ctx of 131072 (ruling 14)
+  minus CLAUDE_CODE_MAX_OUTPUT_TOKENS 16384, so a prompt at Claude Code's limit plus a
+  full-length reply still fits the server's window (the server runs without context
+  shift, so it does not slide the window). Keep it <= the server's -Ctx minus 16384.
+  bench/ladder/run.ps1 passes its own value (131072 unless -ContextTokens).
   A switch value (-LisFull:V, -LisNoGuard:V, ...) is true or false only; any other value
   is an error, and a word after a bare switch is a prompt.
   A prompt that starts with `-` must be passed after a quoted `'--'` when calling in-process.
@@ -83,19 +103,20 @@ $ErrorActionPreference = 'Stop'
 
 # -LisContextTokens N, -LisContextTokens:N (any case). In-process, PowerShell hands
 # -LisContextTokens:N over as '-LisContextTokens:' followed by N, so an empty inline
-# value takes the next token. The switches -LisFull, -LisNoGuard, -LisNoLoopGuard and
-# -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
+# value takes the next token. The switches -LisFull, -LisNoGuard, -LisNoLoopGuard,
+# -LisStrictSlot and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
 # '-LisFull:' followed by a [bool]). All checks run before any env change.
-$LisContextTokens = 131072
+$LisContextTokens = 114688
 $LisFull = $false
 $LisNoGuard = $false
 $LisNoLoopGuard = $false
+$LisStrictSlot = $false
 $LisTask = $null
 $LisPrintArgs = $false
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
 $seenSwitch = @{}
-$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisPrintArgs)(:(.*))?\z'
+$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisPrintArgs)(:(.*))?\z'
 # pwsh -File passes -X:true|false as '-X' followed by a [bool] but -X:0 as '-X' followed
 # by the string '0', the same as '-X 0'. Only the process command line keeps the colon,
 # so when this script is the -File target ($MyInvocation.Line is empty) check it there.
@@ -174,9 +195,40 @@ if ($LisTask) {
     }
 }
 
+# The per-start key from scripts/serve.ps1, else the old fixed key.
+function Get-LisApiKey([string]$KeyFile) {
+    if (Test-Path -LiteralPath $KeyFile -PathType Leaf) {
+        $k = "$(Get-Content -LiteralPath $KeyFile -TotalCount 1)".Trim()
+        if ($k) { return $k }
+    }
+    return 'local'
+}
+# /health must be ok; a busy slot warns, or throws with -LisStrictSlot.
+function Test-LisServer([string]$BaseUrl, [string]$ApiKey, [bool]$StrictSlot) {
+    try { $health = Invoke-RestMethod -Uri "$BaseUrl/health" -TimeoutSec 10 }
+    catch {
+        throw ("llama-server at $BaseUrl is not answering /health ($($_.Exception.Message)). Start it: " +
+            'Start-ScheduledTask -TaskName LocalInferenceStudio-llama-server (if the port is held, pwsh scripts/stop.ps1 first).')
+    }
+    if ($health.status -ne 'ok') { throw "llama-server at $BaseUrl /health status is '$($health.status)', expected 'ok'." }
+    try { $slots = Invoke-RestMethod -Uri "$BaseUrl/slots" -Headers @{ Authorization = "Bearer $ApiKey" } -TimeoutSec 10 }
+    catch {
+        throw ("llama-server at $BaseUrl refused /slots ($($_.Exception.Message)); a 401 means logs/api-key " +
+            'does not match the running server: restart it with scripts/serve.ps1 (stop.ps1, then Start-ScheduledTask).')
+    }
+    $busy = @($slots | Where-Object { $_.is_processing })
+    if ($busy.Count) {
+        $msg = "server slot $($busy[0].id) is processing: another session is using the server"
+        if ($StrictSlot) { throw "$msg (-LisStrictSlot)." }
+        [Console]::Error.WriteLine("claude-local: warning: $msg; this session queues behind it.")
+    }
+}
+$baseUrl = 'http://127.0.0.1:8080'
+$apiKey = Get-LisApiKey (Join-Path $PSScriptRoot '..\logs\api-key')
+
 $set = [ordered]@{
-    ANTHROPIC_BASE_URL                       = 'http://127.0.0.1:8080'
-    ANTHROPIC_AUTH_TOKEN                     = 'local'
+    ANTHROPIC_BASE_URL                       = $baseUrl
+    ANTHROPIC_AUTH_TOKEN                     = $apiKey
     ANTHROPIC_MODEL                          = 'local'
     ANTHROPIC_DEFAULT_OPUS_MODEL             = 'local'
     ANTHROPIC_DEFAULT_SONNET_MODEL           = 'local'
@@ -269,15 +321,26 @@ try {
     $cfg = Get-Content -LiteralPath $settingsSrc -Raw | ConvertFrom-Json -AsHashtable
     if (-not $cfg.env) { $cfg.env = [ordered]@{} }
     $cfg.env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] = "$LisContextTokens"
-    # Path rules written as Edit(~/...) become Edit(//c/Users/<name>/...), the form
-    # verified on this machine; the committed JSON carries no user name.
+    # Path rules written as Edit(~/...) or Read(~/...) become Edit(//c/Users/<name>/...),
+    # the form verified on this machine; the committed JSON carries no user name.
     $h = $HOME.Replace('\', '/')
     $homeRule = '//' + $h.Substring(0, 1).ToLower() + $h.Substring(2)
     foreach ($kind in 'allow', 'ask', 'deny') {
         if ($cfg.permissions -and $cfg.permissions[$kind]) {
-            $cfg.permissions[$kind] = @($cfg.permissions[$kind] | ForEach-Object { $_.Replace('Edit(~/', "Edit($homeRule/") })
+            $cfg.permissions[$kind] = @($cfg.permissions[$kind] | ForEach-Object {
+                    $_.Replace('Edit(~/', "Edit($homeRule/").Replace('Read(~/', "Read($homeRule/") })
         }
     }
+    # This repo's guard files, denied by absolute path so a session started from any
+    # directory cannot edit them (the committed //**/local-inference-studio/... forms
+    # only match a clone with that folder name).
+    $r = $repo.Replace('\', '/')
+    $repoRule = '//' + $r.Substring(0, 1).ToLower() + $r.Substring(2)
+    $cfg.permissions['deny'] = @($cfg.permissions['deny']) + @('scripts/hooks/**', 'scripts/verify-doc.py',
+        'scripts/serve.ps1', 'scripts/stop.ps1', 'scripts/claude-local.ps1', 'scripts/register-task.ps1',
+        'scripts/watchdog.ps1', 'scripts/register-watchdog.ps1', 'config/**', 'bin/**', '.gitignore',
+        '.gitattributes', 'logs/api-key', 'logs/.stop-requested*', 'scripts/tests/resilience_test.py',
+        'scripts/tests/claude_settings_test.py', 'scripts/tests/install_verify_test.py' | ForEach-Object { "Edit($repoRule/$_)" })
     if ($LisTask -and $profiles[$LisTask].deny) {
         $cfg.permissions['deny'] = @($cfg.permissions['deny']) + $profiles[$LisTask].deny
     }
@@ -316,6 +379,7 @@ try {
         $json
         $code = 0
     } else {
+        Test-LisServer $baseUrl $apiKey $LisStrictSlot
         Set-Content -LiteralPath $settings -Value $json -Encoding utf8NoBOM
         if (-not $LisFull) { Set-Content -LiteralPath $mcpConfig -Value '{"mcpServers":{}}' -Encoding utf8NoBOM }
         foreach ($k in $set.Keys) { Set-Item "env:$k" $set[$k] }

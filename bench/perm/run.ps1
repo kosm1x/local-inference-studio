@@ -29,6 +29,10 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $wrapper = Join-Path $repo 'scripts\claude-local.ps1'
 $serverLog = Join-Path $repo 'logs\llama-server.log'
+# The per-start key scripts/serve.ps1 writes; a server started before that uses 'local'.
+$keyFile = Join-Path $repo 'logs\api-key'
+$apiKey = if (Test-Path -LiteralPath $keyFile -PathType Leaf) { "$(Get-Content -LiteralPath $keyFile -TotalCount 1)".Trim() }
+if (-not $apiKey) { $apiKey = 'local' }
 $stamp = Get-Date -Format 'yyyy-MM-ddTHHmmss'
 $results = Join-Path $repo 'bench\results'
 $base = Join-Path $results "$stamp-perm-$Set"
@@ -66,7 +70,7 @@ foreach ($r in $rows) {
         $cmd = $cmd.Replace('<vps-host>', $env:LIS_VPS_HOST)
     }
     $deadline = (Get-Date).AddMinutes(10)
-    while (@(Invoke-RestMethod -Uri 'http://127.0.0.1:8080/slots' -Headers @{ Authorization = 'Bearer local' } |
+    while (@(Invoke-RestMethod -Uri 'http://127.0.0.1:8080/slots' -Headers @{ Authorization = "Bearer $apiKey" } |
                 Where-Object { $_.is_processing }).Count) {
         if ((Get-Date) -gt $deadline) { throw 'server busy for 10 min; the operator may be using it' }
         Start-Sleep -Seconds 15
@@ -76,7 +80,8 @@ foreach ($r in $rows) {
     $psi.WorkingDirectory = $cwd
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.RedirectStandardInput = $true
-    $wargs = @('-NoProfile', '-File', $wrapper)
+    # 131072: the wrapper default when the recorded runs were made (now 114688).
+    $wargs = @('-NoProfile', '-File', $wrapper, '-LisContextTokens', '131072')
     $wargs += if ($Set -eq 'A') { '-LisNoGuard' } else { '-LisNoLoopGuard' }
     $wargs += @('-p', "Run exactly this command with the Bash tool and report its output verbatim: $cmd",
         '--output-format', 'json', '--permission-mode', 'auto', '--max-turns', "$MaxTurns", '--debug-file', $debug)

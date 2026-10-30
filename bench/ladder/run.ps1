@@ -49,8 +49,10 @@
      <prompt> --output-format stream-json --verbose --max-turns N --permission-mode
      acceptEdits (acceptEdits keeps the operator's default mode, which may call a
      classifier model, out of the run). stdout -> <base>.jsonl, stderr -> .stderr.txt.
-     -ContextTokens N adds -LisContextTokens N (meta context_tokens; unbound, the
-     wrapper's default, read from claude-local.ps1). long-fix: -LisTask longrun, plus
+     It always passes -LisContextTokens (meta context_tokens): -ContextTokens N, or 131072
+     when unbound (the value every earlier rep without -ContextTokens ran at, so their
+     keys hold; the wrapper's own default is 114688 since 2026-10-30).
+     long-fix: -LisTask longrun, plus
      --debug-file <base>.debug.log; it refuses to start unless the :8080 listener's
      command line turns reasoning off (the last --reasoning / -rea value is off, or with
      none "enable_thinking": false; never with "enable_thinking": true anywhere), unless
@@ -120,7 +122,7 @@ param(
     # stale-figure 30 and 15.
     [int]$MaxTurns = 30,
     [ValidateRange(1, 600)][int]$TimeoutMin = 30,
-    # Passed as -LisContextTokens; unbound, the wrapper's default applies.
+    # Passed as -LisContextTokens; unbound, 131072 (not the wrapper's default).
     [ValidateRange(1024, [int]::MaxValue)][int]$ContextTokens,
     # long-fix only: gen_longfix.py --modules (.PARAMETER Modules).
     [ValidateRange(7, 79)][int]$Modules = 24,
@@ -245,12 +247,9 @@ $work = Join-Path $runDir 'work'
 $manifestPath = if ($DryRun) { Join-Path $runDir 'dryrun.manifest.json' } else { "$base.manifest.json" }
 $pwshExe = (Get-Process -Id $PID).Path
 $gitBash = 'C:\Program Files\Git\bin\bash.exe'
-# The wrapper's own default when -ContextTokens is not bound; null when it cannot be read.
+# 131072 when -ContextTokens is not bound: the wrapper default the earlier reps ran at.
 $ctxBound = $PSBoundParameters.ContainsKey('ContextTokens')
-$ctxTokens = if ($ctxBound) { $ContextTokens }
-elseif ((Get-Content -LiteralPath $wrapper -Raw -ErrorAction Ignore) -match
-    '(?m)^\$LisContextTokens = (\d+)\r?$') { [int]$Matches[1] }
-else { $null }
+$ctxTokens = if ($ctxBound) { $ContextTokens } else { 131072 }
 $repKeyInputs = @('fixture_sha256', 'generator_args', 'prompt', 'server_cmdline', 'claude_version',
     'max_turns', 'timeout_min', 'context_tokens', 'model_node_version')
 # stale-figure only: the wrapper's policy text, so the other cases' keys are unchanged.
@@ -260,7 +259,7 @@ $stripEnv = '^(CLAUDECODE|CLAUDE_PID|CLAUDE_CODE_(SESSION_ID|SESSION_ATTENDED|CH
 # Loop guard ON: no -LisNoLoopGuard, no -LisNoGuard (the edit and longrun profiles refuse
 # -LisNoGuard). --debug-file is not in the wrapper's -LisTask override list.
 $sessionArgv = @('-NoProfile', '-File', $wrapper, '-LisTask', $c.profile) +
-    $(if ($ctxBound) { @('-LisContextTokens', "$ContextTokens") } else { @() }) + @('-p', $c.prompt,
+    @('-LisContextTokens', "$ctxTokens", '-p', $c.prompt,
     '--output-format', 'stream-json', '--verbose', '--max-turns', "$MaxTurns",
     '--permission-mode', 'acceptEdits') + $(if ($isLong) { @('--debug-file', "$base.debug.log") } else { @() })
 
@@ -365,7 +364,11 @@ if (-not $DryRun) {
     # The busy check is GET /slots (slot 0 is the only one). The log check is a 10 s
     # backstop only: a 60 s window refused a rep launched about 63 s after the log's
     # last line (bench/ladder/README.md, Results).
-    $auth = @{ Authorization = 'Bearer local' }
+    # The per-start key scripts/serve.ps1 writes; a server started before that uses 'local'.
+    $keyFile = Join-Path $repo 'logs\api-key'
+    $apiKey = if (Test-Path -LiteralPath $keyFile -PathType Leaf) { "$(Get-Content -LiteralPath $keyFile -TotalCount 1)".Trim() }
+    if (-not $apiKey) { $apiKey = 'local' }
+    $auth = @{ Authorization = "Bearer $apiKey" }
     $path = '/health'
     try {
         $health = Invoke-RestMethod -Uri "http://127.0.0.1:8080$path" -TimeoutSec 10
@@ -509,8 +512,8 @@ if ($isLong) {
 }
 $modelNodeText = if (-not $modelNode) { 'not found (Git Bash)' }
 else { "$($modelNode.version) ($($modelNode.path), Git Bash $($modelNode.shell))" }
-$ctxText = "context_tokens $(if ($null -ne $ctxTokens) { $ctxTokens } else { 'unknown' }) " +
-    "($(if ($ctxBound) { '-ContextTokens' } else { 'wrapper default' }))"
+$ctxText = "context_tokens $ctxTokens " +
+    "($(if ($ctxBound) { '-ContextTokens' } else { 'ladder default' }))"
 # The wrapper's argument list (-LisPrintArgs never starts claude): printed by -DryRun, and
 # for stale-figure the source of policy_sha256 in a real run too.
 $printed = $null

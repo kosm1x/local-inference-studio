@@ -58,6 +58,10 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $proxyJs = Join-Path $PSScriptRoot 'proxy.js'
 $analyzePy = Join-Path $PSScriptRoot 'analyze.py'
 $serverLog = Join-Path $repo 'logs\llama-server.log'
+# The per-start key scripts/serve.ps1 writes; a server started before that uses 'local'.
+$keyFile = Join-Path $repo 'logs\api-key'
+$apiKey = if (Test-Path -LiteralPath $keyFile -PathType Leaf) { "$(Get-Content -LiteralPath $keyFile -TotalCount 1)".Trim() }
+if (-not $apiKey) { $apiKey = 'local' }
 $OutDir = [IO.Path]::GetFullPath($OutDir)
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $base = Join-Path $OutDir "compact-$Case-$stamp"
@@ -78,10 +82,18 @@ $stripEnv = '^(CLAUDECODE|CLAUDE_PID|CLAUDE_CODE_(SESSION_ID|SESSION_ATTENDED|CH
 $proxyArgv = @($proxyJs, "$ProxyPort", $capture)
 # -LisNoLoopGuard: the cases measure raw compaction and loop behaviour, as in the
 # 2026-10-26 captures (loop-guard would deny their repeated calls).
-$sessionArgv = @('-NoProfile', '-File', $treeWrapper, '-LisNoLoopGuard', '-p', $prompt, '--max-turns', "$MaxTurns",
+# -LisContextTokens 131072: the contextWindow every recorded case ran at (the wrapper's
+# default then; now 114688).
+$sessionArgv = @('-NoProfile', '-File', $treeWrapper, '-LisNoLoopGuard', '-LisContextTokens', '131072',
+    '-p', $prompt, '--max-turns', "$MaxTurns",
     '--output-format', 'json', '--permission-mode', 'auto', '--disallowedTools', $disallowed,
     '--debug-file', "$base.debug.log")
 $wrapperLines = @($caseEnv.Keys | ForEach-Object { "`$set['$_'] = '$($caseEnv[$_])'" })
+# The tree's wrapper would read the tree's own logs\api-key, which does not exist, so the
+# same resolver lines run inside it against this repo's file (passed in as $repo); the key
+# itself never lands in the tree, the dry-run output or the settings env.
+$wrapperLines += @("`$repo = '$($repo.Replace("'", "''"))'", '$keyFile = Join-Path $repo ''logs\api-key''', '$apiKey = if (Test-Path -LiteralPath $keyFile -PathType Leaf) { "$(Get-Content -LiteralPath $keyFile -TotalCount 1)".Trim() }', 'if (-not $apiKey) { $apiKey = ''local'' }',
+    "`$set['ANTHROPIC_AUTH_TOKEN'] = `$apiKey")
 
 function Format-Cmd([string]$Exe, [object[]]$Argv) {
     $q = @($Exe) + $Argv | ForEach-Object {
@@ -139,7 +151,7 @@ if ((Test-Path -LiteralPath $serverLog) -and ((Get-Date) - (Get-Item -LiteralPat
 }
 $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 10
 if ($health.status -ne 'ok') { throw "/health status is '$($health.status)', expected 'ok'" }
-$busy = @(Invoke-RestMethod -Uri 'http://127.0.0.1:8080/slots' -Headers @{ Authorization = 'Bearer local' } -TimeoutSec 10 |
+$busy = @(Invoke-RestMethod -Uri 'http://127.0.0.1:8080/slots' -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 10 |
         Where-Object { $_.is_processing })
 if ($busy.Count) { throw "a server slot is processing: another session is using the server" }
 if (Get-NetTCPConnection -LocalPort $ProxyPort -State Listen -ErrorAction Ignore) { throw "port $ProxyPort is already listening" }

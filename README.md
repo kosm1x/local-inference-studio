@@ -98,7 +98,8 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 
 - Register: `pwsh scripts/register-task.ps1` (task `LocalInferenceStudio-llama-server`, current user, no elevation needed); start now with `Start-ScheduledTask -TaskName LocalInferenceStudio-llama-server`.
 - Unregister: `pwsh scripts/unregister-task.ps1` (leaves a running server alone).
-- Stop: `pwsh scripts/stop.ps1`. A stop or a llama-server crash stays down until the next logon or `Start-ScheduledTask`: the task's restart settings only retry a launch that fails. It also runs on battery.
+- Stop: `pwsh scripts/stop.ps1`. A stop stays down until the next logon or `Start-ScheduledTask`; after a llama-server crash `serve.ps1` starts it again (at most 5 times an hour). The task also runs on battery.
+- Watchdog: `pwsh scripts/register-watchdog.ps1` (task `LocalInferenceStudio-watchdog`, at logon + 5 min) runs `scripts/watchdog.ps1`: polls `/health` and restarts a hung or dead server, at most 3 times an hour; log `logs/watchdog.log` ([docs/SETUP.md](docs/SETUP.md) step 7a).
 - Re-run `register-task.ps1` after moving the repo (paths are absolute).
 - Log: `logs/llama-server.log` (appended, renamed to `.1` past 50 MB, ends each run with `llama-server exited <code>`; gitignored). From a shell, `serve.ps1 -LogFile <path>` does the same.
 - Ollama is paused, not uninstalled: [docs/ollama-paused.md](docs/ollama-paused.md).
@@ -146,6 +147,10 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - Binaries (`bin/`) and models (`models/`, `*.gguf`) live outside git.
 - Scripts never pipe to a shell (`irm | iex`, `curl | bash`).
 - Claims not checked on this machine are marked UNVERIFIED.
+- Tests: the commands listed in [CLAUDE.md](CLAUDE.md), run from the repo root, among
+  them `python -I scripts/tests/resilience_test.py`,
+  `python -I scripts/tests/claude_settings_test.py` and
+  `python -I scripts/tests/install_verify_test.py`.
 
 ## License
 

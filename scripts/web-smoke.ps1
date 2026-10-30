@@ -93,8 +93,12 @@ $browsers = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
     "$env:LOCALAPPDATA\ms-playwright")
 foreach ($b in $browsers) { Write-Host "browser: $b $(if (Test-Path -LiteralPath $b) { 'present' } else { 'absent' })" }
+# The per-start key scripts/serve.ps1 writes; a server started before that uses 'local'.
+$keyFile = Join-Path $repo 'logs\api-key'
+$apiKey = if (Test-Path -LiteralPath $keyFile -PathType Leaf) { "$(Get-Content -LiteralPath $keyFile -TotalCount 1)".Trim() }
+if (-not $apiKey) { $apiKey = 'local' }
 try {
-    $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -TimeoutSec 5 -Headers @{ Authorization = 'Bearer local' }
+    $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -TimeoutSec 5 -Headers @{ Authorization = "Bearer $apiKey" }
     Write-Host "llama-server: /health $($h | ConvertTo-Json -Compress)"
 } catch {
     Write-Host "llama-server: /health unreachable on port ${Port}: $($_.Exception.Message)"

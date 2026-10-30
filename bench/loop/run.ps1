@@ -85,7 +85,12 @@ function Cut([string]$Text, [int]$Max) { if ($Text.Length -gt $Max) { $Text.Subs
 
 $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 10
 if ($health.status -ne 'ok') { throw "/health status is '$($health.status)', expected 'ok'" }
-$serverBuild = (Invoke-RestMethod -Uri 'http://127.0.0.1:8080/props' -Headers @{ Authorization = 'Bearer local' } -TimeoutSec 10).build_info
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+# The per-start key scripts/serve.ps1 writes; a server started before that uses 'local'.
+$keyFile = Join-Path $repo 'logs\api-key'
+$apiKey = if (Test-Path -LiteralPath $keyFile -PathType Leaf) { "$(Get-Content -LiteralPath $keyFile -TotalCount 1)".Trim() }
+if (-not $apiKey) { $apiKey = 'local' }
+$serverBuild = (Invoke-RestMethod -Uri 'http://127.0.0.1:8080/props' -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 10).build_info
 $flags = $null
 $listener = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction Ignore | Select-Object -First 1
 if ($listener) {
@@ -94,7 +99,7 @@ if ($listener) {
 }
 $claudeVersion = ("$(& claude --version 2>&1)").Trim()
 $nodeVersion = ("$(& node --version 2>&1)").Trim()
-Say "loop $Label | server $serverBuild | $claudeVersion | node $nodeVersion | reps $Reps, max-turns $MaxTurns, lis-ctx $(if ($LisContextTokens) { $LisContextTokens } else { 'default' })"
+Say "loop $Label | server $serverBuild | $claudeVersion | node $nodeVersion | reps $Reps, max-turns $MaxTurns, lis-ctx $(if ($LisContextTokens) { $LisContextTokens } else { '131072 (bench default)' })"
 Say "flags: $flags"
 
 $pwshExe = (Get-Process -Id $PID).Path
@@ -122,7 +127,9 @@ for ($r = 1; $r -le $Reps; $r++) {
     foreach ($k in @($psi.Environment.Keys)) { if ($k -match $stripEnv) { $null = $psi.Environment.Remove($k) } }
     # -LisNoLoopGuard: no loop-guard, so runs stay comparable with the 10-24 baselines.
     $argv = @('-NoProfile', '-File', $Launcher, '-LisNoLoopGuard')
-    if ($LisContextTokens) { $argv += '-LisContextTokens', "$LisContextTokens" }
+    # Always explicit: 131072 when unbound, the value every default rep recorded
+    # (lis_context_tokens), not the wrapper's later default of 114688.
+    $argv += '-LisContextTokens', "$(if ($LisContextTokens) { $LisContextTokens } else { 131072 })"
     $argv += '-p', $prompt, '--output-format', 'json', '--max-turns', "$MaxTurns", '--permission-mode', 'acceptEdits',
         '--allowedTools', 'Bash(node:*)', 'Bash(npm:*)', '--debug-file', $debugFile
     foreach ($a in $argv) { $psi.ArgumentList.Add($a) }

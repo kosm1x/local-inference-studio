@@ -14,6 +14,9 @@
   bench/README.md): /tokenize for token counts, streamed /v1/completions for decode and
   time-to-first-token prefill, /v1/chat/completions for the tool trials. -ServerFlags is
   recorded as `flags`, because the Windows listener is not the vLLM process.
+  -ApiKey defaults to the first line of logs/api-key (the per-start key scripts/serve.ps1
+  writes; `local` when that file is missing) for -Backend llama, and to `local` for
+  -Backend vllm.
 .EXAMPLE
   pwsh bench/run.ps1 -Label qwen3.6-35b-a3b -Quant UD-IQ3_XXS -Ctx 131072 -NCpuMoe 0
 .EXAMPLE
@@ -23,7 +26,7 @@
 param(
     [ValidateSet('llama', 'vllm')][string]$Backend = 'llama',
     [int]$Port = 8080,
-    [string]$ApiKey = 'local',
+    [string]$ApiKey = '',
     [Parameter(Mandatory)][string]$Label,
     [string]$Quant = '',
     [int]$Ctx = 0,
@@ -36,6 +39,14 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+if (-not $ApiKey -and $Backend -eq 'vllm') { $ApiKey = 'local' }
+if (-not $ApiKey) {
+    $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    # The per-start key scripts/serve.ps1 writes; a server started before that uses 'local'.
+    $keyFile = Join-Path $repo 'logs\api-key'
+    $apiKey = if (Test-Path -LiteralPath $keyFile -PathType Leaf) { "$(Get-Content -LiteralPath $keyFile -TotalCount 1)".Trim() }
+    if (-not $apiKey) { $apiKey = 'local' }
+}
 $base = "http://127.0.0.1:$Port"
 $bearer = @{ Authorization = "Bearer $ApiKey" }
 $anthropic = @{ 'x-api-key' = $ApiKey; 'anthropic-version' = '2023-06-01' }

@@ -115,6 +115,13 @@ class StaleFig(unittest.TestCase):
         self.assertIsNone(r['grader'])
         self.assertNotIn('outcome', r)
 
+    def test_hint_is_report_only(self):
+        # run.ps1 -Hint reaches the result; a meta written before the field reads as named.
+        r = self.grade(GOOD, hint='grammar')
+        self.assertEqual(r['hint'], 'grammar')
+        self.assertBar(r, True, 'flagged')
+        self.assertEqual(self.grade(GOOD)['hint'], 'named')
+
     # Outcomes.
     def test_flagged_meets_the_bar(self):
         r = self.grade(GOOD)

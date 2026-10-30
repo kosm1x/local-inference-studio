@@ -1809,10 +1809,12 @@ for series 1) or not (a harder series 2)"). A series 2 without the named check (
 only for the Limits section) would measure the noticing. A series 2 that also defines no
 CONTRADICTION line kind leaves the grader nothing exact to parse: `planted_flagged` is
 set only from parsed CONTRADICTION rows (`stalefig.py` lines 292 to 300 and 314; the line
-grammar is `CONTRA`, line 71). The next step being built is therefore a `-Hint grammar`
-variant that keeps the line kind and drops the sentence that names the README and
-CHANGELOG check (not run). No assistant text in the three streams quotes the user-scope
-"Trust Code Over Docs" line or names `CLAUDE.md` (an input to ruling (g)). Cost: 30.8 to
+grammar is `CONTRA`, line 71). The next step is therefore a `-Hint grammar` variant
+that keeps the line kind and drops the sentence that names the README and CHANGELOG
+check: built (this commit; dry-run `rep_key` 0d193da9, `bench/ladder/README.md`), not
+run; series 2 at `-Hint grammar` is the next run. No assistant text in the three
+streams quotes the user-scope "Trust Code Over Docs" line or names `CLAUDE.md` (an
+input to ruling (g)). Cost: 30.8 to
 39.3 s wall a rep here, against 1144.7, 1236.4 and 1949.5 s for rung 2 series 4 reps 1 to
 3 (Status above). Under the two candidate pass rules: every rep meeting the bar, NOT met
 (rep 2); the proposed rule (At a glance: at least 2 of 3 counted reps on one key), met.

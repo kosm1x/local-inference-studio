@@ -87,6 +87,12 @@
   Series 4 design: 48 modules at -ContextTokens 81920, where a Grep-heavy 24-module rep did
   the whole task in one window. Before-run output with the fixture's reporter: 2,754 chars
   at 24 modules, 5,470 at 48 (no paths, same on Node 22 and 24); fixing tests shortens it.
+.PARAMETER Hint
+  stale-figure only (refused for the other cases): the prompt's doc check. named (default,
+  the prompt as before) tells the model to check tallyctl/README.md and tallyctl/CHANGELOG.md
+  against the code; grammar drops that instruction and keeps only the CONTRADICTION line
+  format, for whatever the model read in tallyctl/. The grader is the same for both. The
+  prompt is a rep_key input, so grammar has its own key; meta and result field hint.
 .EXAMPLE
   pwsh bench/ladder/run.ps1 -Case fix-one -DryRun
 .EXAMPLE
@@ -99,6 +105,8 @@
   pwsh bench/ladder/run.ps1 -Case long-fix -Modules 48 -ContextTokens 81920 -DryRun
 .EXAMPLE
   pwsh bench/ladder/run.ps1 -Case stale-figure -DryRun
+.EXAMPLE
+  pwsh bench/ladder/run.ps1 -Case stale-figure -Hint grammar -DryRun
 #>
 [CmdletBinding()]
 param(
@@ -111,6 +119,8 @@ param(
     [ValidateRange(1024, [int]::MaxValue)][int]$ContextTokens,
     # long-fix only: gen_longfix.py --modules (.PARAMETER Modules).
     [ValidateRange(7, 79)][int]$Modules = 24,
+    # stale-figure only: the prompt's doc check (.PARAMETER Hint).
+    [ValidateSet('named', 'grammar')][string]$Hint = 'named',
     [string]$WorkRoot = (Join-Path $env:LOCALAPPDATA 'lis-ladder'),
     [string]$OutDir = (Join-Path $PSScriptRoot '..\results'),
     [switch]$AllowReasoningOn,
@@ -130,6 +140,13 @@ $shownTotal = 9500
 # long-fix prompt: the last module, and the test runs after every 4th module and the last.
 $mLast = 'm{0:D2}' -f $Modules
 $mRuns = (@(for ($i = 4; $i -lt $Modules; $i += 4) { 'm{0:D2}' -f $i }) -join ', ') + " and $mLast"
+# stale-figure prompt, by -Hint: named names the two docs to check; grammar keeps only the
+# CONTRADICTION line format.
+$staleCheck = if ($Hint -eq 'grammar') {
+    "If anything you read in tallyctl/ states a different value for one of these settings than the code does, add one line for each: 'CONTRADICTION <doc path>:<line> says <value>; <path>:<line> shows <value>'. A statement about an earlier version that was true for that version is not a contradiction. If you found none, the line 'CONTRADICTION none'."
+} else {
+    "Then check every statement about these three settings in tallyctl/README.md and tallyctl/CHANGELOG.md against the code. For each one the code contradicts, one line: 'CONTRADICTION <doc path>:<line> says <value>; <path>:<line> shows <value>'. A statement about an earlier version that was true for that version is not a contradiction. If there is none, the line 'CONTRADICTION none'."
+}
 # targets must pass after; keep_failing must still fail after, and is part of the bar
 # only when require_others_failing is set (grade.py).
 $cases = [ordered]@{
@@ -188,7 +205,7 @@ $cases = [ordered]@{
         keep_failing           = @()
         require_others_failing = $false
         allowed                = @()
-        prompt                 = "This is tallyctl 1.3.0, a small Node.js CLI in tallyctl/. Write the Limits section of the 1.3.0 release notes as your final answer; users will rely on it. Cover exactly MAX_BATCH, TIMEOUT_MS and RETRY_LIMIT, one line each: 'FIGURE <name> = <value> | <path>:<line>', where the value holds for the code as it is now and <path>:<line> is where you read it. Then check every statement about these three settings in tallyctl/README.md and tallyctl/CHANGELOG.md against the code. For each one the code contradicts, one line: 'CONTRADICTION <doc path>:<line> says <value>; <path>:<line> shows <value>'. A statement about an earlier version that was true for that version is not a contradiction. If there is none, the line 'CONTRADICTION none'. The test command, if you want it, is exactly: $staleCmd (from this directory, without cd). Do not change any file. Last line: STATUS: DONE, or STATUS: BLOCKED if you could not establish a value."
+        prompt                 = "This is tallyctl 1.3.0, a small Node.js CLI in tallyctl/. Write the Limits section of the 1.3.0 release notes as your final answer; users will rely on it. Cover exactly MAX_BATCH, TIMEOUT_MS and RETRY_LIMIT, one line each: 'FIGURE <name> = <value> | <path>:<line>', where the value holds for the code as it is now and <path>:<line> is where you read it. $staleCheck The test command, if you want it, is exactly: $staleCmd (from this directory, without cd). Do not change any file. Last line: STATUS: DONE, or STATUS: BLOCKED if you could not establish a value."
     }
 }
 $c = $cases[$Case]
@@ -199,6 +216,9 @@ $isStale = $Case -eq 'stale-figure'
 $isGen = $isLong -or $isStale  # a generated fixture with a manifest
 if (-not $isLong -and $PSBoundParameters.ContainsKey('Modules')) {
     throw '-Modules is for -Case long-fix only'
+}
+if (-not $isStale -and $PSBoundParameters.ContainsKey('Hint')) {
+    throw '-Hint is for -Case stale-figure only'
 }
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -551,6 +571,7 @@ if ($DryRun) {
         Write-Host ("precondition: " + $(if ($bad.Count) { "FAIL: $(@($bad | Select-Object -First 5) -join ' | ')" }
                 else { "ok, pass $nPass of $($want.Count) as the manifest expects; every figure line holds its value" }))
         Write-Host "allowed files: none (git status --porcelain of the work tree must stay empty)"
+        Write-Host "hint: $Hint (-Hint: the prompt's doc check; meta and result field hint)"
         Write-Host "prompt ($($c.prompt.Length) chars, one argv string):"
         Write-Host "  $($c.prompt)"
     } else {
@@ -720,6 +741,7 @@ Set-Content -LiteralPath "$base.diff.txt" -Value $diff -Encoding utf8NoBOM
     rep_key           = $repKey
     rep_key_inputs    = $repKeyInputs
     policy_sha256     = $policySha
+    hint              = $isStale ? $Hint : $null
     allow_reasoning_on = [bool]$AllowReasoningOn
     argv              = $sessionArgv
     work_dir          = $work

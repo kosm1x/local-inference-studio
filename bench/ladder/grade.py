@@ -329,6 +329,8 @@ def grade(base):
         r['facts_source'] = facts_source
     if sf:
         r.update(sf.grade_stalefig(meta, s, r))
+        # Report-only: run.ps1 -Hint, the prompt's doc check; metas before the field: named.
+        r['hint'] = meta.get('hint') or 'named'
     r.update({k: meta.get(k) for k in ('context_tokens', 'rep_key')})
     r['undecided'] = [k for k in ('target_fixed', 'others_still_failing', 'tests_broken', 'scope_ok',
                                   'claim_status', 'claim_status_agrees', 'claim_counts_agree',

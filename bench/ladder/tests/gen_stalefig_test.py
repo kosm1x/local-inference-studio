@@ -8,7 +8,9 @@ fixture_sha256 of a fresh `python -I` process against the pinned FIXTURE_SHA256.
 test runs `run.ps1 -Case stale-figure -DryRun` (pwsh; no session, no server request) and
 checks the printed fixture_sha256 against the pin, the run-dir leaf and fixture commit for
 words that name the case, the policy_sha256 against the wrapper's -LisPrintArgs output and
-the rep_key against the ten inputs; it is skipped without pwsh.
+the rep_key against the ten inputs; the one after it runs it with -Hint grammar (the prompt's
+doc-check sentence only, a new rep_key, the same fixture and policy). Both are skipped
+without pwsh.
 """
 import hashlib
 import importlib.util
@@ -40,6 +42,10 @@ SETTING = re.compile(r'MAX_BATCH|TIMEOUT_MS|RETRY_LIMIT')
 DOCS = ('tallyctl/README.md', 'tallyctl/CHANGELOG.md')
 # The fixture of generator VERSION 1; a deliberate fixture change updates both.
 FIXTURE_SHA256 = '597a8e5356da75d0d1102e2373d9d74330320cc1cbdea0914d47cd61dbfc5402'
+# SHA-256 of run.ps1's stale-figure prompt as the dry run prints it, by -Hint (named: the
+# series 1 prompt); a deliberate prompt change updates these.
+PROMPT_SHA256 = {'named': '81fbd15fbe9b610b74239f87a9fba4833d4bdecbe8a5fd699dc7a9393bac850c',
+                 'grammar': 'cb9a0679a9fd6be17122326a910b041ae03de4ff0a261434e0a8c0b2bdda89eb'}
 
 
 def tree(root):
@@ -222,29 +228,40 @@ class GenStaleFig(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which('pwsh'), 'pwsh not found')
 class DryRun(unittest.TestCase):
+    runs = {}
+
+    def dry_run(self, *extra):
+        """run.ps1 -Case stale-figure -DryRun <extra>, once per argument list: (exit code,
+        output, entries left in -WorkRoot)."""
+        if extra not in DryRun.runs:
+            with tempfile.TemporaryDirectory(prefix='sfd-', ignore_cleanup_errors=True) as root:
+                # GIT_* identity variables override git's -c user.*: run.ps1 must pin them.
+                leak = {'GIT_AUTHOR_NAME': 'leak', 'GIT_AUTHOR_EMAIL': 'leak@x',
+                        'GIT_COMMITTER_NAME': 'leak', 'GIT_COMMITTER_EMAIL': 'leak@x'}
+                p = subprocess.run(['pwsh', '-NoProfile', '-File', RUN_PS1,
+                                    '-Case', 'stale-figure', '-DryRun', '-WorkRoot', root,
+                                    '-OutDir', root, *extra], cwd=REPO, capture_output=True,
+                                   encoding='utf-8', errors='replace', timeout=300,
+                                   env={**os.environ, **leak})
+                left = os.listdir(root)
+            DryRun.runs[extra] = (p.returncode, re.sub(r'\x1b\[[0-9;]*m', '', p.stdout + p.stderr),
+                                  left)
+        return DryRun.runs[extra]
+
+    def field(self, out, rx):
+        m = re.search(rx, out, re.M)
+        self.assertIsNotNone(m, rx)
+        return m.group(1)
+
     def test_stale_figure_dry_run(self):
-        root = tempfile.mkdtemp(prefix='sfd-')
-        try:
-            # GIT_* identity variables override git's -c user.*: run.ps1 must pin them.
-            leak = {'GIT_AUTHOR_NAME': 'leak', 'GIT_AUTHOR_EMAIL': 'leak@x',
-                    'GIT_COMMITTER_NAME': 'leak', 'GIT_COMMITTER_EMAIL': 'leak@x'}
-            p = subprocess.run(['pwsh', '-NoProfile', '-File', RUN_PS1,
-                                '-Case', 'stale-figure', '-DryRun', '-WorkRoot', root,
-                                '-OutDir', root], cwd=REPO, capture_output=True,
-                               encoding='utf-8', errors='replace', timeout=300,
-                               env={**os.environ, **leak})
-            left = os.listdir(root)
-        finally:
-            shutil.rmtree(root, ignore_errors=True)
-        out = re.sub(r'\x1b\[[0-9;]*m', '', p.stdout + p.stderr)
-        self.assertEqual(p.returncode, 0, out[-3000:])
+        code, out, left = self.dry_run()
+        self.assertEqual(code, 0, out[-3000:])
         self.assertEqual(left, [])  # the dry run deletes its work tree and manifest
 
         def field(rx):
-            m = re.search(rx, out, re.M)
-            self.assertIsNotNone(m, rx)
-            return m.group(1)
+            return self.field(out, rx)
         self.assertIn('precondition: ok, pass 11 of 11', out)
+        self.assertEqual(field(r'^hint: (\S+) '), 'named')
         fixture = field(r'^fixture_sha256: ([0-9a-f]{64}) \(generator version=1; tree hash matches\)')
         self.assertEqual(fixture, FIXTURE_SHA256)
         # The model sees its cwd (the leaf) and git log (the commit): neither names the case.
@@ -259,6 +276,7 @@ class DryRun(unittest.TestCase):
         ctx = field(r'^case: stale-figure \(profile review, loop guard on, context_tokens (\d+)')
         node = field(r'\| model_node_version: (v\d+\.\d+\.\d+) ')
         prompt = field(r'^prompt \(\d+ chars, one argv string\):\n  (.*)$')
+        self.assertEqual(hashlib.sha256(prompt.encode('utf-8')).hexdigest(), PROMPT_SHA256['named'])
         policy = field(r'^policy_sha256: ([0-9a-f]{64}) ')
         key = field(r'^rep_key: ([0-9a-f]{64}) ')
 
@@ -275,6 +293,33 @@ class DryRun(unittest.TestCase):
         digest = lambda vals: hashlib.sha256('\n'.join(vals).encode('utf-8')).hexdigest()  # noqa: E731
         self.assertEqual(key, digest(nine + [policy]))
         self.assertNotEqual(key, digest(nine))
+
+    def test_hint_grammar_dry_run(self):
+        # -Hint grammar: only the doc-check sentence differs, so a new key (the prompt is an
+        # input) on the same fixture and policy.
+        code, out, left = self.dry_run('-Hint', 'grammar')
+        self.assertEqual(code, 0, out[-3000:])
+        self.assertEqual(left, [])
+        self.assertEqual(self.field(out, r'^hint: (\S+) '), 'grammar')
+        prompt_rx = r'^prompt \(\d+ chars, one argv string\):\n  (.*)$'
+        prompt = self.field(out, prompt_rx)
+        self.assertEqual(hashlib.sha256(prompt.encode('utf-8')).hexdigest(), PROMPT_SHA256['grammar'])
+        self.assertNotIn('check every statement', prompt)
+        self.assertIn('If anything you read in tallyctl/', prompt)
+        code0, out0, _ = self.dry_run()
+        self.assertEqual(code0, 0, out0[-3000:])
+        named = self.field(out0, prompt_rx)
+        self.assertEqual(prompt, named.replace(
+            'Then check every statement about these three settings in tallyctl/README.md and '
+            'tallyctl/CHANGELOG.md against the code. For each one the code contradicts, one line:',
+            'If anything you read in tallyctl/ states a different value for one of these settings '
+            'than the code does, add one line for each:').replace(
+            "If there is none, the line 'CONTRADICTION none'.",
+            "If you found none, the line 'CONTRADICTION none'."))
+        for rx in (r'^fixture_sha256: ([0-9a-f]{64}) ', r'^policy_sha256: ([0-9a-f]{64}) '):
+            self.assertEqual(self.field(out, rx), self.field(out0, rx), rx)
+        key_rx = r'^rep_key: ([0-9a-f]{64}) '
+        self.assertNotEqual(self.field(out, key_rx), self.field(out0, key_rx))
 
 
 if __name__ == '__main__':

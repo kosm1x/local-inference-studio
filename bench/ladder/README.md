@@ -40,6 +40,19 @@ before-run output fits 9,000 chars, 8,982; `run.ps1` help) sets the
 fixture size; long-fix derives the `-MaxTurns` and `-TimeoutMin` defaults from it as
 ceil(250 * N / 24) and ceil(60 * N / 24), never below 250 and 60 (500 and 120 at 48
 modules), so a series 4 run passes neither.
+`-Hint named|grammar` (stale-figure only, refused for the other cases; default `named`,
+the series 1 prompt) sets the prompt's doc check. `grammar` keeps the CONTRADICTION line
+kind and drops the sentence that names the README and CHANGELOG check; in its place:
+"If anything you read in tallyctl/ states a different value for one of these settings
+than the code does, add one line for each: 'CONTRADICTION <doc path>:<line> says
+<value>; <path>:<line> shows <value>'. A statement about an earlier version that was
+true for that version is not a contradiction. If you found none, the line
+'CONTRADICTION none'." About half of the hint remains in `grammar`: no file is named
+and nothing tells the model to check, but the `<doc path>` slot in the CONTRADICTION
+format and the kept earlier-version caveat still say that docs are where contradictions
+live. Neither variant states that a contradiction exists. The prompt is a `rep_key`
+input, so `grammar` has its own key (dry run 0d193da9); `hint` is in the meta and,
+report-only, in the result (`named` for a meta without the field).
 
 What `run.ps1` does:
 
@@ -178,8 +191,8 @@ stale-figure prints `case:` (profile review), `work tree:`, `manifest:`,
 before:`, one `figure` line per manifest figure (doc line and value, src and test line
 and the code's value), `precondition:`, `allowed files: none`, the prompt,
 `work_leaf: <stamp>-w1`, `fixture_commit: dev <dev@localhost> (committer dev
-<dev@localhost>) "release 1.3.0"`, the wrapper lines, then `policy_sha256:` before
-`rep_key:`.
+<dev@localhost>) "release 1.3.0"`, the wrapper lines, then `policy_sha256:` and
+`hint:` (`named` or `grammar`) before `rep_key:`.
 
 ## Cases
 

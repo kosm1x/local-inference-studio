@@ -85,10 +85,12 @@ class LongRun(unittest.TestCase):
 
     def grade(self, steps=None, claim=CLAIM, final=L1 + L2, after=(True, True),
               transcript=(1, 1), meta_extra=None, profile='longrun',
-              numstat=f'1\t1\t{S1}\n1\t1\t{S2}\n6\t0\t{FACTS}\n', debug=None, copy=None):
+              numstat=f'1\t1\t{S1}\n1\t1\t{S2}\n6\t0\t{FACTS}\n', debug=None, copy=None,
+              result=True):
         """steps: (tool, input, result text, is_error), boundary() or ('text', text). copy:
         the lines of <base>.facts.md (run.ps1's copy), not written when None. transcript:
-        (boundaries, summaries), a list of records, or None (no transcript file)."""
+        (boundaries, summaries), a list of records, or None (no transcript file). result:
+        False leaves out the final result event (a session cut off before its report)."""
         self.n += 1
         base = os.path.join(self.root, f'case{self.n}')
         man = base + '.manifest.json'
@@ -120,7 +122,8 @@ class LongRun(unittest.TestCase):
                  'content': out}]}}))
         lines.append(json.dumps({'type': 'assistant', 'message': {'content': [
             {'type': 'text', 'text': claim}]}}))
-        lines.append(json.dumps({'type': 'result', 'result': claim, 'num_turns': 9}))
+        if result:
+            lines.append(json.dumps({'type': 'result', 'result': claim, 'num_turns': 9}))
         files = {'.meta.json': json.dumps(meta), '.manifest.json': json.dumps({'tests': tests}),
                  '.tests-before.txt': tap(False, False), '.tests-after.txt': tap(*after),
                  '.numstat.txt': numstat, '.jsonl': '\n'.join(lines) + '\n',
@@ -858,23 +861,79 @@ class LongRun(unittest.TestCase):
         self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
 
     def test_run_without_check_is_check_missing(self):
-        # The run before the report (step 8) gets FIXED but no CHECK line.
+        # The run before the report (step 8) gets FIXED but no CHECK line, and the session
+        # reports: the closing run, exempt by ruling (21) (was check_missing:1).
         steps = good(self.work)
         steps[9] = ('Edit', dict(steps[9][1], new_string='NEXT m02\n' + text(L2[1:])),
                     'ok', False)
         r = self.grade(steps, final=L1 + L2[1:])
-        self.assertIn('check_missing:1', r['instruction_violations'])
+        self.assertFalse([v for v in r['instruction_violations']
+                          if v.startswith('check_missing')])
+        self.assertEqual(r['check_missing_final_exempt'], 1)
         # A middle run (step 3) without a CHECK: the next run's CHECK does not cover it.
         steps2 = good(self.work)
         no_check = L1[:1] + L1[2:]
         steps2[4] = ('Edit', dict(steps2[4][1], new_string=text(no_check)), 'ok', False)
         r = self.grade(steps2, final=no_check + L2)
         self.assertIn('check_missing:1', r['instruction_violations'])
+        self.assertEqual(r['check_missing_final_exempt'], 0)  # the final run has a CHECK
         # Replay null: the boundary counts and check_missing are unknown.
         steps.insert(5, ('Bash', {'command': f"sed -i 's/m02/m03/' {FACTS}"}, '', False))
         r = self.grade(steps, final=L1 + L2[1:])
         self.assertEqual((r['facts_lines_at_boundaries'], r['facts_fixed_at_boundaries']),
                          ([None], [None]))
+        self.assertFalse([v for v in r['instruction_violations']
+                          if v.startswith('check_missing')])
+        self.assertIsNone(r['check_missing_final_exempt'])
+
+    def test_final_run_exempt_from_check_missing(self):
+        # Ruling (21): the closing run (4 runs for "after m01 and m02"), with no CHECK line
+        # and nothing after it but the report.
+        fp, last = os.path.join(self.work, FACTS), 'CHECK pass 3, fail 0'
+        final_run = ('Bash', {'command': CMD}, run_out(3, 0, [A, B]), False)
+        cadence = {'prompt': 'then after m01 and m02, and once more before your report.'}
+
+        def grade(steps, **kw):
+            r = self.grade(steps, meta_extra=cadence, **kw)
+            return ([v for v in r['instruction_violations']
+                     if v.startswith(('check_missing', 'test_runs_short'))],
+                    r['check_missing_final_exempt'])
+
+        self.assertEqual(grade(good(self.work) + [final_run]), ([], 1))
+        # A facts write after it (a record, not an edit): still exempt.
+        nxt = ('Edit', {'file_path': fp, 'old_string': text(L2[1:]),
+                        'new_string': text(L2[1:] + ['NEXT none'])}, 'ok', False)
+        self.assertEqual(grade(good(self.work) + [final_run, nxt],
+                               final=L1 + L2 + ['NEXT none']), ([], 1))
+        # A source Write after it, errored or not: counted as before, no exemption.
+        src = ('Write', {'file_path': os.path.join(self.work, S1), 'content': 'x'}, 'ok', False)
+        for w in (src, src[:2] + ('denied', True)):
+            self.assertEqual(grade(good(self.work) + [final_run, w]),
+                             (['check_missing:1'], 0))
+        # With its CHECK line the final run is not missing: nothing to exempt.
+        chk = ('Edit', {'file_path': fp, 'old_string': text(L2[1:]),
+                        'new_string': text(L2[1:] + [last])}, 'ok', False)
+        self.assertEqual(grade(good(self.work) + [final_run, chk], final=L1 + L2 + [last]),
+                         ([], 0))
+        # Series 4 shape: runs skipped (3 of 4), the last one has no CHECK, and the session
+        # reports with a STATUS line: still the closing run, exempt.
+        steps = good(self.work)
+        steps[9] = ('Edit', dict(steps[9][1], new_string='NEXT m02\n' + text(L2[1:])),
+                    'ok', False)
+        self.assertEqual(grade(steps, final=L1 + L2[1:]), (['test_runs_short:1'], 1))
+        # The stream stops after that run with no final result (timeout, turn limit): not
+        # the closing run, so it counts and nothing is exempt.
+        self.assertEqual(grade(steps, final=L1 + L2[1:], result=False),
+                         (['test_runs_short:1', 'check_missing:1'], 0))
+        # A final result with no STATUS line: no report, nothing exempt.
+        self.assertEqual(grade(steps, final=L1 + L2[1:], claim=CLAIM.replace('STATUS', 'S')),
+                         (['test_runs_short:1', 'check_missing:1'], 0))
+
+    def test_no_test_run_has_no_check_missing(self):
+        steps = [st for st in good(self.work)
+                 if not (st[0] == 'Bash' and st[1]['command'].startswith(CMD))]
+        r = self.grade(steps)
+        self.assertEqual((r['test_runs'], r['check_missing_final_exempt']), (0, 0))
         self.assertFalse([v for v in r['instruction_violations']
                           if v.startswith('check_missing')])
 

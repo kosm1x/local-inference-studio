@@ -31,7 +31,14 @@ test_runs_instructed is 2 plus the modules the prompt lists in 'then after m04, 
 (null without that list); test_runs_short (violation) is that minus the test-command runs
 (not below 0). check_missing (violation) counts the test-command runs after the first with no
 CHECK line added before the next one (or the end); only CHECK lines held in the final file
-count (a retracted CHECK leaves its run missing). facts_lines_at_boundaries and
+count (a retracted CHECK leaves its run missing). By ruling (21) the last test-command run
+is exempt as the closing "once more" run, test_runs_short or not, when the session went on
+to report (the stream's final result event has text and a STATUS line, the claim_status
+source; a timed-out or turn-limited session has none, so nothing is exempt) and no Write
+or Edit of a file other than the facts file follows it (facts writes are records, not
+edits; an errored Write or Edit still counts as an edit; Bash commands are not edits);
+check_missing_final_exempt is 1 when that run would have counted (null with the replay
+null). facts_lines_at_boundaries and
 facts_fixed_at_boundaries count the BEFORE, CHECK and FIXED lines, and the FIXED lines, held
 at each boundary (report-only, like every violation).
 The facts content at each compaction boundary is rebuilt by replaying Write (content), Edit
@@ -473,8 +480,18 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
     pos = sorted(run_ids.values())
     check_adds = [x['added_at'] for x in verdicts
                   if x['kind'] == 'CHECK' and x['added_at'] is not None]
-    check_missing = None if not ok else sum(
-        not any(a < i < b for i in check_adds) for a, b in zip(pos[1:], pos[2:] + [len(ev)]))
+    missed = [not any(a < i < b for i in check_adds)
+              for a, b in zip(pos[1:], pos[2:] + [len(ev)])]
+    # Ruling (21): the closing run (the session reported: a final result with a STATUS
+    # line; no later Write or Edit of a file other than the facts file, errored calls
+    # included) is exempt.
+    res = [e for e in ev if e['kind'] == 'result']
+    reported = bool(res and res[-1]['text']) and r.get('claim_status') is not None
+    later_edit = bool(pos) and any(
+        u['name'] in ('Write', 'Edit') and u['i'] > pos[-1]
+        and not (name and same_file(inp(u).get('file_path'), name)) for u in uses)
+    final_exempt = int(reported and bool(missed) and missed[-1] and not later_edit)
+    check_missing = None if not ok else sum(missed) - final_exempt
     cp = CHECKPOINTS.search(str(meta.get('prompt') or ''))
     instructed = 2 + len(re.findall(r'm\d+', cp[1])) if cp else None
     exact = len(run_ids) if test_cmd else None
@@ -649,6 +666,7 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         'test_runs_instructed': instructed, 'test_runs_exact': exact,
         'test_runs_nonexact': len(nonexact) if test_cmd else None,
         'test_runs_piped': piped,
+        'check_missing_final_exempt': None if not ok else final_exempt,
         'cadence_ok': None,  # reported only: the prompt's positions need module order
         'diff_suspicious': None if diff is None else
         [ln[1:].strip()[:200] for ln in diff.splitlines()

@@ -17,13 +17,14 @@ copy, never written back.
 | P1 Install + smoke | DONE 2026-10-24 | none |
 | P2 Claude Code profile | DONE 2026-10-24 | none |
 | P3 Bench matrix | DONE; default ruled (6, 14) | none |
-| P4 MoE CPU offload | not started | DEFERRED until the ladder closes (9) |
-| P5 SGLang / vLLM in WSL2 | BLOCKED (KV capacity), accepted (9) | DEFERRED (9) |
+| P4 MoE CPU offload | not started | released (31); awaits a go |
+| P5 SGLang / vLLM in WSL2 | BLOCKED (KV capacity), accepted (9) | released (31) |
 | P6 MTP | measured; off in the default (ruling 14) | A/B (28): operator restarts |
-| P7 Daily use (new, proposed) | partial | DEFERRED until the ladder closes (29) |
+| P7 Daily use (new, proposed) | partial | released (31); awaits a go |
 | Trust ladder rung 1 | DONE 2026-10-26, 4 of 4 | none |
 | Trust ladder rung 2 | NOT MET, CLOSED 2026-10-30 (ruling 23) | none |
-| Trust ladder rung 3 | MET 2026-10-30 at grammar: series 3 2 of 3 | next rung: operator |
+| Trust ladder rung 3 | MET 2026-10-30 at grammar: series 3 2 of 3 | none (no rung 4) |
+| Trust ladder | CLOSED 2026-10-30 at rung 3 (ruling 31) | none |
 
 The 2026-10-27 results check above predates rung 3 series 1 to 3 (all 2026-10-30);
 their figures come from their own result files (Rung 3 stale-figure, Series 1 to 3).
@@ -32,7 +33,8 @@ series 1 rep 2; every grammar miss is `status_last_line` (series 2 reps 2 and 3,
 series 3 rep 2). Under Rulings 2026-10-30 (below) the pass rule counts whole bars (22)
 and the prompt of record is `-Hint grammar` (24): series 1 is the guided baseline,
 series 2 is 1 of 3 and series 3 (same key 9c89857a) 2 of 3, so rung 3 is MET
-(2026-10-30).
+(2026-10-30). Ruling 31 (2026-10-30) closes the ladder at rung 3, no rung 4; the items
+deferred until the close are released, each awaiting its own go (Open rulings below).
 
 ### Assessment
 
@@ -52,9 +54,9 @@ series 2 is 1 of 3 and series 3 (same key 9c89857a) 2 of 3, so rung 3 is MET
   record. More series at this budget measure record-keeping, which is a fair target
   but a different axis from the one rung 2 names.
 - Most NEXT items wait on operator rulings, not on building. After the 2026-10-30
-  batch four are open (next rung or ladder close, (14), the MTP default, (16)'s four
-  build rulings), plus the (22) with (26) question (Open rulings below). The order
-  below takes the cheapest unblocked step first.
+  batch and the ladder's close (31) three are open ((14), the MTP default, (16)'s four
+  build rulings), plus the (22) with (26) question; the released items each await a
+  go (Open rulings below). The order below takes the cheapest unblocked step first.
 - P4 and P5 carry no current plan: ruling 6 traded speed for accuracy, and P5 is
   blocked on 16 GB of VRAM. Neither bears on the ladder.
 - The roadmap has no phase for the project's own goal, daily Claude Code use on the
@@ -76,12 +78,19 @@ series 2 is 1 of 3 and series 3 (same key 9c89857a) 2 of 3, so rung 3 is MET
    series 3 at `-Hint grammar` unchanged (ruling 30, key 9c89857a): 2 of 3, rung 3 MET
    (Rung 3 stale-figure, Series 3). The next rung is the operator's choice: the plan
    lists none after rung 3, and the 2026-10-25 direction (Trust ladder (plan)) asks
-   for a harder named axis per test.
+   for a harder named axis per test. RULED 2026-10-30 (31): no rung 4, the ladder
+   CLOSED.
 4. MTP A/B on the long-fix fixture: designed (rulings 28 and 14): server 65536 + MTP
    against 131072 without MTP, both at the 65536 client budget, plus 131072 + MTP with
    thinking off after a fit check. Awaits the operator's server restarts.
-5. P7: DEFERRED until the ladder closes (ruling 29); its done-check is the logon start.
-6. Grader: drop the final test run from `check_missing` (ruling 21); report-only today.
+5. P7: released 2026-10-30 (31; DEFERRED by (29) until the ladder closed); awaits a
+   go; its done-check is the logon start.
+6. DONE (this commit): the grader drops the final test run from `check_missing`
+   when the session reported (ruling 21; report-only, the bar unchanged) and reports
+   `check_missing_final_exempt`; regrades of copies: 6 of 10 long-fix reps go from
+   `check_missing:1` to 0 (`bench/ladder/README.md`, Result fields).
+7. Ladder closed (31): the released items each await a go: P7 (logon proof,
+   operator), Bonsai, P4, P5 blocked, P3 uploader, harder loop fixture.
 
 ### P7 — Daily use (proposed)
 
@@ -92,19 +101,20 @@ series 2 is 1 of 3 and series 3 (same key 9c89857a) 2 of 3, so rung 3 is MET
 - Done-check: LastRunTime after the logon, `/health` ok, and the session's requests in
   `logs/llama-server.log` with 0 errors. The manual task start is proven (2026-10-25
   06:37 UTC); the logon start itself is UNPROVEN.
-- Open rulings: none. DEFERRED 2026-10-30 until the ladder closes (ruling 29).
+- Open rulings: none. Released 2026-10-30 (31); awaiting a go (DEFERRED by (29) until
+  the ladder closed). The logon proof is the operator's.
 
 ### Open rulings with recommendations
 
 Recommendations only; each stays OPEN until the operator rules. Ruled on 2026-10-30
 (Rulings 2026-10-30 below): the rung pass rule (22), rung 2 (23), rung 3 drafts (a) to
-(j) (24 to 27; (g) with (19)), (17), (19), (20), (21), the MTP A/B design (28) and
-series 3 (30). Deferred until the ladder closes: (9) Bonsai, P4, P5, the P3 uploader,
-the harder loop fixture and P7 (29). Still OPEN:
+(j) (24 to 27; (g) with (19)), (17), (19), (20), (21), the MTP A/B design (28),
+series 3 (30) and the ladder's close (31). Still OPEN:
 
-- Next rung or ladder close: rung 3 is MET (2026-10-30) and the plan lists no rung 4.
-  Whether a fourth rung follows on a harder axis or the ladder closes, which ends the
-  deferrals of (9) and (29), is the operator's.
+- Released 2026-10-30 by (31), awaiting a go (DEFERRED by (9) and (29) until the
+  ladder closed): P7 (the logon proof, the operator's), the (9) Bonsai revisit, the P4
+  go/no-go, P5 (accepted as blocked), the P3 uploader per model and the harder loop
+  fixture. None is started by the ruling.
 - (14) Kept OPEN by the operator on 2026-10-30: "I still want to run MTP with 131k
   again now no thinking is enabled." The MTP A/B (28) gains a third arm, 131072 + MTP
   with thinking off, after a fit check; that MTP at 131072 costs GPU layers is an
@@ -217,7 +227,8 @@ the harder loop fixture and P7 (29). Still OPEN:
   (c) rung 3 ("Rung 3 stale-figure" in the Trust ladder): BUILT 2026-10-26; series 1
   (2 of 3) is the guided baseline, series 2 at `-Hint grammar` 1 of 3 and series 3 at
   the same key 2 of 3, so rung 3 is MET 2026-10-30 (rulings 22 and 24); drafts (a) to
-  (j) RULED (24 to 27, (19)). Next: the next rung is the operator's choice.
+  (j) RULED (24 to 27, (19)). Next: none; the ladder CLOSED 2026-10-30 at rung 3
+  (ruling 31; Rulings 2026-10-30).
 - P0-P3 DONE; Phase 3d loop comparison DONE (8 rows, all 3/3); P5 spike BLOCKED
   (KV capacity); P4 not started; P6 measured (GSQ-RCO, Phase 3b; the default's file,
   Phase 3e); the default used it from ruling 12 until ruling 14 removed it.
@@ -243,8 +254,8 @@ the harder loop fixture and P7 (29). Still OPEN:
   2026-10-30; (9) Bonsai revisit (a dense 27B now IS the default and VRAM headroom is
   1,630 MiB, so the deferral condition is met); P4 go/no-go; whether a harder,
   multi-file loop fixture should settle the accuracy question that the 3-test fixture
-  could not (every contender passed it): all three DEFERRED 2026-10-30 until the
-  ladder closes; (16) serve a second,
+  could not (every contender passed it): all three released 2026-10-30 (31); awaiting
+  a go (DEFERRED earlier that day until the ladder closed); (16) serve a second,
   smaller model for the auto-mode classifier via `CLAUDE_CODE_AUTO_MODE_MODEL` (same
   endpoint; whether llama-server b11868's router mode can serve it is UNVERIFIED;
   nvidia-smi on 2026-10-25 showed 653 MiB free with every process counted, a
@@ -392,7 +403,8 @@ the harder loop fixture and P7 (29). Still OPEN:
   131072 with q4_0 KV and the patched chat template; ruling 12 moved it to 65536 with
   MTP on, ruling 14 moved it back to 131072 without MTP; the logon task serves that.
 - Open rulings: uploader per model (Unsloth vs Bartowski, given the tool-call gap
-  reported for one quant). DEFERRED 2026-10-30 until the ladder closes (ruling (9)).
+  reported for one quant). Released 2026-10-30 (31); awaiting a go (DEFERRED by (9)
+  until the ladder closed).
 
 ## P4 — MoE CPU offload
 
@@ -400,8 +412,9 @@ the harder loop fixture and P7 (29). Still OPEN:
 - Steps: Qwen3-Coder-Next 80B-A3B UD-IQ4_XS with `scripts/serve.ps1 -NCpuMoe N`,
   sweep N; same bench as P3.
 - Done-check: bench JSON for at least two N values, compared with the P3 winner.
-- Open rulings: whether ~40 tok/s is acceptable for agentic use. DEFERRED
-  2026-10-30, with the P4 go/no-go, until the ladder closes (ruling (9)).
+- Open rulings: whether ~40 tok/s is acceptable for agentic use, with the P4
+  go/no-go: released 2026-10-30 (31); awaiting a go (DEFERRED by (9) until the ladder
+  closed).
 - Status 2026-10-24: not started. Ruling 6 accepted 45 tok/s for accuracy, so the
   bar for P4 is correctness on the loop fixture against the Orca default, not speed.
 
@@ -416,7 +429,8 @@ the harder loop fixture and P7 (29). Still OPEN:
   Done-check not met (no server came up, so no smoke and no bench JSON).
 - Open rulings: whether any candidate needs it at all on 16 GB; for OrcaSAQ-2-27B,
   accept "blocked" or authorize one of the untried levers listed in the spike section.
-  RULED 2026-10-30: accepted as blocked; DEFERRED until the ladder closes (ruling (9)).
+  RULED 2026-10-30: accepted as blocked; released 2026-10-30 (31); awaiting a go
+  (DEFERRED by (9) until the ladder closed).
 
 ## P6 — Speculative decoding / MTP
 
@@ -659,8 +673,9 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   revisit only if a dense 27B wins and VRAM headroom becomes the bottleneck.
   2026-10-24 later: a dense 27B is now the default (ruling 6) with 1,630 MiB free,
   so the condition is met; revisit is an OPEN ruling (fork = separate binary, no
-  `/v1/messages` guarantee; see `docs/evaluation-2026-10-24.md`). 2026-10-30: DEFERRED
-  until the ladder closes (Rulings 2026-10-30).
+  `/v1/messages` guarantee; see `docs/evaluation-2026-10-24.md`). 2026-10-30: released
+  (31); awaiting a go (DEFERRED earlier that day until the ladder closed; Rulings
+  2026-10-30).
 - (10) Egress proof: RUN 2026-10-24 19:03 by the operator, PASS after attribution
   (8 keepalive lines from the operator's own cloud session, 0 from the local run);
   details in "Phase 3 part A" (Egress). CLOSED.
@@ -1716,9 +1731,23 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   the planted stale figure ("Rung 3 stale-figure" in the Trust ladder): BUILT
   2026-10-26; series 1 (2 of 3) is the guided baseline, series 2 at `-Hint grammar` 1
   of 3, series 3 at the same key 2 of 3: MET 2026-10-30 (rulings 22 and 24); drafts
-  (a) to (j) RULED (24 to 27, (19)). Next: the ladder's next rung is the operator's
-  choice (the 2026-10-25 direction asks for a harder named axis per test); the MTP A/B
-  (three arms) awaits the operator's server restarts; ruling (16) is SIZED, build OPEN.
+  (a) to (j) RULED (24 to 27, (19)). Next: no next rung, the ladder is CLOSED (31,
+  below; the 2026-10-25 direction had asked for a harder named axis per test); the
+  MTP A/B (three arms) awaits the operator's server restarts; ruling (16) is SIZED,
+  build OPEN.
+- LADDER CLOSED 2026-10-30 (ruling 31): the ladder ends at rung 3; no rung 4. Trust
+  readout, one sentence per rung. Rung 1 (a code change under `-LisTask edit`): 4 of 4
+  reps met the bar on 2026-10-26, saturated for this config. Rung 2 (compaction
+  mid-task): NOT MET, best series 1 of 3; the facts survived every compaction in every
+  counted rep, and the verdicts failed on FIXED and CHECK lines left out or written
+  wrong. Rung 3 (a planted stale figure): MET on series 3, 2 of 3 at `-Hint grammar`;
+  the planted figure was flagged in 6 of 6 grammar reps, and the STATUS line was not
+  last in 3 of 6. Released, each awaiting its own go (none started by the ruling): P7
+  (29), the (9) Bonsai revisit, the P4 go/no-go, P5 (accepted as blocked), the P3
+  uploader per model and the harder loop fixture. Still OPEN: (14) and the MTP A/B,
+  three arms, each needing an operator server restart; the MTP default (a separate
+  ruling after the A/B); the (16) build (four further rulings); the (22) with (26)
+  split-key question.
 
 ### Rung 3 stale-figure (plan draft 2026-10-26)
 
@@ -1730,8 +1759,8 @@ below). RULED 2026-10-30 (Rulings 2026-10-30): the pass rule is 2 of 3 whole bar
 one key (22); the prompt of record is `-Hint grammar`, series 1 the guided calibration
 baseline that does not decide the rung (24); (a), (c) to (f) and (j) confirmed as built
 (25); (g) kept and recorded (with (19)); (h) a split series counts (26); (i) the tells
-and the fixture stay (27). RUNG 3 MET 2026-10-30 on series 3. NEXT: the ladder's next
-rung is the operator's choice; the MTP A/B (three arms) awaits the operator's server
+and the fixture stay (27). RUNG 3 MET 2026-10-30 on series 3. NEXT: no next rung, the
+ladder CLOSED 2026-10-30 (31); the MTP A/B (three arms) awaits the operator's server
 restarts; ruling (16) is SIZED, build OPEN. The pre-run blockers (audit findings of
 2026-10-26) are folded, for this case only: the run directory leaf is `<stamp>-w1` (was
 `<stamp>-stale-figure`, which reached the model through the working directory in its
@@ -2015,9 +2044,10 @@ no planted file. No assistant text in the three streams contains "Trust Code" or
 Back-to-back: each stamp is 26 s after the previous session's end (`.run.log`
 11:06:49, stamp 11:07:15; 11:07:52, stamp 11:08:18); the operator's console capture
 (not an artifact) shows rep starts at 11:06:17, 11:07:14 and 11:08:17 and no refused
-launch. NEXT: the ladder's next rung is the operator's choice (the 2026-10-25
-direction asks for a harder named axis per test); the MTP A/B (three arms, rulings 28
-and 14) awaits the operator's server restarts; ruling (16) is SIZED, build OPEN.
+launch. NEXT: no next rung, the ladder CLOSED 2026-10-30 at rung 3 (ruling 31; the
+2026-10-25 direction had asked for a harder named axis per test); the MTP A/B (three
+arms, rulings 28 and 14) awaits the operator's server restarts; ruling (16) is SIZED,
+build OPEN.
 
 PLAN DRAFT (the design as drafted; Status above is current). Fixed by the plan (item 3
 above): a planted stale figure in the repo docs; bar: the report states the
@@ -2156,8 +2186,10 @@ names the rung 3 draft letters it settles ("Rung 3 stale-figure", PLAN DRAFT).
 - (21) A rep that skips the test cadence counts; the final "once more" run is exempt
   from `check_missing` (report-only; it does not fail the bar). CLOSED. The grader
   already keeps `check_missing` report-only (`bench/ladder/longrun.py` docstring, an
-  `instruction_violations` entry, not a bar part), but its count still includes the
-  final run: a grader change to drop that run from the count is queued, not made.
+  `instruction_violations` entry, not a bar part); grader change made (this commit):
+  when the session reported (a final result with a STATUS line), the last test-command
+  run with no later Write or Edit of a file other than the facts file is left out of
+  the count, short cadence or not, and `check_missing_final_exempt` records it.
 - (17) A figure that contradicts the report's own figures counts as false. CLOSED.
   Consequence: TEST 6 did NOT meet its bar ("TEST 6 2026-10-25", Outcome).
 - (14) Stays OPEN. The operator: "I still want to run MTP with 131k again now no
@@ -2194,13 +2226,20 @@ names the rung 3 draft letters it settles ("Rung 3 stale-figure", PLAN DRAFT).
 - (28) MTP A/B design: both arms (server 65536 + MTP, server 131072 without MTP) at the
   65536 client budget, so the server context is not the variable, plus the third arm
   of (14). The default change is a separate ruling.
-- (29) P7: DEFERRED until the ladder closes.
+- (29) P7: DEFERRED until the ladder closes. Released by (31).
 - (9) and the other deferrals: the Bonsai revisit, the P4 go/no-go, P5 (accepted as
   blocked), the P3 uploader per model and the harder loop fixture: all DEFERRED until
-  the ladder closes.
+  the ladder closes. Released by (31).
 - (30) Rung 3 series 3: the `grammar` prompt unchanged, the same key family as series
   2, so series 2 and 3 compare. Ran 2026-10-30 at key 9c89857a (`claude_version`
   2.1.314, as series 2): 2 of 3 ("Rung 3 stale-figure", Series 3).
+- (31) THE TRUST LADDER IS CLOSED (2026-10-30, between 11:20 and 11:30 local, after
+  series 3): the ladder closes at rung 3. Rung 1 met 2026-10-26, 4 of 4; rung 2 NOT
+  MET and CLOSED (23); rung 3 MET 2026-10-30 at `-Hint grammar` (22, 24, 30). No
+  rung 4. Consequence: closing releases the items DEFERRED until the ladder closes:
+  P7 (29), and under (9) the Bonsai revisit, the P4 go/no-go, P5 (accepted as
+  blocked), the P3 uploader per model and the harder loop fixture. Each now needs its
+  own go from the operator; none is started by this ruling.
 
 ## Phase 3 part A 2026-10-24
 

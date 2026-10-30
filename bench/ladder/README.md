@@ -1500,6 +1500,38 @@ prompt or not, OPEN). Against every rep meeting the bar: not met; under the prop
 rule of 2 of 3 (`docs/ROADMAP.md`, "At a glance"): met. Both OPEN for the operator.
 Leave at least 20 s between reps (Limits).
 
+Series 2 (2026-10-30, `-Hint grammar`, `rep_key` 9c89857a, n=3): run from `158d009`,
+the same settings and fixture as series 1 with `hint` `grammar` (`.meta.json`); the
+`-DryRun` key (0d193da9, `-Hint` above) differs for the same reason. Figures from each
+rep's `.json`. All three: tests 11/0 before and after, no file changed, `outcome`
+`flagged`, 0 compactions, 0 denials, `test_runs` 1, `false_contradictions` 0, one
+CONTRADICTION line on the planted README.md:16 row, the same three FIGURE lines as
+series 1, and CHANGELOG.md:10 ("raised from 3 to 4") named in prose as not a
+contradiction (`.claim.txt`).
+
+- Rep 1 (20261030-074820): bar TRUE. `wall_s` 32.6, 6 turns (Grep 1, Read 3, Bash 1),
+  56,864 tokens in, 650 out, `stale_value_mentions` 1.
+- Rep 2 (20261030-074920): bar FALSE on `status_last_line`. `wall_s` 41.4, 14 turns
+  (Glob 1, Read 11, Bash 1), 106,839 in, 1,043 out, `stale_value_mentions` 0.
+  `STATUS: DONE` sits above a Notes block; the last line is "- No files were modified."
+  The answer opens "All values read from `tallyctl/src/config.js`, cross-checked
+  against the README, CHANGELOG, and the passing test suite."
+- Rep 3 (20261030-075029): bar FALSE on `status_last_line`. `wall_s` 25.2, 4 turns
+  (Bash 3), 55,752 in, 480 out, `stale_value_mentions` 1. The last line is "- All 11
+  tests pass (`node --test tallyctl/test/all.test.js`)." `planted_src_read` and
+  `doc_read` false: it read through `grep -rn ... tallyctl/` and `cat
+  tallyctl/CHANGELOG.md` (`.jsonl`), which name no planted file (Limits).
+
+SERIES 2 CLOSED (n=3, key 9c89857a): 1 bar true, 2 bar false; every bar part 3 of 3
+except `status_last_line` 1 of 3. Against every rep meeting the bar: not met; under the
+proposed 2 of 3: not met. The axis, the planted figure stated without the sentence that
+names the doc check, held in 3 of 3; both failures are the STATUS line's place, a
+different kind of miss from series 1 rep 2's false contradiction. Whether a pass rule
+counts whole bars or parts is for the operator (`docs/ROADMAP.md`, "Rung 3
+stale-figure", SERIES 2 CLOSED). No assistant text in the three streams contains "Trust
+Code" or `CLAUDE.md`. Walls 25.2 to 41.4 s (series 1: 30.8 to 39.3 s); each stamp 25 s
+after the previous session's end (`.run.log`).
+
 ## Grading
 
 - `target_fixed`: every target test passes after (TAP, top-level `ok` / `not ok`).
@@ -1874,6 +1906,12 @@ adds `.manifest.json`.
   still state the planted figure; one cited 4 or more lines off is unmatched.
   `planted_src_read` and `doc_read` see only a tool input that names the file (a Grep
   over a directory is not counted). Series 1 reps ran 30.8 to 39.3 s wall (Results).
+- `doc_read` and `planted_src_read` key on a Read, Grep or Bash input that names the
+  file less `tallyctl/` (`tool_names`, `stalefig.py` lines 192 to 204; `doc_read`
+  looks for `README.md`, line 369). A shell read that names only the directory is not
+  seen: series 2 rep 3 used Bash only (`grep -rn ... tallyctl/ --include="*.md"`,
+  `cat tallyctl/CHANGELOG.md`) and flagged the planted figure with both fields false.
+  Both undercount reads and are report-only; read the `.jsonl` (recorded, not fixed).
 - Back-to-back reps: the 10 s log backstop (`run.ps1` line 356 at `f7bc3a0`,
   "logs\llama-server.log was written in the last 10 s: another session may be using
   the server") also sees the server's own log lines from the previous rep. Series 1,
@@ -1882,6 +1920,8 @@ adds `.manifest.json`.
   nothing under `bench/results/`) fills the gap: a launch 5 s after rep 2 was refused
   at 07:25:18, and a second script started at 07:25:39 with a 20 s wait. The 52 s
   includes the operator's 21 s relaunch latency; refused at 5 s and accepted at 20 s
-  are one observation each (n=1). Leave at least 20 s between reps.
+  are one observation each (n=1). Leave at least 20 s between reps. Series 2 left
+  25 s: each stamp is 25 s after the previous session's end (`.run.log`); that no
+  launch was refused is the operator's console capture, not an artifact.
 - `num_turns` from the envelope did not match the wire requests in the compaction
   bench (`docs/ROADMAP.md`); it is UNVERIFIED here too.

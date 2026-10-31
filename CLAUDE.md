@@ -11,6 +11,7 @@ Constraints for agents working in this repo:
 - Bench results are JSON under `bench/results/` (gitignored); schema in `bench/README.md`.
 - Tests, run from the repo root exactly as written:
   `python -I scripts/hooks/tests/lis-guard_test.py`,
+  `python -I scripts/hooks/tests/lis-guard_property_test.py`,
   `python -I scripts/hooks/tests/loop-guard_test.py`,
   `python -I bench/ladder/tests/grade_test.py`,
   `python -I bench/ladder/tests/gen_longfix_test.py`,

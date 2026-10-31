@@ -1,5 +1,6 @@
 bin/
-models/
+models/*
+!models/manifest.json
 *.gguf
 *.zip
 .cache/
@@ -14,3 +15,5 @@ bench/results/*.facts.md
 .claude/agent-memory/
 bench/results/latest
 __pycache__/
+lis-facts-*.md
+*.transcript.jsonl

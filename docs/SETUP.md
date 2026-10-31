@@ -41,8 +41,12 @@ Success: the folder holds `scripts\`, `config\`, `bench\` and `docs\`.
 
 It downloads `llama-b11868-bin-win-cuda-13.4-x64.zip` and
 `cudart-llama-bin-win-cuda-13.4-x64.zip` from the ggml-org/llama.cpp GitHub release,
-checks each SHA256 against the digest the GitHub API publishes, and extracts both into
-`bin\`. It creates an empty `models\` and never downloads a model.
+checks each SHA256 against both the digest pinned in the script (`$pinned`, taken with
+`Get-FileHash` from the zips on the reference machine on 2026-10-30, which the security
+audit of that day found equal to GitHub's) and the digest the GitHub API publishes (the
+two must agree), and extracts both into `bin\`. Another `-LlamaRelease` or `-Cuda` has
+no pin and stops until its digests are added to `$pinned`. It creates an empty
+`models\` and never downloads a model.
 
 ```powershell
 pwsh scripts\install.ps1 -WhatIf         # preview only
@@ -50,13 +54,18 @@ pwsh scripts\install.ps1
 bin\llama-server.exe --version
 ```
 
-Success: two `SHA256 OK:` lines, then `Installed: ...\bin\llama-server.exe`. The
-version check prints `version: 0.7.0-dev (build 11868, commit 78a8ae14b)`. `bin\` also
-holds `cudart64_13.dll`, `cublas64_13.dll` and `cublasLt64_13.dll`.
+Success: two `SHA256 OK (pinned + API):` lines, then
+`Installed: ...\bin\llama-server.exe`. The version check prints
+`version: 0.7.0-dev (build 11868, commit 78a8ae14b)`. `bin\` also holds
+`cudart64_13.dll`, `cublas64_13.dll` and `cublasLt64_13.dll`.
 
 If it fails: `Could not fetch ... for SHA256 digests` means the GitHub API was
-unreachable or rate-limited; wait and re-run (`-SkipVerify` skips the check, not
-recommended). `-LlamaRelease` and `-Cuda` pick another release; check its asset names.
+unreachable or rate-limited; wait and re-run. `-SkipVerify` skips both checks, only
+together with `-SkipVerifyAck` (without it the script throws before fetching anything),
+and warns for each zip; not recommended. `-LlamaRelease` and `-Cuda` pick another
+release; check its asset names and pin its digests first. Tests (pins, manifest, the
+`-SkipVerifyAck` gate; no network): `python -I scripts/tests/install_verify_test.py`
+(`--full` also hashes the default GGUF).
 
 ## 3. NVIDIA setting: Prefer No Sysmem Fallback
 
@@ -90,6 +99,22 @@ The `hf` CLI is not installed on the reference machine, so the first three lines
 UNVERIFIED. A 401 or 403 means the terms are not accepted or the token lacks read
 access. A different byte count means a partial download; run `hf download` again.
 
+`models/manifest.json` (the one tracked file under `models\`) pins every GGUF this repo
+uses: Hugging Face repo, the revision (commit) `hf download` fetched, byte size and
+SHA256. On the reference machine each SHA256 was computed with `Get-FileHash` on
+2026-10-30 and equals the LFS etag `hf download` recorded in
+`models\<dir>\.cache\huggingface\download\<file>.metadata`. To check the files you have
+(no download; absent files are listed and skipped; a size or SHA256 mismatch throws):
+
+```powershell
+pwsh scripts\install.ps1 -VerifyModels
+```
+
+Hashing all eight files takes about six minutes on the reference machine. To fetch the
+pinned revision rather than the repo's current one, add `--revision <revision>` to
+`hf download` (UNVERIFIED: the `hf` CLI is not installed here). A `-hf` download by
+`llama-server` is not covered by the manifest.
+
 Ungated fallback: Qwen3.6-35B-A3B. `llama-server -hf` downloads it on the first start
 into `%USERPROFILE%\.cache\huggingface\hub` (13.2 GB, about 5 min on the reference
 machine). As for any model other than the default file, `serve.ps1` then uses q8_0 KV
@@ -102,14 +127,22 @@ pwsh scripts\serve.ps1 -Model 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS'
 ## 5. First manual start (`scripts\serve.ps1`)
 
 Skip this step if the server is already running (after step 7 it starts at every
-logon). Check first; `ok` means go straight to step 8:
+logon). Check first, from the repo root; `200` means go straight to step 8 (the key is
+the first line of `logs\api-key`, which serve.ps1 writes at each start; a server started
+before that uses `local`). The check uses `/slots` because `/health` answers 200 with
+any key or none on b11868, so it proves only that the server is up:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8080/health -Headers @{Authorization='Bearer local'}
+$key = "$(Get-Content logs\api-key -TotalCount 1 -ErrorAction Ignore)".Trim()
+if (-not $key) { $key = 'local' }
+(Invoke-WebRequest http://127.0.0.1:8080/slots -SkipHttpErrorCheck `
+    -Headers @{Authorization="Bearer $key"}).StatusCode
 ```
 
 With no parameters it serves the default file on `127.0.0.1:8080` at ctx 131072, q4_0
-KV, flash attention on, one slot, `--api-key local`, model alias `local`, server
+KV, flash attention on, one slot, `--api-key-file logs\api-key` (a new random key
+written at each start; the scripts that call the server read that file and fall back to
+`local` when it is absent), `--no-webui`, model alias `local`, server
 thinking off (`--reasoning off`), and (for files under `models\qwen3.8-27b-uncensored`)
 `--chat-template-file config\chat-templates\qwen3.8-27b.jinja`; no MTP (ruling 14).
 Thinking off is the default by operator ruling of 2026-10-26: the compaction bench got
@@ -133,13 +166,18 @@ pwsh scripts\serve.ps1
 It prints the full `llama-server.exe` command line, then the server log. Ready is
 `server_run_i: model loaded` followed by `listening on http://127.0.0.1:8080`. On the
 reference machine that took about 4 s, with the file likely in the OS cache; a cold
-load from disk is UNVERIFIED. Leave the window open and check from a second one:
+load from disk is UNVERIFIED. Leave the window open and check from a second one, in the
+repo root:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8080/health -Headers @{Authorization='Bearer local'}
+$key = "$(Get-Content logs\api-key -TotalCount 1 -ErrorAction Ignore)".Trim()
+if (-not $key) { $key = 'local' }
+(Invoke-WebRequest http://127.0.0.1:8080/slots -SkipHttpErrorCheck `
+    -Headers @{Authorization="Bearer $key"}).StatusCode
 ```
 
-Success: `status` is `ok`. `Port 8080 is already in use` usually means the task's own
+Success: `200` (`401` means the key is wrong). `Port 8080 is already in use` usually
+means the task's own
 server is up (`Get-NetTCPConnection -LocalPort 8080 -State Listen` shows a
 `llama-server` PID); use it and go to step 8. Otherwise see Troubleshooting.
 `Model file not found`: step 4 is not done. Stop with Ctrl+C or `pwsh scripts\stop.ps1`.
@@ -190,10 +228,14 @@ pwsh -File Z:\repos\kosm1x\local-inference-studio\scripts\serve.ps1 '-ExtraArgLi
 ```
 
 **Checking thinking off.** Once `/health` returns `ok`, render a one-message prompt
-through the server's chat template:
+through the server's chat template (from the repo root):
 
 ```powershell
-(Invoke-RestMethod -Method Post http://127.0.0.1:8080/apply-template -Headers @{Authorization='Bearer local'} -ContentType 'application/json' -Body '{"messages":[{"role":"user","content":"hi"}]}').prompt
+$key = "$(Get-Content logs\api-key -TotalCount 1 -ErrorAction Ignore)".Trim()
+if (-not $key) { $key = 'local' }
+(Invoke-RestMethod -Method Post http://127.0.0.1:8080/apply-template `
+    -Headers @{Authorization="Bearer $key"} -ContentType 'application/json' `
+    -Body '{"messages":[{"role":"user","content":"hi"}]}').prompt
 ```
 
 With thinking off the prompt ends with the assistant turn and a closed, empty think
@@ -229,9 +271,11 @@ blocks, raise the budget with `-MaxTokens 8192`. `count_tokens: unavailable` doe
 `scripts\register-task.ps1` registers `LocalInferenceStudio-llama-server` for the
 current user, no elevation. At logon it runs `pwsh -NoProfile -NonInteractive
 -WindowStyle Hidden -File scripts\serve.ps1 -LogFile logs\llama-server.log` from the
-repo root, on battery too, with no time limit. Its restart settings only retry a launch
-that fails: after a crash or `stop.ps1` the server stays down until the next logon or
-`Start-ScheduledTask`. Stop the manual server from step 5 first:
+repo root, on battery too, with no time limit. Its restart settings retry a launch that
+fails (3 times, 1 minute apart). After a llama-server crash serve.ps1 starts it again
+(10, 30, 60, 120, then 300 s later, at most 5 times an hour); after `stop.ps1` the
+server stays down until the next logon or `Start-ScheduledTask`. Stop the manual server
+from step 5 first:
 
 ```powershell
 pwsh scripts\stop.ps1
@@ -249,6 +293,37 @@ machine). The log is appended, renamed to `.1` past 50 MB, and each run ends wit
 `register-task.ps1` after moving the repo. Remove the task with
 `pwsh scripts\unregister-task.ps1` (a running server is left alone).
 
+### 7a. Register the watchdog (operator)
+
+`scripts\register-watchdog.ps1` registers `LocalInferenceStudio-watchdog` for the
+current user, at logon plus 5 minutes. It runs `scripts\watchdog.ps1`, which polls
+`/health` every 60 s and after 3 failed polls runs `stop.ps1` and starts the server task
+again, at most 3 times an hour. It pauses while an operator's stop request
+(`logs\.stop-requested-8080`, written by `stop.ps1`) exists. Log: `logs\watchdog.log`.
+Combined bound: each watchdog restart is a new serve.ps1 with its own 1 + 5 starts, so a
+crash-looping server is started about 18 times an hour at most (24 in the first hour,
+counting the logon start), assuming the task's RestartCount does not fire on a non-zero
+exit (UNVERIFIED). The task stores absolute paths: re-run the script after moving the
+repo.
+
+```powershell
+pwsh -NoProfile -File "<repo>\scripts\register-watchdog.ps1" -WhatIf   # preview only
+pwsh -NoProfile -File "<repo>\scripts\register-watchdog.ps1"
+```
+
+After a restart (by the watchdog or any other start), prove from the repo root that the
+server takes the new key, refuses `local` and serves no web UI; expect `200 401 nonHTML`
+(`/health` is no proof: it answers 200 with any key or none on b11868):
+
+```powershell
+$k = (Get-Content logs\api-key -TotalCount 1).Trim(); $u = 'http://127.0.0.1:8080'
+$s = { param($t) (Invoke-WebRequest "$u/slots" -SkipHttpErrorCheck `
+    -Headers @{Authorization="Bearer $t"}).StatusCode }
+$h = if ((Invoke-WebRequest "$u/" -SkipHttpErrorCheck).Content -match '<html') {
+    'HTML' } else { 'nonHTML' }
+"$(& $s $k) $(& $s 'local') $h"
+```
+
 ## 8. Run Claude Code against it (`scripts\claude-local.ps1`)
 
 Change to the project you want to work in, then call the wrapper by its full path:
@@ -262,7 +337,8 @@ pwsh Z:\repos\kosm1x\local-inference-studio\scripts\claude-local.ps1 -LisFull
 ```
 
 For this process only, it sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`,
-`ANTHROPIC_AUTH_TOKEN=local`, and `ANTHROPIC_MODEL` plus the Opus, Sonnet and Haiku
+`ANTHROPIC_AUTH_TOKEN` to the first line of `logs\api-key` (`local` when that file is
+absent), and `ANTHROPIC_MODEL` plus the Opus, Sonnet and Haiku
 default aliases to `local`. It unsets `ANTHROPIC_API_KEY` (a real key would be sent to
 the local server) and the `CLAUDE_CODE_SUBAGENT_MODEL*` variables, and passes
 `--settings config\claude-settings.json` (model and subagent model `local`,
@@ -315,29 +391,37 @@ Permissions (ruling 15: only writes and deletes of critical files block or ask; 
 runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
 
 - Rule set A, in `config/claude-settings.json` `permissions`. `allow`: read-only prefixes
-  for host inspection, versions, service state and repo reads, e.g.
-  `Bash(powershell -NoProfile -Command \"Get-*)`. The matcher sees the raw command string,
-  so a PowerShell rule carries the opening quote of the `-Command` payload, and every
-  `;` / `&&` / `|` segment of a command must match. An allowed command skips the auto-mode
-  classifier (about 60 s per decision on the local model). Ten exact rules run
-  tests: eight run this repo's tests from its root,
+  for host inspection, versions, service state and repo reads, e.g. `Bash(nvidia-smi
+  -L*)`. No settings rule allows a PowerShell `-Command` payload except the exact
+  `$PSVersionTable` check: a prefix rule allowed `Get-Volume; & ./x.ps1` (audit A3,
+  2026-10-30), so the 24 survey prefixes were dropped and the hook allows the survey's
+  `Get-Volume` and `Get-CimInstance` reads by parsing the payload. The matcher sees the
+  raw command string, and every `;` / `&&` / `|` segment of a command must match. An
+  allowed command skips the auto-mode classifier (about 60 s per decision on the local
+  model). Fifteen exact rules run tests: twelve run this repo's tests from its root,
   `Bash(python -I scripts/hooks/tests/lis-guard_test.py)`,
+  `Bash(python -I scripts/hooks/tests/lis-guard_property_test.py)` (exact: its `--hook`
+  option runs any Python file),
   `Bash(python -I scripts/hooks/tests/loop-guard_test.py)`,
   `Bash(python -I bench/ladder/tests/grade_test.py)`,
   `Bash(python -I bench/ladder/tests/gen_longfix_test.py)`,
   `Bash(python -I bench/ladder/tests/longrun_test.py)`,
   `Bash(python -I scripts/tests/verify-doc_test.py)`,
-  `Bash(python -I scripts/tests/verify_claims_report_test.py)` and
+  `Bash(python -I scripts/tests/verify_claims_report_test.py)`,
+  `Bash(python -I scripts/tests/claude_settings_test.py)`,
+  `Bash(python -I scripts/tests/install_verify_test.py)`,
+  `Bash(python -I scripts/tests/resilience_test.py)` and
   `Bash(node --test bench/loop/fixture/test/text.test.js)` (TEST 6 in docs/ROADMAP.md),
-  and two run the generated fixture's tests from a `bench/ladder` long-fix work tree
+  and three run a generated fixture's tests from a `bench/ladder` work tree
   (`bench/ladder/README.md`): `Bash(node --test longfix/test/all.test.js)`, the
-  series 1 to 3 command, kept for that key, and one exact rule for the current long-fix
-  test command (`$longCmd` in `bench/ladder/run.ps1`); their paths are relative, so
-  the rules match in any cwd that holds such a file. An exact rule
-  stays in auto mode; a wildcard after `node` or `python` is dropped. An exact rule
-  trusts the file it names: neither the hook nor the classifier scans that file, so
-  editing one of the nine test files or `longfix/reporter.mjs` (the long-fix rule
-  also trusts and executes the reporter) changes what its rule allows.
+  long-fix series 1 to 3 command, kept for that key, one exact rule for the current
+  long-fix test command (`$longCmd` in `bench/ladder/run.ps1`), and
+  `Bash(node --test tallyctl/test/all.test.js)` for the rung 3 stale-figure fixture;
+  their paths are relative, so the rules match in any cwd that holds such a file. An
+  exact rule stays in auto mode; a wildcard after `node` or `python` is dropped. An
+  exact rule trusts the file it names: neither the hook nor the classifier scans that
+  file, so editing one of the thirteen test files or `longfix/reporter.mjs` (the long-fix
+  rule also trusts and executes the reporter) changes what its rule allows.
   `ask`: `Edit(...)` rules for the critical paths
   (`~/.claude`, `~/.ssh`, `.curlrc`/`_curlrc`, Windows, Program Files,
   ProgramData, `.env*`, `*.pem`, `*.key`, `token`, `.git` internals; `Edit` also governs
@@ -406,15 +490,355 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   DIR (VERIFIED under bash on a scratch dir; HEAD allowed it). `[[`, `[` and `test` are
   not read-only verbs: `[[ Z -eq 1 ]]` and `[ -v 'a[Z]' ]` evaluate `Z` as arithmetic,
   which can run a `$(...)` held in it.
-  `deny`: WebSearch, WebFetch, Agent, Workflow.
+  `deny`: WebSearch, WebFetch, Agent, Workflow; Bash `git push` (any form, `git -C * push`
+  and `git -c * push` included), `gh` and `gh.exe` whole, `docker.exe` and
+  `docker-compose` whole, `ssh`, `scp`, `sftp` (with `.exe`), and curl upload flags
+  (`-d`, `--data*`, `-F`, `--form*`, `-T`, `--upload-file`, `--json`). `docker` and
+  `wsl` are denied by form, not whole, so the survey's read-only checks keep running:
+  `docker run|exec|cp|push|login|build|buildx|compose|save|load|import|export|commit|
+  volume|network|system|container|image|create|start`, `docker context use|create|import`
+  and a global option first (`-H`, `--host`, `-c`, `--context`, `--config`); `wsl` (and
+  `wsl.exe`) with `-d`, `--distribution`, `-e`, `--exec`, `-u`, `--user`, `-- `,
+  `--import`, `--export`, `--install`, `--unregister`, `--mount`, `--cd`, `~`,
+  `--shell-type`, `bash` or `sh`. Left open, for the hook and the classifier: `wsl
+  <command>` on the default distro (the hook reads that payload) and the other `docker`
+  subcommands. `Read` of credential stores, in both the
+  `~/` and `//c/Users/*/` forms: `.claude/.credentials.json`, `.claude.json` (and its
+  `.claude.json.*` backups), `.claude/backups/**`, `.claude/settings*.json`, session
+  transcripts `.claude/projects/**/*.jsonl`, `.cache/huggingface/**`, `.git-credentials`,
+  `.config/gh/**`, `AppData/Roaming/GitHub CLI/**`, `.ssh/**`, `.aws/**`,
+  `.docker/config.json`, plus `**/.env*` anywhere and, at any depth (audit A2: another
+  profile, a copied home, a WSL distro), `**/.ssh/**`, `**/.aws/**`, `**/.netrc`,
+  `**/_netrc`, `**/.git-credentials`, `**/.docker/config.json`, `**/.config/gh/**`,
+  `**/.claude/settings*.json`, `//wsl.localhost/**/.ssh/**` and `//wsl$/**/.ssh/**`;
+  and `Edit` (which governs Write) of
+  the guards, both anchored (`//**/local-inference-studio/...`) and relative to the cwd:
+  `scripts/hooks/**`, `scripts/verify-doc.py`, `serve.ps1`, `stop.ps1`,
+  `claude-local.ps1`, `register-task.ps1`, `watchdog.ps1`, `register-watchdog.ps1`,
+  `bench/ladder/run.ps1`, `config/claude-settings.json`,
+  `config/chat-templates/**`, `scripts/tests/claude_settings_test.py`,
+  `scripts/tests/install_verify_test.py`, `scripts/tests/resilience_test.py`, and
+  (anchored only, since the wrapper runs in any project)
+  `config/**`, `bin/**`, `.gitignore`, `.gitattributes`. The rest of `~/.claude` stays
+  readable on purpose: skills, plugin files and memory are read with the Read tool.
+  2026-10-30 (security audit B1, B3): the allow rules for `gh auth status`,
+  `gh --version` and `wsl -d Ubuntu -- echo|uname` were removed, since the denies above
+  shadow them and a deny always wins over an allow, so no read-only `gh` form can be
+  carved out of `Bash(gh:*)`. The allows for `wsl --list`/`-l`/`--status` and
+  `docker version|--version|context ls|ps|info` stay, so the survey's `docker version`
+  and `wsl -l -v` run as before. Its remote-host check (`wsl -d Ubuntu -- ssh ...`) and
+  any `gh` check now show as denied tool calls in a local session (the hook denies them
+  too). The survey policy text cannot change to match without changing
+  `policy_sha256`, which feeds the stale-figure key, so that waits for an operator
+  ruling that breaks the key. Evidence for precedence: a tool-level `--settings` deny
+  wins over a user allow (VERIFIED, docs/ROADMAP.md, "Overlay: deny WebSearch and
+  WebFetch"); a content-scoped `Read(...)`, `Bash(...)` or `Edit(...)` deny winning
+  over a user-level allow is documented ("deny, then ask, then allow") but UNVERIFIED
+  live, as are `~` expansion in `Read` rules on Windows, the `//c/Users/*/` and `//**/`
+  wildcard forms, cwd-relative `Edit` rules in flag settings and the `.exe` variants.
+  Tests (no session, no network):
+  `python -I scripts/tests/claude_settings_test.py`. It and
+  `scripts/tests/install_verify_test.py` quote credential paths and `git push`, and
+  `scripts/tests/resilience_test.py` quotes a `Remove-Item` payload (operator ruling,
+  2026-10-30), so the hook exempts all three from its content scan (as it does its own
+  two test files, `lis-guard_test.py` and `lis-guard_property_test.py`, the hook file
+  itself, which quotes every shape, and `bench/ladder/run.ps1`,
+  whose `-DryRun` deletes its own work tree under `-WorkRoot` (audit A4); a copy
+  elsewhere is scanned) and denies shell writes to them, also after a
+  `cd` (`cd scripts/tests && echo x > <name>`), through `''` splices, `/./` or `//`,
+  `{a,b}` braces and globs that can match the name (`scripts/tests/claude*.py`); each
+  has an exact allow rule above.
 - The hook, `scripts/hooks/lis-guard.py` (Python 3, stdlib, `python -I`), which the
   wrapper adds to the per-run settings as a PreToolUse `Bash` hook. It denies a critical
   write or delete anywhere in the command, including inside `powershell -Command "..."`,
-  `bash -c '...'`, `wsl ... -- ...` and ssh remote commands (on the VPS side: `rm`,
+  `bash -c '...'`, `wsl ... -- ...` and ssh remote commands (on the remote host: `rm`,
   `systemctl` other than `status`, `docker` other than read subcommands, `git push`,
-  `tee`, `>`, `mv`, `chmod`, `kill`, `apt`, `reboot`); it allows commands whose every
-  segment is read-only (ssh read-only VPS review included). For scripts (`bash file`,
-  `pwsh -File`, `python file`, `node file`) and interpreter payloads it is the judge of
+  `tee`, `>`, `mv`, `chmod`, `kill`, `apt`, `reboot`). Since 2026-10-30 (security audit
+  B1, B3, B4 and fold 3) it denies every executable the `Bash` deny rules above deny,
+  whatever its spelling (quoted, a full path such as `C:/Windows/System32/wsl.exe` or
+  `/usr/bin/ssh`, upper case, a leading `\`, an env prefix such as
+  `MSYS_NO_PATHCONV=1`): `ssh`, `scp`, `sftp`, `gh` (`gh auth status` included),
+  `docker-compose`, `docker.exe`, the denied `docker` subcommands and global options,
+  `wsl` with a distro, user, exec, cwd or shell option or a `bash`/`sh` payload
+  (`wsl -d Ubuntu -- uname -a` included), `git push` and `git credential`. It also
+  denies anywhere in the command: `docker push`, `gh` writes, uploads
+  (curl or wget sending data or a file to a non-loopback host, `scp`, `sftp`, `nc`,
+  `socat`, `ftp`, remote `rsync`, `Invoke-WebRequest`/`Invoke-RestMethod` with a body,
+  `Send-MailMessage`), broadcast or computed kills (`kill -1`, `kill 0`, a process group,
+  a `$`/backtick target, `pkill`, `killall`, `taskkill /IM` or `/T`, `Stop-Process
+  -Name`, `wmic process delete`), a word naming a credential store in any context (the
+  `Read` deny paths above: any file under `.ssh/` or `.aws/`, `.env*` by
+  basename, `.claude/settings*.json`, `.claude/backups`, `.claude/projects` transcripts,
+  `.docker/config.json`, `.git-credentials`, `.config/gh`, `GitHub CLI` (also
+  `GitHub\ CLI`), the Hugging Face token; plus `.netrc`/`_netrc`,
+  `.config/git/credentials`, `.npmrc`, `.pypirc`, `.vault-token`, files under `.kube/`
+  or `.gnupg/`, `ssh_host_*_key`, `Microsoft/Credentials`, `.local/share/keyrings`,
+  shell and REPL history files, `.claude/history.jsonl`, `/proc/<pid>/environ`, files
+  under `.azure/` or `.config/gcloud`, `.pgpass`, `.cargo/credentials`,
+  `.terraform.d/credentials`, `rclone.conf`, browser `Login Data` and `Cookies` under
+  `User Data`,
+  `gh auth token` and the token variable names `HF_TOKEN`,
+  `HUGGING_FACE_HUB_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+  `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `GH_TOKEN`, `GITHUB_TOKEN`,
+  `BRAVE_API_KEY`, `TAVILY_API_KEY`), also when spliced (`pu''sh`,
+  `"$HOME/.claude/.cred"entials.json`, `'git pu'+'sh'`), brace-expanded
+  (`~/.claude/{.credentials,x}.json`), escaped (`.s\sh`), ANSI-C quoted
+  (`~/$'\x2essh'`, `$'\056ssh'`, `\uHHHH`) or globbed (`.cred*.json`,
+  `.credentials.jso?`, `.ss?/id_*`, `.s*`, any glob inside a credential directory). It
+  denies a credential directory (`.ssh`, `.aws`, `.docker`, `.gnupg`, `.kube`,
+  `.config/gh`, `.config/git`, `.claude` and its `projects`, `backups`, settings and
+  credentials, `.cache/huggingface`, `GitHub CLI`, `Microsoft/Credentials`,
+  `ProgramData/ssh`) named as a whole word by any command (`ls -la ~/.ssh`, `find
+  ~/.ssh`, `Get-ChildItem` in a PowerShell payload), a `cd`/`pushd`/`Set-Location`
+  into one, with the later segments judged under the `cd` target (`cd ~/.ssh && cat
+  x`), and a recursive search or archive (`grep -r`, `rg`, `find`, `tree`, `du`, `tar`,
+  `zip`, `ls -R`, `Get-ChildItem -Recurse` and the like) of a home directory or its
+  `.config`, `.cache`, `.local` or `AppData`. It denies whole-environment dumps (`env`
+  and `printenv` with no name, bare `set`, `export -p`, `declare -p|-x`, `compgen -v`,
+  the PowerShell `env:` drive, `GetEnvironmentVariables`, and in code
+  `print(os.environ)`, `os.environ.items()`, `console.log(process.env)`,
+  `JSON.stringify(process.env)`), a `$(...)` or backtick in any argument of a network
+  command (`curl`, `wget`, `nc`, `socat`, `git fetch|pull|clone|push|remote`), `pscp`,
+  `plink`, `telnet`, `tftp`, `bitsadmin`, `Start-BitsTransfer`, `git config` or `git -c`
+  setting an `alias.` or `credential.` key, `git-credential-*`, `git send-email`,
+  `python -m http.server` not bound to loopback, and `iex` of `[char]` arithmetic. In a
+  PowerShell payload or `.ps1` line it denies `Start-Process`, `Invoke-Expression`/`iex`,
+  `Invoke-Command`, `Invoke-CimMethod`, `Invoke-WmiMethod`,
+  `New-`/`Set-`/`Remove-CimInstance`, `Remove-WmiObject`, `Stop-Computer`,
+  `Restart-Computer`, `Set-Volume`, `Format-Volume`,
+  `Clear-Disk` and a command reached through `Get-Command` (`& (gcm git) push`). It
+  denies `find ... -exec|-execdir|-ok` on files named like keys or tokens (`-name
+  '*.pem'`), a `mklink` or `New-Item -ItemType SymbolicLink|Junction` onto a credential
+  directory, and a recursive search of `C:/Users` (every home). A line holding more
+  than 500 splices, braces, backslash escapes, ANSI-C strings or `cd`/`pushd` is denied
+  as "obfuscation over cap", which bounds the decision time. Also denied (audit A4): a
+  `$(...)` or backtick in an argument of a read verb (`cat`, `head`, `tail`, `less`,
+  `more`, `type`, `Get-Content`, `grep`, `rg`, `find` and the like; `cat $(printf
+  .ssh)/x`, and also the harmless `grep "$(date +%F)" log`), `git log|show|diff
+  --output` (a file write), npm's global `etc/npmrc`, and `systeminfo`, `tasklist`,
+  `wmic`, `sc`, `schtasks` and similar tools given `/S <host>`, `/U`, `/P`,
+  `/node:` or `\\host` (also as `-S`, `-U`, `-P`; `git --outp=x` and other prefixes of
+  `--output` count). Audit A5 adds the Environment provider by name (`Get-ChildItem
+  Environment::`, `-PSProvider Environment`, `-Path:env:`) as an environment dump, a
+  PowerShell read whose path is built from pieces (`Get-Content ('~/.s{0}h/x' -f 's')`,
+  `-replace`, `-join`, `[char]`, `.Replace()`, `+`, a string index; also the harmless
+  `Get-ChildItem ('mod' + 'els')`) as a credential read, a glob under `.config` with
+  fewer than three literal characters or one that can match `gh`, `git` or `gcloud`
+  (`~/.config/g*/hosts.yml`), and a glob path ending in a credential name (`*/hosts.yml`).
+  A script line over 32 KB is denied as "obfuscation over cap" without being parsed. In
+  a PowerShell payload, `&` on a plain program name is judged
+  as that program (`& git status` gets no decision, `& git push` and `& curl -T`
+  deny); `&` on a variable or expression and script text built at run time
+  (`[scriptblock]::Create((gc x))`) deny. Also
+  a `$(...)` or backtick substitution as the command word (`$(echo git) push`), a base64
+  decode piped to a shell, and a write to its own guard files (`scripts/hooks`,
+  `verify-doc.py`, `serve.ps1`, `stop.ps1`, `claude-local.ps1`, `register-task.ps1`,
+  `watchdog.ps1`, `register-watchdog.ps1`, `bench/ladder/run.ps1`,
+  `config/claude-settings.json`, the three
+  exempt tests in `scripts/tests`, `llama-server.exe`), including by `>`, `>>`, `>|`,
+  `sed -i`/`--in-place`, `perl -i`/`-pi`, `git
+  checkout|restore|switch|reset|apply` naming one, `patch`, a `git apply`/`patch` diff
+  file whose headers name one, `tee`, `Set-Content`/`Out-File`/`Add-Content` and
+  `Copy-Item`/`Move-Item`, after a `cd` (`cd config; echo {} > claude-settings.json`)
+  and through `/./`, `//`, `''` splices, braces and globs that can match a guard file
+  (`echo x > scripts/tests/claude*.py`). Interpreter payloads are read, not skipped:
+  `python|python3|py -c`, `node -e|--eval|-p`, `deno eval`, `deno run -`, `bun -e`,
+  `bash|sh -c` (bundles such as `-lc` included), `cmd /c`, `pwsh -EncodedCommand`
+  (decoded), heredocs and here-strings fed to an interpreter, `wsl <command>` with or
+  without `--`, `python`/`node` script files, `source`/`.` of a shell file, the batch
+  file of `cmd /c x.bat` (critical lines denied, never allowed) and the script a
+  PowerShell payload runs (`./up.ps1`, `& ./x.ps1`, `. ./x.ps1`, `& python x.py`, a path
+  inside `( )`, `$( )` or `@( )` or after `&&`, `Import-Module ./m.psm1` (also
+  `-Name:./m.psm1` and `using module`), `Start-Job -FilePath`, `.\up.ps1`, literal
+  `InvokeScript` and `[scriptblock]::Create` text), judged like `pwsh -File`; a script
+  run from a payload that the hook cannot read is denied. Options before the file are
+  skipped (`bash -e
+  x.sh`, `bash -o pipefail x.sh`, `pwsh -NonInteractive ./x.ps1`, positional `pwsh
+  ./x.ps1`, `-File:./x.ps1`, `-CommandWithArgs`). In a `.ps1` file, `<# ... #>` help
+  blocks are skipped, and in a repo script under `bench/` or `scripts/` a variable
+  assigned once to a quoted literal (`$base =
+  "http://127.0.0.1:$Port"`, never a parameter or a scoped or `Set-Variable`
+  reassignment) is read as that literal, so `Invoke-RestMethod -Method Post -Uri
+  "$base/v1"` is a loopback call. No literal is read for a name assigned as `${name} =`,
+  `${script:name}` or in a list (`$a, $name = ...`), nor for any name in a file that
+  uses `PSVariable`, `Get-`/`Set-`/`New-Variable`, `[ref]`, a dot-source,
+  `Import-Module` or the `&` call operator (audit A5). In Python or JavaScript code it
+  denies a recursive delete of a home, cwd, parent or non-temp absolute path, a
+  process-group or broadcast kill, a write call on the same line as a critical path
+  (also after joining `'a'+'b'`), an HTTP upload to a non-loopback host, a file read
+  sent in a non-loopback URL (`fetch('https://x/?d='+readFileSync(f))`), `chr`,
+  `b64decode`, `atob` or `Buffer.from(..., 'base64')` feeding `os.system`,
+  `subprocess`, `exec` or `eval`, and an argv list (`subprocess.run(['git', 'push'])`)
+  judged as the shell command it spells. Residuals (no decision, so the rules or the
+  classifier decide): code or a command word reached through a variable (`p = home;
+  rmtree(p)`, `c=git; $c push`), code piped to an interpreter on stdin, a second file in
+  `node --test a b`, a string built at run time by means other than literal `+`
+  splicing, `chr`/base64 and globs (`''.join(...)`, `format`, `replace`, arithmetic), and
+  a `git apply`/`patch` diff file the hook cannot read (missing, or over the read cap).
+  Residuals the hook allows or leaves open: a recursive search of the repo or another
+  non-home directory (`grep -rn KEY .`), `git grep`, `git config --list`, `git remote
+  -v` (a token embedded in a remote URL shows), `/proc/self/cmdline`, using an alias
+  that already exists (`git p`), `git remote add`, `git bundle create`, `deno run -A`,
+  a plain `curl https://host` that sends no data, a path fed through `xargs` or a `while
+  read` loop, a script fed on stdin or through process substitution (`bash < x.sh`,
+  `bash <(curl ...)`), `./up` without its extension in a PowerShell payload,
+  `~/.wslconfig`, and `git config --get remote.origin.url`.
+  Credential files outside the named list get no decision or a read-only allow
+  (`~/.m2/settings.xml`, `~/.gitconfig`, `~/.config/hub`, `~/.yarnrc.yml`, editor state
+  stores; `~/.azure`, gcloud, `.pgpass`, cargo/terraform tokens and browser cookie and
+  login stores were in this group until they were named on 2026-10-30): the hook names
+  known stores, it does not find every secret. The hook is defense in depth,
+  not a boundary: a session that must not read the operator's credentials runs under a
+  separate Windows user that cannot read them (ruling S-B1i); these residuals stay
+  documented rather than chased with more patterns.
+  Residuals of the ASCII-only allow path (ruling 45, 2026-10-30), each no decision and
+  never an allow (the property test checks both): R3, a splice the hook cannot resolve
+  to a known verb (`pu''sh`) or a string built at run time; R4, an input past the
+  hook's limits (over 32 KB, over 500 `cd` statements, a `cd` rewrite past its size
+  bound, a script over 200 KB).
+  Over-matches kept on the safe side (deny): a loopback URL whose path names a
+  credential file (`curl http://127.0.0.1:8080/.env`) and any `.env*` basename, such
+  as `cat .environment`.
+  It allows commands whose every segment is read-only (ssh, `gh` and `wsl -d` are no
+  longer among them), and only pure-ASCII ones (ruling 45, 2026-10-30): a command, or a
+  script the allow path reads, with a byte over 0x7F or a NUL is denied or gets no
+  decision, never allowed (`Get-Process` with `-Name` spelled with an en dash gets no
+  decision). Nor does it allow a command, nor a script it reads, naming `id_rsa`,
+  `.ssh/` or `.ssh\`, `.aws/` or `.aws\`, `credentials`, `api-key`, `hf_`, `.env`, `-ec`,
+  `-EncodedCommand`, `Invoke-Expression` or `iex` (also behind a `''`, `""` or
+  backslash-newline splice), a script outside the repo (by its path, a `..` path or a
+  junction), or a script run after a cwd move (the shell would run another file than the
+  one the hook read). A path starting with `//` or `\\` is never allowed, and the hook
+  never opens or resolves one (audit A13: `cat //host/share/x` sends SMB traffic and an
+  NTLM hash to that host, and a lookup of an unknown host takes about 3 s); this covers
+  `\\?\` and `\\.\`, a value after `-f`, `--x=` or `@`, a script, `-wd` or patch file,
+  and a UNC cwd. A `//Switch` to pwsh or tasklist stays allowed (Git Bash passes it as
+  `/Switch`). A PowerShell payload is read-only only on
+  a fixed allowlist
+  (audits A5 to A7: the blocklist before it allowed `Environment::` and `-f` splices; a
+  list of cmdlet names alone let `-Comp host` and `'HKCU:\Envi*'` through; a list of
+  secret property names let `Select-Object $_` and the object-typed `Parent` through).
+  Every `;` statement is a pipeline that starts with one producer and continues only
+  with consumers; a producer after a `|` gets no decision, as it would take its path or
+  name from the pipeline (`Get-PSDrive | Select-Object -ExpandProperty Root |
+  Get-ChildItem`). Each cmdlet takes only these parameters (P = the first positional
+  argument):
+
+  | Producer | Parameters and value classes |
+  |---|---|
+  | `Get-CimInstance` | P or `-ClassName` class (required); `-ErrorAction` |
+  | `Get-Volume` | P or `-DriveLetter` word |
+  | `Get-PSDrive` | P or `-Name` word; `-PSProvider FileSystem` |
+  | `Get-Process` | P or `-Name` word; `-Id` int; `-ErrorAction` |
+  | `Get-Service` | P or `-Name` word; `-ErrorAction` |
+  | `Get-Date` | `-Format` word |
+  | `Get-ComputerInfo` | P or `-Property` property list (required) |
+  | `Get-Command` | P or `-Name` name: letters, digits, `_`, `-`, optional `.exe` |
+  | `Test-Path` | P, `-Path` or `-LiteralPath` repo path; `-PathType` word |
+  | `Get-Item` | P, `-Path` or `-LiteralPath` repo path; `-Force -ErrorAction` |
+  | `Get-ChildItem` | P, `-Path` or `-LiteralPath` repo path; `-Recurse -Force -File` |
+  | | `-Directory -Name`; `-Filter -Include -Exclude` glob; `-Depth` 1-3 |
+  | | `-ErrorAction` |
+  | `Write-Output` | words: letters, digits, spaces, `. , ! -` (also a consumer) |
+
+  | Consumer | Parameters and value classes |
+  |---|---|
+  | `Select-Object` | P or `-Property` props; `-ExpandProperty` one property |
+  | | `-First -Last -Skip` int; `-Unique` |
+  | `Format-Table` | P or `-Property` props; `-AutoSize -Wrap -HideTableHeaders` |
+  | `Format-List` | P or `-Property` props |
+  | `Sort-Object` | P or `-Property` props; `-Descending -Unique` |
+  | `Where-Object` | P or `-FilterScript`: `{ $_.X -eq 'y' }` (`-eq -ne -gt -lt` |
+  | | `-like -match`, a quoted or numeric literal) |
+  | `Measure-Object` | P or `-Property` props; `-Sum -Average -Maximum -Minimum` |
+  | `ConvertTo-Json` | `-Depth` 1-3; `-Compress` |
+
+  Every property a payload names (in a props list, `-ExpandProperty`, a Where-Object
+  `$_.X`, a calculated property's `$_.Y`, or `(pipeline).X`) must be on its producer's
+  list of scalar properties; `$_` alone, `*`, any other `$` and any other name get no
+  decision:
+
+  | Producer | Properties |
+  |---|---|
+  | `Get-Process` | Name, Id, CPU, WS, PM, NPM, VM, Handles, Path, StartTime, |
+  | | ProcessName, Responding, PriorityClass, WorkingSet64 |
+  | `Get-Service` | Name, DisplayName, Status, StartType |
+  | `Get-Volume` | DriveLetter, FileSystemLabel, Size, SizeRemaining, HealthStatus, |
+  | | DriveType |
+  | `Get-PSDrive` | Name, Root, Used, Free |
+  | `Get-Item`, `Get-ChildItem` | Name, FullName, Length, LastWriteTime, Extension, |
+  | | Mode, PSIsContainer |
+  | `Get-Date` | Year, Month, Day, DateTime, Ticks |
+  | `Get-Command` | Source, Path, Name, Version, CommandType |
+  | `Get-ComputerInfo` | OsName, OsVersion, OsArchitecture, CsNumberOfLogicalProcessors, |
+  | | CsTotalPhysicalMemory, OsTotalVisibleMemorySize, OsFreePhysicalMemory, |
+  | | WindowsVersion |
+  | `Win32_OperatingSystem` | Caption, Version, BuildNumber, OSArchitecture, |
+  | | TotalVisibleMemorySize, FreePhysicalMemory, LastBootUpTime, InstallDate |
+  | `Win32_ComputerSystem` | Model, Manufacturer, TotalPhysicalMemory, |
+  | | NumberOfLogicalProcessors, NumberOfProcessors |
+  | `Win32_Processor` | Name, NumberOfCores, NumberOfLogicalProcessors, |
+  | | NumberOfEnabledLogicalProcessors, MaxClockSpeed, L2CacheSize, L3CacheSize |
+  | `Win32_VideoController` | Name, AdapterRAM, DriverVersion, VideoProcessor |
+  | `Win32_PhysicalMemory` | Capacity, Speed, Manufacturer, PartNumber |
+  | `Win32_LogicalDisk` | DeviceID, Size, FreeSpace, FileSystem, DriveType |
+  | `Win32_DiskDrive` | Model, Size, MediaType, InterfaceType |
+  | `Win32_BIOS` | Manufacturer, Name, SMBIOSBIOSVersion, ReleaseDate |
+  | `Test-Path`, `Write-Output` | none |
+
+  After `Measure-Object`, `(pipeline).X` may read Count, Sum, Average, Maximum or
+  Minimum. No object-typed property (Parent, Modules, DependentServices, Provider,
+  CimSession) and no identity (UserName, RegisteredUser, SerialNumber, Domain,
+  ProcessorId) is on any list. `ConvertTo-Json` follows only a listed selection (a
+  `Select-Object` props list or `-ExpandProperty`, or `Get-ComputerInfo -Property`).
+  `Format-Table` or `Format-List` with no props list, and a bare `Get-CimInstance`, get
+  no decision unless a listed selection or `Measure-Object` came first; the exceptions
+  are `Get-PSDrive`, `Get-Date`, `Get-Item`, `Get-ChildItem`, `Test-Path` and
+  `Write-Output`, whose default views hold nothing more.
+
+  A class is one of `Win32_OperatingSystem`, `Win32_ComputerSystem`,
+  `Win32_Processor`, `Win32_VideoController`, `Win32_PhysicalMemory`,
+  `Win32_LogicalDisk`, `Win32_DiskDrive` and `Win32_BIOS`; `Win32_Process` (command
+  lines), `Win32_Service` (binary paths), `Win32_Product` and every `CIM_*` base class
+  are out, as are `-Query`, `-Namespace` and `-Filter`. Props are a comma list of
+  names from the producer's list or `@{n='X';e={[math]::Round($_.Y/1MB)}}` calculated
+  properties (`1KB`, `1MB` or `1GB`, optional digits, or plain `e={$_.Y}`). A word is
+  letters, digits, `.` and `-`; a glob adds `*` and `?`; an int is up to six digits;
+  `-ErrorAction` takes SilentlyContinue, Stop, Continue or Ignore. A repo path is
+  relative, with no `..`, drive, `~` or `:`, at most 64 parts, and no part of it, nor
+  anything a wildcard in it matches, is a symlink or junction (`bench/results/latest` is
+  one); a wildcard with more than 4096 matches is treated as a link. `Get-ChildItem
+  -Name` with `-Recurse` or `-Depth` gets no decision (it lists through links). The
+  path cmdlets, in a `-Command` payload or in a script the command runs (`pwsh -File`,
+  `bash`, `sh`, `source`, `.`), are allowed only when the cwd is inside the repo, the
+  script file is inside the repo (not drive-relative like `C:x.ps1`), and nothing
+  anywhere in the command (any segment, a nested `bash -c` or `-Command`, a heredoc
+  body) runs `cd`, `pushd`, `popd`, `chdir`, `Set-Location`, `sl`, `Push-Location` or
+  `Pop-Location`, or starts PowerShell with a `-WorkingDirectory` (`-wd`, `-w`, any
+  prefix, `-wd:` or `-wd=` too) other than the cwd; a `cd` inside a script covers its
+  later lines. PowerShell options are read in every spelling pwsh takes: `-x`, `--x`,
+  `/x`, and `//x` (Git Bash passes `/x` on), with the dash also an en dash (U+2013),
+  em dash (U+2014) or horizontal bar (U+2015), single or doubled; so `--wd`, `/wd`,
+  `--File` and `/c` count like `-wd`, `-File` and `-c`, and a command that names pwsh
+  is read with those three dashes as `-`. A script run through pwsh needs `-NoProfile`
+  and no `-SettingsFile` or `-ConfigurationFile`; one run through `bash` or `sh` takes no
+  `-l`, `-i`, `--login`, `--rcfile` or `--init-file` (a profile can `cd`). Over 500
+  `cd` statements (`cd`, `pushd`, `popd`, `chdir`, `sl`, `Set-Location`,
+  `Push-Location`, `Pop-Location`) get no decision, past the hook's limit (R4); one line
+  with over 500 obfuscation forms, or a `cd` prefix past 64 parts, is denied as
+  obfuscation over the cap; arguments after a `cd` that read as more than twice the
+  command's length plus 4096 get no decision. Parameter names match exactly
+  (`-Comp`, `-cn` and `-Cred` are not names in the tables); any other parameter, or a
+  value outside its class, gets no decision.
+  A quoted value is judged like the same value unquoted (`'HKCU:\Envi*'` is out as
+  `HKCU:\Envi*` is), and `\\` or `//` in any value is out. The only other statement
+  forms are `(pipeline).Prop`, `[math]::Round((pipeline).Prop/1GB,1)` (`1KB`, `1MB`
+  or `1GB`, optional digits) and the three exact forms `$PSVersionTable`,
+  `$PSVersionTable.PSVersion` and `$PSVersionTable.PSVersion.ToString()`. A provider
+  drive (`HKLM:`, `Variable:`), an alias, `Get-Content` and any other cmdlet get no
+  decision.
+  For scripts (`bash file`, `pwsh -File`, `python file`, `node file`) and interpreter
+  payloads it is the judge of
   record (operator ruling, 2026-10-25): a critical write on any line is denied quoting
   that line, a file whose every line is read-only is allowed, and a file it cannot read
   or parse gets no decision. "No decision" does not mean "straight to the classifier":
@@ -445,7 +869,10 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `timeout: 10` and `onFailure: block` (Claude Code 2.1.295+, so a hook crash or timeout
   blocks the call rather than letting it through), and inputs over 32 KB get no decision.
   `-LisNoGuard` leaves the hook out. Tests:
-  `python -I scripts\hooks\tests\lis-guard_test.py`.
+  `python -I scripts\hooks\tests\lis-guard_test.py` and the property test
+  `python -I scripts\hooks\tests\lis-guard_property_test.py` (22,000 generated
+  cases checked against the allow grammar, 1,000 of them UNC paths on random hosts;
+  `--seed N`, ruling 45).
 - PostToolUse hook (matcher `Write|Edit`, added with lis-guard, dropped by `-LisNoGuard`):
   `scripts/verify-doc.py --hook` checks every `.md` written or edited inside the working
   directory and hands its findings to the model as `additionalContext`, never blocking.
@@ -577,11 +1004,16 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
 - What asks: the `ask` rules above. Interactively you get a prompt. In `-p` mode an ask
   is a hard denial with no classifier, and the model retries the same call until
   `--max-turns`.
-- The limit (V5): a prefix rule cannot see a payload. `Bash(powershell -NoProfile
-  -Command \"Get-*)` alone allows `"Get-Date; Remove-Item x"`; only the mid-pattern ask
-  rules and the hook catch it. A trailing `*` also spans the rest of an ssh remote
-  command, which is why no ssh rule exists and ssh is the hook's job. Reads are not
-  guarded: the hook allows `cat` of any file (ruling 15), and the classifier never sees a
+- The limit (V5): a prefix rule cannot see a payload. A rule like `Bash(powershell
+  -NoProfile -Command 'Get-Volume*)` alone would allow `'Get-Volume; Remove-Item x'`,
+  which is why the per-run settings carry no such rule; the hook parses the payload
+  instead.
+  A trailing `*` also spans the rest of an ssh remote command, so no read-only ssh form
+  can be carved out: `ssh`, `scp` and `sftp` are denied whole, by a deny rule and by the
+  hook. Reads are guarded
+  only for credential stores: the hook allows `cat` of any other file (ruling 15) and
+  denies any command naming a credential path (`cat ~/.ssh/id_ed25519` is denied since
+  2026-10-30), the `Read` denies cover the Read tool, and the classifier never sees a
   tool's output or a script's content.
 
 All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The

@@ -148,7 +148,8 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - Scripts never pipe to a shell (`irm | iex`, `curl | bash`).
 - Claims not checked on this machine are marked UNVERIFIED.
 - Tests: the commands listed in [CLAUDE.md](CLAUDE.md), run from the repo root, among
-  them `python -I scripts/tests/resilience_test.py`,
+  them `python -I scripts/hooks/tests/lis-guard_property_test.py`,
+  `python -I scripts/tests/resilience_test.py`,
   `python -I scripts/tests/claude_settings_test.py` and
   `python -I scripts/tests/install_verify_test.py`.
 

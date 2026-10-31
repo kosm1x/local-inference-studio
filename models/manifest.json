@@ -1,0 +1,70 @@
+{
+  "about": "GGUF files this repo uses. size and sha256 were computed with Get-FileHash on the reference machine on 2026-10-30, and each sha256 equals the LFS etag that hf download recorded for the file (models/<dir>/.cache/huggingface/download/<file>.metadata, line 2); revision is the commit hf download fetched (line 1 of that file). Check with: pwsh scripts/install.ps1 -VerifyModels",
+  "files": [
+    {
+      "path": "models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf",
+      "repo": "orcarouter/Qwen3.8-27B-Uncensored-GGUF",
+      "revision": "34e7cb013d66af05f668fe8a37087585de2e85f0",
+      "file": "Qwen3.8-27B-Uncensored-IQ3_XXS.gguf",
+      "size": 11637692000,
+      "sha256": "0d91ad7b2c57f545a030b1d391375a5f9a822423b90923d91cf744e717e80d03",
+      "default": true
+    },
+    {
+      "path": "models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ2_XXS.gguf",
+      "repo": "orcarouter/Qwen3.8-27B-Uncensored-GGUF",
+      "revision": "34e7cb013d66af05f668fe8a37087585de2e85f0",
+      "file": "Qwen3.8-27B-Uncensored-IQ2_XXS.gguf",
+      "size": 8884504160,
+      "sha256": "c3ac5d52238b28dce25b1fe4b4e759ca0f51b89864d4e2b6ea1e8135716ba136"
+    },
+    {
+      "path": "models/qwen3.8-27b/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "repo": "unsloth/Qwen3.8-27B-GGUF",
+      "revision": "4ca720788d1e01f1bff70c033e0d0028fd02e502",
+      "file": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+      "size": 13146393504,
+      "sha256": "8c2a45ff85e7674ca185ec8eb6cdeab0e617ed9d8018caed0b64380eb2a67a5e"
+    },
+    {
+      "path": "models/saluki-27b/Underdog-Saluki-27B-1.0-IQ2-mix.gguf",
+      "repo": "ConwayResearch/Underdog-Saluki-27B-1.0",
+      "revision": "5acfd9218fa54731f237eea8b3243d430dd85a69",
+      "file": "Underdog-Saluki-27B-1.0-IQ2-mix.gguf",
+      "size": 7898369152,
+      "sha256": "4a673518b11b1c4445f9b9a9d3c40356f5ba39f6a6260dcb25f3fbfd475d9efb"
+    },
+    {
+      "path": "models/qwen3.8-27b-gsq-rco/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf",
+      "repo": "ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF",
+      "revision": "d562806dbafae37109975e970aae91b43e73b440",
+      "file": "Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf",
+      "size": 10442827840,
+      "sha256": "63f29a2189a6b4cc31f81e093d3856ad293a5583114439f41ae1ed7af4093262"
+    },
+    {
+      "path": "models/gemma-4-26b-a4b/gemma-4-26B-A4B-it-UD-IQ4_XS.gguf",
+      "repo": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "revision": "c099eb48e663fd284577b04978a94ffccb261841",
+      "file": "gemma-4-26B-A4B-it-UD-IQ4_XS.gguf",
+      "size": 13597177568,
+      "sha256": "babd1e389d386352f71600765d37390f7dc993fbfad6725caccf996ffe34aecf"
+    },
+    {
+      "path": "models/glm-4.7-flash/GLM-4.7-Flash-UD-Q3_K_XL.gguf",
+      "repo": "unsloth/GLM-4.7-Flash-GGUF",
+      "revision": "0d32489ecb9db6d2a4fc93bd27ef01519f95474d",
+      "file": "GLM-4.7-Flash-UD-Q3_K_XL.gguf",
+      "size": 13782004064,
+      "sha256": "582728c0f6931a1cf734d5a7cf60ec73522fb79811e004cbc12476dd69b033bf"
+    },
+    {
+      "path": "models/gpt-oss-20b/gpt-oss-20b-MXFP4.gguf",
+      "repo": "ggml-org/gpt-oss-20b-GGUF",
+      "revision": "15dcfc7e7c608c6161507211ed43c5b590801b4b",
+      "file": "gpt-oss-20b-MXFP4.gguf",
+      "size": 12109566624,
+      "sha256": "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901"
+    }
+  ]
+}

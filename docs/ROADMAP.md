@@ -161,7 +161,8 @@ Batches (IDs in the ledger):
 - G, a multi-hour supervised run after A to E.
 - Known divergence: the policy text says 131,072 tokens and `Bearer local`; the wrapper
   now gives Claude Code 114,688 and a per-start key; changing the text re-keys the
-  stale-figure dry run (ruling needed).
+  stale-figure dry run (ruling needed). The survey's `wsl -d Ubuntu -- ssh` check is now
+  denied by the per-run settings and by the hook.
 
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 

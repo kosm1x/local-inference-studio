@@ -283,7 +283,8 @@ $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $docChecks = @("python -I `"$repo\scripts\verify-doc.py`" <deliverable.md>",
     "pwsh `"$repo\scripts\verify-claims.ps1`" -Document <deliverable.md>")
 $testChecks = @(if (Test-Path -LiteralPath 'scripts/hooks/tests/lis-guard_test.py') {
-    @('python -I scripts/hooks/tests/lis-guard_test.py', 'python -I scripts/hooks/tests/loop-guard_test.py',
+    @('python -I scripts/hooks/tests/lis-guard_test.py', 'python -I scripts/hooks/tests/lis-guard_property_test.py',
+      'python -I scripts/hooks/tests/loop-guard_test.py',
       'python -I scripts/tests/verify-doc_test.py',
       'python -I scripts/tests/verify_claims_report_test.py', 'python -I bench/ladder/tests/grade_test.py',
       'python -I bench/ladder/tests/gen_longfix_test.py', 'python -I bench/ladder/tests/longrun_test.py',

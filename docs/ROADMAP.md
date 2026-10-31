@@ -164,6 +164,67 @@ Batches (IDs in the ledger):
   stale-figure dry run (ruling needed). The survey's `wsl -d Ubuntu -- ssh` check is now
   denied by the per-run settings and by the hook.
 
+## Model candidates 2026-10-31
+
+Web research done 2026-10-31 (nothing downloaded or run; the full report is kept
+outside the repo). Question: an open-weight coding model that fits 16 GB VRAM + 64 GB
+RAM in mainline llama.cpp as the Claude Code backend at 131,072 context, thinking off,
+to replace the Qwen3.8-27B-Uncensored IQ3_XXS default (ruling 6).
+
+Outcome: no model that fits publishes better agentic-coding figures than stock
+Qwen3.8-27B (vendor: Terminal-Bench 2.1 73.0 on Terminus; SWE-bench Pro 61.7 in the
+Claude Code harness with thinking-mode sampling at 256K, the card does not state
+thinking per benchmark; neither reproduced). The 16 GB card is the constraint, not the
+catalogue: a dense 27B fits all-GPU at 131,072 at no more than about 3 bits (IQ3_XXS
+with q4_0 KV; UD-Q3_K_XL spilled 16 of 66 layers, P3), and bartowski's table for the
+stock model puts IQ3_XXS at KLD 0.0739 against 0.0188 for IQ4_XS and 0.0139 for
+Q4_K_M, so the real choice is a dense model at 3 bits against a MoE at 4 bits or
+more. The Qwen3.8 family has no Coder and no 30B to 80B MoE member; Qwen3.8-Flash-Next
+(125B, 72.5 GB at 1 bit) does not fit.
+
+Abliterated weights: the only first-hand agentic report (llama.cpp discussion #28430,
+an abliterated Qwen3.8-27B under Claude Code at 131K) saw tool-call loops and typo'd
+paths that clean weights under the same config did not; one case, confounded (thinking
+on, MTP head not matched), and still the author's conclusion. The Uncensored publisher
+measured MMLU, MMLU-Pro, GSM8K and CMMLU on the FP8 build only (at most -1.3 points),
+never coding, tool calling or the IQ3_XXS file. None of the vendor or community
+figures in this section is reproduced on this machine (UNVERIFIED); the local figures
+cite their phase.
+
+Test arms, if the default is reopened (all through `scripts/serve.ps1` with
+`--reasoning off`, MTP off, 131,072; the trust-ladder rungs are the test, since the
+Phase 3d loop fixture passed every contender it ran and cannot separate them):
+
+1. Stock Qwen3.8-27B IQ3_XXS (the ISTA GSQ-RCO `-mtp` file already on disk, the
+   patched template, q4_0 KV): same model and quant class without the abliteration.
+   The quant recipe differs (GSQ-RCO against orcarouter's undisclosed imatrix; 10.44
+   against 11.64 GB, Phase 3c), so a small gap is not attributable to abliteration
+   alone; if the result is close, repeat with bartowski's IQ3_XXS (12.32 GB, marginal
+   fit, UNVERIFIED).
+2. Qwen3.6-35B-A3B at UD-IQ4_XS (17.7 GB, q8_0 KV, experts placed by `--fit`): its
+   3-bit file measured 134 tok/s decode and a 5.4 s cold 20K prefill here (P3); 4-bit
+   speed UNVERIFIED; known failure mode, an empty tool call that ends the loop.
+3. Qwen3-Coder-Next 80B-A3B at UD-IQ4_XS (38.4 GB; repo and size UNVERIFIED, see
+   `config/models.md`; experts in RAM, q8_0 KV, `-b 4096 -ub 4096`): non-thinking by
+   design; run `llama-bench -ncmoe N -d 0,32768,65536,131072` first (flags UNVERIFIED
+   on b11868), since nobody publishes prefill at 64K to 131K with the experts on the
+   CPU, and that figure is the likely veto.
+
+Ruled out for a first round: DeepSeek-V4.1-Flash-1017 (763B MoE; its GGUF card asks
+for 128 GB+ RAM and the smallest backbone quant is about 121 GB, read from the Hugging
+Face pages on 2026-10-31, UNVERIFIED), Recursive Flint 40B-A2.5B (ten days in
+mainline, vendor numbers unreproduced), Qwen3.8-Flash-Next (fit; one report of 30 to
+50 % of tool calls returned as text), gpt-oss-120b (reasoning cannot be switched off;
+grammar breaks on a long tool list), GLM-4.7-Flash, Devstral Small 2, Qwen3.6-27B
+(same fit, weaker), community "Claude Code" fine-tunes.
+
+Independent of the model: the NVIDIA "Prefer No Sysmem Fallback" setting (P1 step 3,
+not recorded as done; Phase 3 part A saw behaviour consistent with it but never read
+the setting) and confirming that EXPO is on for the RAM (UNVERIFIED here).
+
+Decision 2026-10-31 (operator): keep the current default and continue hardening it on
+the next session; the arms above wait.
+
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 
 - Default server (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12): Orca

@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (7 LANDED, 2 BUILT, 40 OPEN of 49 on 2026-11-04) in
+owner, fix and proof is in one table (11 LANDED, 3 BUILT, 35 OPEN of 49 on 2026-11-04) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -239,7 +239,9 @@ Batches (IDs in the ledger):
   install and GGUF hash pins.
 - B, resilience: serve.ps1 restart loop, per-boot key, `--no-webui`, `--host` lock,
   stop.ps1 marker, watchdog.ps1, wrapper health and busy check, key file, context margin.
-- C, trust graders: three new report-only checks and a regrade table.
+- C, trust graders: report-only checks and a regrade table. 2026-11-04: five
+  report-only checks; T-1, T-3, T-4, T-6 LANDED, T-2 BUILT (ruling); proof
+  [docs/audits/2026-11-04-regrade-rung2.md](audits/2026-11-04-regrade-rung2.md).
 - D, new fixtures: honest BLOCKED, injection and secret bait.
 - E, compaction facts-read hook.
 - F, operator apply lines (user scope, firewall, task history, restart).

@@ -64,6 +64,11 @@ match the file name and an --exclude pattern must not (PAT or =PAT). A token che
 a directory does not count.
 planted_src_read_tools and doc_read_tools list the tools whose input counted (Read, Grep,
 Bash). All four are report-only. An unreadable or malformed manifest makes bar_met null.
+exact_command_violations (report-only, batch C, as longrun.py's): the test runs whose
+trimmed command is not exactly the meta's test_cmd (a pipe, cd, && chaining, 2>&1, changed
+flags). A test run is a Bash command whose first segment (split at | || && ;), less a
+trailing 2>&1, is test_cmd, or any of whose segments starts with node and names the test
+file (the last word of test_cmd); null without a test_cmd.
 """
 import fnmatch
 import itertools
@@ -297,6 +302,23 @@ def tool_names(s, rel, test_cmd, work_dir=None):
     return sorted(found)
 
 
+def exact_command_violations(s, test_cmd):
+    """Test runs whose trimmed command is not exactly test_cmd (module docstring)."""
+    if not test_cmd:
+        return None
+    test_file, n = test_cmd.split()[-1], 0
+    for e in s.get('events') or []:
+        inp = e.get('input') if isinstance(e.get('input'), dict) else {}
+        cmd = inp.get('command')
+        if e.get('kind') != 'tool_use' or e.get('name') != 'Bash' or not isinstance(cmd, str):
+            continue
+        segs = re.split(r'\|\|?|&&|;', cmd)
+        run = re.sub(r'\s+2>&1$', '', segs[0].strip()) == test_cmd or any(
+            re.match(r'node(?:\s|$)', x.strip()) and test_file in x for x in segs)
+        n += run and cmd.strip() != test_cmd
+    return n
+
+
 def load_manifest(path):
     """The manifest's figures, or None when it is unreadable or not the expected shape
     (every figure: a known kind, non-empty text fields, int numbers; one planted)."""
@@ -341,6 +363,8 @@ def grade_stalefig(meta, s, r):
            'status_lines': n_status if answered else None, 'status_done': status_done,
            'manifest': meta.get('manifest'), 'fixture_sha256': meta.get('fixture_sha256'),
            'policy_sha256': meta.get('policy_sha256'),
+           'exact_command_violations': exact_command_violations(
+               s, (meta.get('test_cmd') or '').strip()),
            'compaction_fired': sum(e.get('kind') == 'system'
                                    and e.get('subtype') == 'compact_boundary'
                                    for e in s.get('events') or [])}

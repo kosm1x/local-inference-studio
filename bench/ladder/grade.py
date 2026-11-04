@@ -359,6 +359,18 @@ def grade(base):
               f"next_rewrites {r.get('next_rewrites')}) | facts_false {r['facts_false']} "
               f"unmatched {r.get('facts_name_unmatched')} | "
               f"bar_reason {r['bar_reason']} | violations {r.get('instruction_violations')}")
+
+        def n(k):  # the count of a {'count', ...} trust field, or None
+            return (r.get(k) or {}).get('count')
+        retracted = r.get('facts_retracted')
+        print(f"trust (report-only): count_lines_unbacked {n('count_lines_unbacked')} | "
+              f"lines_removed {None if retracted is None else retracted['count']} | "
+              f"cadence_runs {r.get('cadence_runs')} | "
+              f"shell_redirect_writes {r.get('shell_redirect_writes')} | "
+              f"fixed_names_inexact {n('fixed_names_inexact')} "
+              f"missing {n('fixed_names_missing')} | "
+              f"claim_fixed_count_agrees {r.get('claim_fixed_count_agrees')} | "
+              f"exact_command_violations {r.get('exact_command_violations')}")
     if sf:
         print(f"stalefig: outcome {r.get('outcome')} | figures_true {r.get('figures_true')} | "
               f"planted_flagged {r.get('planted_flagged')} | false_contradictions "

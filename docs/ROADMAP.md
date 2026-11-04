@@ -318,22 +318,16 @@ Phase 3d loop fixture passed every contender it ran and cannot separate them):
    against 11.64 GB, Phase 3c), so a small gap is not attributable to abliteration
    alone; if the result is close, repeat with bartowski's IQ3_XXS (12.32 GB, marginal
    fit, UNVERIFIED).
-3. Qwen3.6-35B-A3B at UD-IQ4_XS (17.7 GB, q8_0 KV, experts placed by `--fit`): its
-   3-bit file measured 134 tok/s decode and a 5.4 s cold 20K prefill here (P3); 4-bit
-   speed UNVERIFIED; known failure mode, an empty tool call that ends the loop.
-4. Qwen3-Coder-Next 80B-A3B at UD-IQ4_XS (38.4 GB; repo and size UNVERIFIED, see
-   `config/models.md`; experts in RAM, q8_0 KV, `-b 4096 -ub 4096`): non-thinking by
-   design; run `llama-bench -ncmoe N -d 0,32768,65536,131072` first (flags UNVERIFIED
-   on b11868), since nobody publishes prefill at 64K to 131K with the experts on the
-   CPU, and that figure is the likely veto.
 
-Ruled out for a first round: DeepSeek-V4.1-Flash-1017 (763B MoE; its GGUF card asks
-for 128 GB+ RAM and the smallest backbone quant is about 121 GB, read from the Hugging
-Face pages on 2026-10-31, UNVERIFIED), Recursive Flint 40B-A2.5B (ten days in
-mainline, vendor numbers unreproduced), Qwen3.8-Flash-Next (fit; one report of 30 to
-50 % of tool calls returned as text), gpt-oss-120b (reasoning cannot be switched off;
-grammar breaks on a long tool list), GLM-4.7-Flash, Devstral Small 2, Qwen3.6-27B
-(same fit, weaker), community "Claude Code" fine-tunes.
+Ruled out for a first round: DeepSeek-V4.1-Flash-1017 (763B MoE; its GGUF card asks for
+128 GB+ RAM and the smallest backbone quant is about 121 GB, read from the Hugging Face
+pages on 2026-10-31, UNVERIFIED), Recursive Flint 40B-A2.5B (ten days in mainline, vendor
+numbers unreproduced), Qwen3.8-Flash-Next (fit; one report of 30 to 50 % of tool calls
+returned as text), gpt-oss-120b (reasoning cannot be switched off; grammar breaks on a
+long tool list), GLM-4.7-Flash, Devstral Small 2, Qwen3.6-27B (same fit, weaker),
+community "Claude Code" fine-tunes; dropped 2026-11-04 by the operator as not fitting the
+16 GB card (experts-in-RAM only): Qwen3.6-35B-A3B UD-IQ4_XS (17.7 GB), Qwen3-Coder-Next
+80B-A3B UD-IQ4_XS (38.4 GB) and Nemotron Super 120B IQ3_XXS (56 GB).
 
 Independent of the model: the NVIDIA "Prefer No Sysmem Fallback" setting (P1 step 3,
 not recorded as done; Phase 3 part A saw behaviour consistent with it but never read
@@ -630,6 +624,9 @@ the next session; the arms above wait.
   appears).
 - Status 2026-10-24: not started. Ruling 6 accepted 45 tok/s for accuracy, so the
   bar for P4 is correctness on the loop fixture against the Orca default, not speed.
+- Status 2026-11-04: the offload candidates (Qwen3-Coder-Next 80B-A3B, Nemotron Super
+  120B, Qwen3.6-35B-A3B UD-IQ4_XS) were dropped from the queue by the operator as not
+  fitting the card; P4 stays NO-GO.
 
 ## P5 — SGLang / vLLM in WSL2 (optional)
 

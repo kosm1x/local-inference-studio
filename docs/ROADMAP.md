@@ -281,19 +281,37 @@ Test arms, if the default is reopened (all through `scripts/serve.ps1` with
 Phase 3d loop fixture passed every contender it ran and cannot separate them):
 
 1. Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP
-   (DavidAU, GGUF repo of that name on Hugging Face; placed at the top of the queue by the
-   operator on 2026-11-04). Read from the repo name only, since web access is disarmed
-   (ruling 44): a Qwen3.8-27B derivative whose name says MTP and "Uncensored" (Heretic);
-   if so, probably the same fit class as the default (UNVERIFIED) and a candidate for a
-   later MTP test as well as this arm. Quant files, sizes, the chat template (if it
-   rejects Claude Code's second system message as the default's did, pass
-   `-ChatTemplateFile config/chat-templates/qwen3.8-27b.jinja`), whether the MTP head is
-   in the GGUF, and every quality claim are UNVERIFIED until the card is read and a file
-   is measured here (fit at 131,072 with q4_0 KV, which needs `-KvType q4_0` since a
-   non-default `-Model` defaults to q8_0, then the ladder). An MTP run also needs
-   `-ExtraArgLine '--spec-type draft-mtp --spec-draft-n-max 2'`, since `serve.ps1` adds
-   the MTP flags only for the default file and only at `-Ctx` 65536 or below (MTP at
-   131,072 did not fit for the default, MTP A/B arm C).
+   (DavidAU, the `-GGUF` repo of that name, Apache-2.0, ungated; top of the queue by the
+   operator 2026-11-04; card and file list read 2026-11-04.) The card says: Qwen3.8-27B
+   decensored by a multi-stage fine tune and merge (Unsloth) of the publisher's
+   Qwen3.6-27B-Fable-Fusion-711 and Qwen3.8-27B-Cold-Fusion-GAIN-V1.1 lines, then Heretic
+   v1.2.0+custom (ARA; stage 2 KLD 0.0025, refusals 11 vs 86 of 100 for the stage-1 model;
+   stage 1: 0 vs 99 for the base). TURBO = a half to a tenth of the thinking tokens (moot
+   here); 735-882 = ARC-C 0.735 / ARC-E 0.882 at mxfp8 ("benchmarks by nightmedia", no
+   harness given; base 0.591 / 0.782); NEO = its imatrix ("+2-4 %", unmeasured); no coding
+   or tool-calling measurement ("strongest tool calling" is a community claim). Output
+   tensor 16 bit in every quant (10-20 % of output, per the card; size effect UNVERIFIED).
+   MTP files: MTP tensors at Q8_0, no llama.cpp flags or version; regular quants if
+   acceptance is below 50 % at 2 predicted tokens; speed figures are the author's (LM
+   Studio, 5090). Settings: tools temp 0.6 to 0.7, rep pen off, temp 1 or below with MTP
+   (the card's own); Qwen's non-thinking block reproduced on the card: temp 0.7, top_p
+   0.80, top_k 20, min_p 0, presence 1.5 (serve.ps1 fixes 0.6 / 0.95 / 20); "below q4km,
+   tool calling may have issues"; reasoning effort set in its Jinja template (default
+   xhigh), thinking off per request (Qwen's enable_thinking kwarg; that `--reasoning off`
+   matches: UNVERIFIED); 256K context claimed. Files (GB, file list): IQ2_M 11.7, IQ3_M
+   14.1, IQ4_XS 16.6, Q4_K_M 18, up to Q8_0 29.8; MTP- 0.4 to 0.5 more (MTP-IQ2_M 12.1);
+   LOW-MTP- IQ4_XS 15.3, Q6_K 22.4; no IQ3_XXS; not to be fetched, lacking the "Safe"
+   label: LOW-MTP-IQ4_XS, LOW-MTP-Q6_K, MTP-IQ4_XS. Fit (estimate, UNVERIFIED): the
+   default's 11.64 GB leaves about 1.3 GB free at 131,072 with q4_0 KV (arm B, 1,295 MiB)
+   and about 1.6 GB at 65,536 with MTP (arm A, 1,566 MiB free), so only IQ2_M and
+   MTP-IQ2_M fit, at 131,072: a 2-bit file against the 3-bit default, which the ladder
+   must overcome before any card claim counts; the card itself warns tool calling may
+   break below q4km, which IQ2_M is. Run: `-Model`, `-KvType q4_0`, `-ChatTemplateFile`
+   (patched) if its own template rejects Claude Code's second system message; for MTP
+   `-ExtraArgLine '--spec-type draft-mtp --spec-draft-n-max 2'` (`serve.ps1` adds MTP only
+   for the default at `-Ctx` 65536 or below; 131,072 + MTP did not fit for the default,
+   arm C; UNVERIFIED here). Status: nothing downloaded; waits on the operator reopening
+   the default (decision 2026-10-31).
 2. Stock Qwen3.8-27B IQ3_XXS (the ISTA GSQ-RCO `-mtp` file already on disk, the
    patched template, q4_0 KV): same model and quant class without the abliteration.
    The quant recipe differs (GSQ-RCO against orcarouter's undisclosed imatrix; 10.44

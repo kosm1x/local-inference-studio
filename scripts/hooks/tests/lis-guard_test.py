@@ -2954,6 +2954,30 @@ def main():
             fails += 1
             print(f'FAIL ps_literal_vars {name}: {got}')
 
+    # a NUL in a path: realpath raises ValueError on Linux, open() and lstat() everywhere;
+    # the helpers treat the path as outside the repo and never raise; the check_script and
+    # cwd_moves branches raise only under Linux, so those checks bite only when this file
+    # runs under WSL or Linux (the Windows run passes them on the unpatched code)
+    r = g.REPO_ROOT
+    for name, fn in [('in_repo of a NUL path', lambda: g.in_repo('a\x00b') is False),
+                     ('in_repo of a NUL path under the repo', lambda: g.in_repo(os.path.join(r, 'a\x00b')) is False),
+                     ('check_script of a NUL path', lambda: g.check_script('a\x00b.sh', 'sh', r) is None),
+                     ('cwd_moves to a NUL -wd', lambda: g.cwd_moves('pwsh -NoProfile -wd a\x00b -File e.ps1', r)),
+                     ('cwd_moves from a NUL cwd', lambda: g.cwd_moves('pwsh -NoProfile -wd x -File e.ps1', r + '/a\x00b')),
+                     ('decide bash of a NUL script', lambda: g.decide('bash a\x00b.sh', r) is None),
+                     ('decide pwsh -File of a NUL script', lambda: g.decide('pwsh -NoProfile -File a\x00b.ps1', r) is None),
+                     ('decide git apply of a NUL patch', lambda: g.decide('git apply a\x00b.diff', r) is None),
+                     ('decide a path cmdlet in a NUL cwd', lambda: g.decide('pwsh -NoProfile -c "Get-ChildItem docs"',
+                                                                         r + '/a\x00b') is None)]:
+        n += 1
+        try:
+            ok = fn()
+        except Exception as e:
+            ok = e
+        if ok is not True:
+            fails += 1
+            print(f'FAIL NUL path: {name}: {ok!r}')
+
     # W5 mutation pins: each asserts a verb/shape the mutants flip
     pins = [
         ('sort -o into critical denies', lambda: g.decide('sort -o ' + C + ' /tmp/a')[0] == 'deny'),

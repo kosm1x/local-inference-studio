@@ -139,8 +139,8 @@ harness fixes (39). Still OPEN:
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table in
-[docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md) (all OPEN).
+owner, fix and proof is in one table (6 LANDED, 2 BUILT, 41 OPEN of 49 on 2026-11-04) in
+[docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
 - Trustworthiness: FAIL for unsupervised long tasks; PASS WITH WARNINGS for short

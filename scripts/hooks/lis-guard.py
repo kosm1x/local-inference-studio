@@ -2079,7 +2079,11 @@ def check_script(path, kind, cwd):
     full = resolve(path, cwd)
     if is_unc(full):
         return None                     # never opened or resolved (A13 W2)
-    if os.path.normcase(os.path.realpath(full)) in EXEMPT_SCRIPTS:
+    try:
+        real = os.path.normcase(os.path.realpath(full))
+    except (OSError, ValueError):       # unresolvable (a NUL raises on Linux): never opened
+        return None
+    if real in EXEMPT_SCRIPTS:
         return None                     # the exempt files: they quote denied shapes
     try:
         with open(full, encoding='utf-8', errors='replace') as f:
@@ -2147,7 +2151,7 @@ def patch_hit(cmd, cwd):
             try:
                 with open(resolve(f.strip('\'"'), cwd), encoding='utf-8', errors='replace') as fh:
                     text = fh.read(SCRIPT_CAP)
-            except OSError:
+            except (OSError, ValueError):   # ValueError: a NUL in the path
                 continue
             for m in re.finditer(r'(?m)^(?:\+\+\+|---|diff --git|rename to|copy to)\s+(.+)$', text):
                 if CRITICAL_PATH.search(' ' + m.group(1)):
@@ -2201,15 +2205,18 @@ def cwd_moves(cmd, cwd):
                 wd = ps_workdir(toks)
                 if wd is not None and (is_unc(resolve(wd.strip('\'"'), cwd)) or is_unc(cwd or '')):
                     return True             # never resolved (A13 W2)
-                if wd is not None and os.path.normcase(os.path.realpath(resolve(wd.strip('\'"'), cwd))) != \
-                        os.path.normcase(os.path.realpath(cwd or os.getcwd())):
+                try:
+                    if wd is not None and os.path.normcase(os.path.realpath(resolve(wd.strip('\'"'), cwd))) != \
+                            os.path.normcase(os.path.realpath(cwd or os.getcwd())):
+                        return True
+                except (OSError, ValueError):   # unresolvable -wd or cwd (a NUL raises on Linux): a move
                     return True
     return False
 
 
 def in_repo(path):
-    if is_unc(path):
-        return False                        # never resolved (A13 W2)
+    if is_unc(path) or '\x00' in path:
+        return False                        # never resolved (A13 W2); a NUL path names no file
     p = os.path.normcase(os.path.realpath(path))
     return p == REPO_ROOT or p.startswith(REPO_ROOT.rstrip(os.sep) + os.sep)
 

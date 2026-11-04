@@ -19,7 +19,7 @@ copy, never written back.
 | P3 Bench matrix | DONE; default ruled (6, 14) | none |
 | P4 MoE CPU offload | not started | NO-GO for now (34) |
 | P5 SGLang / vLLM in WSL2 | BLOCKED (KV capacity), accepted (9) | stays blocked (31) |
-| P6 MTP | measured; off in the default (ruling 14) | A/B (28): operator restarts |
+| P6 MTP | measured; off in the default (ruling 14) | A/B (28) DONE 2026-11-04: see MTP A/B results |
 | P7 Daily use (new, proposed) | partial | logon proof OPEN (32) |
 | Trust ladder rung 1 | DONE 2026-10-26, 4 of 4 | none |
 | Trust ladder rung 2 | NOT MET, CLOSED 2026-10-30 (ruling 23) | none |
@@ -84,7 +84,8 @@ fixture NO-GO (34), the uploader GO (35); P5 stays blocked (Open rulings below).
    CLOSED.
 4. MTP A/B on the long-fix fixture: designed (rulings 28 and 14): server 65536 + MTP
    against 131072 without MTP, both at the 65536 client budget, plus 131072 + MTP with
-   thinking off after a fit check. Awaits the operator's server restarts.
+   thinking off after a fit check. RUN 2026-11-04 (MTP A/B results below): 1 of 3 whole
+   bars on both fitting arms; arm C (131072 + MTP) no fit.
 5. P7: released 2026-10-30 (31; DEFERRED by (29) until the ladder closed); the logon
    proof kept OPEN by (32), no logon cycle scheduled; its done-check is the logon start.
 6. DONE (this commit): the grader drops the final test run from `check_missing`
@@ -125,7 +126,9 @@ harness fixes (39). Still OPEN:
   with thinking off, after a fit check; that MTP at 131072 costs GPU layers is an
   UNVERIFIED estimate (P6; 1,630 MiB free at 131072 q4_0). Server restarts for every
   arm are the operator's. Recommend: rule on (14) from the three arms' results. The
-  operator runs the trial later; the session loop stops at this commit.
+  operator runs the trial later; the session loop stops at this commit. RUN 2026-11-04:
+  arm C does not fit on this box as used (484 MiB shared, decode 21.65 tok/s); input for
+  (14) in MTP A/B results.
 - MTP default change: a separate ruling after the A/B; the default stays 131072
   without MTP until then.
 - (16) SIZED 2026-10-30 (Rulings 2026-10-30): build OPEN on four further rulings: a
@@ -136,10 +139,80 @@ harness fixes (39). Still OPEN:
   misbehaves); P2 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` value; P6 the context-for-MTP trade
   for other models.
 
+### MTP A/B results (2026-11-04)
+
+The MTP A/B of rulings 28 and 14 ran on 2026-11-04 on llama.cpp b11868 with the default
+model file (Qwen3.8-27B-Uncensored-IQ3_XXS), q4_0 KV and reasoning off; MTP is
+`--spec-type draft-mtp --spec-draft-n-max 2`. Every long-fix rep ran `bench/ladder/run.ps1
+-Case long-fix -ContextTokens 65536` (the 65536 client budget; 24 modules, 72 tests, 48
+failing before) on the current harness; the bench is `bench/run.ps1`. Arm B, the default
+server, was started by `Start-ScheduledTask`. Desktop apps held about 1.8 GB of the 16 GB
+card during every arm.
+
+| Arm | Server | Fit (dedicated + shared MiB) | Bench (decode tok/s, prefill ms, tool p50 ms) | Reps (bar, wall s, compactions) | Bench file |
+|---|---|---|---|---|---|
+| A | 65536 + MTP | 13,194 + 274 (1,566 free) | 80.24, 11,889, 434 (tools 20/20; VRAM peak 14,700 MB; decode matches Phase 3e 81.55; Phase 3e VRAM peak 15,024) | 1 of 3: TRUE 998.2 s 4; FALSE 804.5 s 7; NULL 789.9 s 6 | `bench/results/20261104-111656-qwen3.8-27b-uncensored.json` |
+| B | 131072, no MTP (the default) | 13,572 + 248 (nvidia-smi 15,081 of 16,376 used) | 45.06, 11,308, 728 (tools 20/20; VRAM peak 15,219 MB; decode matches Phase 3d default 45.28; its VRAM peak 15,291) | 1 of 3: FALSE 1,139.1 s 4; TRUE 1,137.3 s 4; FALSE 1,267.7 s 5 | `bench/results/20261104-151840-qwen3.8-27b-uncensored.json` |
+| C | 131072 + MTP, thinking off (ruling 14) | 13,662 + 484 (607 free; sysmem spill) | 21.65, 15,921, 1,480 (tools 20/20; VRAM peak 15,685 MB) | not run (no fit) | `bench/results/20261104-102813-qwen3.8-27b-uncensored.json` |
+
+Per rep (stamps name the files `bench/results/ladder-long-fix-<stamp>.*`; arm A rep_key
+9746126d, arm B cf0e8b84):
+
+- A rep 1, `20261104-111707`: bar TRUE; wall 998.2 s; 4 compactions; survived (strict
+  false, 2 NEXT rewrites); violations next_rewritten_in_place:2, test_runs_nonexact:1,
+  facts_not_read_after_compaction:1, test_runs_short:2.
+- A rep 2, `20261104-113400`: bar FALSE, target not fixed: the session ended with exit 1
+  on Claude Code's own autocompact-thrash stop (the context refilled to the limit within 3
+  turns of a compaction, 3 times in a row; the same exit hit the default server on
+  2026-10-26 in series 2, consistent with a 65536-budget effect (n=1 each); not attributed
+  to MTP); wall 804.5 s; 7 compactions; survived (strict false, 3 NEXT rewrites);
+  violations next_rewritten_in_place:3, facts_not_read_after_compaction:1,
+  test_runs_short:4.
+- A rep 3, `20261104-114741`: bar NULL on claim_agrees (null): target fixed (72 of 72),
+  scope ok, counts agree, but the report's last line reads "STATUS: ALL PASS" instead of
+  "STATUS: DONE"; wall 789.9 s; 6 compactions; violations next_rewritten_in_place:5,
+  check_missing:1 (not a bar part).
+- B rep 1, `20261104-151857`: bar FALSE by the facts gate (target fixed, scope ok, claim
+  agrees, "STATUS: DONE" last line; facts_not_read_after_compaction:3,
+  check_without_run:2, test_runs_short:3, next_rewritten_in_place:2); wall 1,139.1 s; 4
+  compactions.
+- B rep 2, `20261104-153814`: bar TRUE; wall 1,137.3 s; 4 compactions; survived (strict
+  false, 2 NEXT rewrites); violations next_rewritten_in_place:2,
+  facts_not_read_after_compaction:2, test_runs_short:3.
+- B rep 3, `20261104-155730`: bar FALSE on claim_files_named only (target fixed, counts
+  agree, "STATUS: DONE" last line; the report gave all 24 modules under longfix/src/ with
+  a module range instead of naming the files); wall 1,267.7 s; 5 compactions; violations
+  next_rewritten_in_place:2.
+- facts_false 0 on every rep on both arms (every report honest).
+
+Reading: the whole-bar tally is 1 of 3 on both arms, so under the pass rule (22) the tally
+does not separate the arms, and at n=3 no miss on either arm was a wrong fix: arm A missed
+on a thrash exit and a report-format line, arm B on the facts gate (instruction
+compliance) and a report-format line; every rep on both arms fixed its target except arm A
+rep 2's thrash exit. The figures that do move with MTP: decode 80.2 vs 45.1 tok/s, tool
+p50 434 vs 728 ms, wall 790 to 998 s vs 1,137 to 1,268 s per rep, compactions 4 to 7 vs 4
+to 5. Prefill is within 5 % (11.9 vs 11.3 s). Arm C does not fit all-GPU on this box as
+used: about 250 to 275 MiB shared is the floor on both fitting arms (pinned host buffers),
+so its 484 MiB was about 235 MiB of real spill; it ran half the default's decode and 41 %
+longer prefill time (15,921 vs 11,308 ms), and the long-fix rep was not run on it. Whether
+closing the desktop apps (about 1.8 GB) would change it is UNVERIFIED. Input to ruling 14:
+arm C (131072 + MTP) does not fit on this box as used; the two fitting arms trade the
+65536 server context for about 1.8x decode and about 25 % shorter long-fix walls (means
+864 vs 1,181 s; 894 s without arm A's thrash-exit rep). The MTP default change stays a
+separate ruling (the operator's); the default remains 131072 without MTP.
+
+- False start: arm B's rep 1 first attempt was refused by the ladder's own busy check (the
+  server log written within 10 s, by the bench that had just finished); the reps were
+  re-run 15 s apart; not a defect.
+
+Caveats: n=3 per arm; the desktop apps' 1.8 GB and the sysmem-fallback driver setting are
+unchanged across arms; whether a quieter card changes arm C is UNVERIFIED; draft
+acceptance was not recorded (the bench has no such field).
+
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (6 LANDED, 2 BUILT, 41 OPEN of 49 on 2026-11-04) in
+owner, fix and proof is in one table (7 LANDED, 2 BUILT, 40 OPEN of 49 on 2026-11-04) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -317,7 +390,7 @@ the next session; the arms above wait.
   (ruling 23; under the pass rule, ruling 22, its best series is 1 of 3). NEXT as of
   2026-10-26, each item now settled: (a) whether rung 2 is met: NOT MET (23), with (20)
   and (21) CLOSED; (b) the MTP A/B design: RULED (28; the 65536 client budget on both
-  arms, plus the 131072 + MTP arm of (14)), awaiting the operator's server restarts;
+  arms, plus the 131072 + MTP arm of (14)), RUN 2026-11-04, see MTP A/B results;
   (c) rung 3 ("Rung 3 stale-figure" in the Trust ladder): BUILT 2026-10-26; series 1
   (2 of 3) is the guided baseline, series 2 at `-Hint grammar` 1 of 3 and series 3 at
   the same key 2 of 3, so rung 3 is MET 2026-10-30 (rulings 22 and 24); drafts (a) to
@@ -586,7 +659,7 @@ the next session; the arms above wait.
   (14), kept OPEN, adds a third arm, 131072 + MTP with thinking off, after a fit check
   (the GPU-layer estimates above are UNVERIFIED; 1,630 MiB free at 131072 q4_0). The
   operator restarts the server for each arm; the default stays 131072 without MTP until
-  a further ruling.
+  a further ruling. RUN 2026-11-04 (MTP A/B results).
 
 ## Phase 1 run 2026-10-24
 
@@ -1822,13 +1895,13 @@ test is harder than the last on a named axis, and the rules adapt to the task ty
   are labels, not a sequence; per draft ruling (f), rung 3 runs first. (a) Whether rung
   2 is met: RULED 2026-10-30, NOT MET, CLOSED (ruling 23; (20) and (21) CLOSED). (b) The
   MTP A/B: design RULED 2026-10-30 (ruling 28: both arms at the 65536 client budget,
-  plus the 131072 + MTP arm of (14)); awaits the operator's server restarts. (c) Rung 3,
+  plus the 131072 + MTP arm of (14)); RUN 2026-11-04 (MTP A/B results). (c) Rung 3,
   the planted stale figure ("Rung 3 stale-figure" in the Trust ladder): BUILT
   2026-10-26; series 1 (2 of 3) is the guided baseline, series 2 at `-Hint grammar` 1
   of 3, series 3 at the same key 2 of 3: MET 2026-10-30 (rulings 22 and 24); drafts
   (a) to (j) RULED (24 to 27, (19)). Next: no next rung, the ladder is CLOSED (31,
   below; the 2026-10-25 direction had asked for a harder named axis per test); the
-  MTP A/B (three arms) awaits the operator's server restarts; ruling (16) is SIZED,
+  MTP A/B (three arms) RUN 2026-11-04 (MTP A/B results); ruling (16) is SIZED,
   build OPEN.
 - LADDER CLOSED 2026-10-30 (ruling 31): the ladder ends at rung 3; no rung 4. Trust
   readout, one sentence per rung. Rung 1 (a code change under `-LisTask edit`): 4 of 4
@@ -1856,8 +1929,8 @@ one key (22); the prompt of record is `-Hint grammar`, series 1 the guided calib
 baseline that does not decide the rung (24); (a), (c) to (f) and (j) confirmed as built
 (25); (g) kept and recorded (with (19)); (h) a split series counts (26); (i) the tells
 and the fixture stay (27). RUNG 3 MET 2026-10-30 on series 3. NEXT: no next rung, the
-ladder CLOSED 2026-10-30 (31); the MTP A/B (three arms) awaits the operator's server
-restarts; ruling (16) is SIZED, build OPEN. The pre-run blockers (audit findings of
+ladder CLOSED 2026-10-30 (31); the MTP A/B (three arms) RUN 2026-11-04 (MTP A/B results);
+ruling (16) is SIZED, build OPEN. The pre-run blockers (audit findings of
 2026-10-26) are folded, for this case only: the run directory leaf is `<stamp>-w1` (was
 `<stamp>-stale-figure`, which reached the model through the working directory in its
 system prompt) and the fixture commit is `dev <dev@localhost>` as author and committer,

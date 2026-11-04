@@ -209,6 +209,18 @@ Caveats: n=3 per arm; the desktop apps' 1.8 GB and the sysmem-fallback driver se
 unchanged across arms; whether a quieter card changes arm C is UNVERIFIED; draft
 acceptance was not recorded (the bench has no such field).
 
+Addendum, the default at its own budget (informational, outside ruling 28's design): one
+rep of the default server at `-ContextTokens 131072` (stamp `20261104-163102`, rep_key
+aaf09034): wall 517 s, 0 compactions, target fixed (72 of 72), scope ok, claim agrees,
+files named, "STATUS: DONE" last line, facts_false 0; bar NULL because the compaction axis
+did not fire (axis_exercised false; facts_gate null), so it is not a ladder rep;
+violations test_runs_short:5. Read: with the extra room the default finishes this fixture
+with about 35 % shorter wall than arm A's fastest rep (790 s) and about 56 % shorter than
+its own 65536-budget reps (against the arm B mean of 1,181 s), so on this fixture, when it
+fits in 131072, the compaction overhead outweighed MTP's decode gain (n=1); on a task that
+would compact even at 131072 the A/B figures apply. n=1, UNVERIFIED beyond this rep. Input
+to the MTP-default ruling alongside the A/B.
+
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,

@@ -122,3 +122,9 @@
 ## 2026-10-26 — bench/ladder harness (build + dry-run only)
 - **Mistake:** ran `claude --version` in a toolchain probe while the brief said never launch `claude`. -> When a brief forbids a binary, leave it out of version probes too; record the version in the real-run path only.
 - **Better:** under `-LisTask` (`--allowedTools` refused) a bench task can still run its test command without a prompt by copying the fixture to its repo-relative path, so the committed exact allow rule matches; a scratch stub wrapper exercises the whole non-dry path without a session.
+
+## 2026-11-04 — MTP A/B run (three arms, operator restarts)
+- **Mistake:** chained `bench/run.ps1` and `bench/ladder/run.ps1` in one command with no gap; the ladder's busy check (server log written < 10 s ago) refused the rep because of the bench's own last request. -> Leave 15 s between two users of the same server, or run the ladder first.
+- **Mistake:** a Bash line that piped `git push` into `tail` with the short line-count flag was refused by the hook guard, which reads that one-letter flag beside git as the short form of the skip-hooks flag. -> In a Bash command that contains `git`, give `tail`/`head` a bare count (`tail -2`) and avoid that flag anywhere in the line.
+- **Avoid:** calling a pass tally at n=3 the A/B result — both arms scored 1 of 3 and every miss was a thrash exit (Claude Code's own), a facts-gate or a report-format line. -> Report the tally as ruled AND the per-rep walls, compactions and bench figures; rule from the figures that move with the variable.
+- **Better:** read shared GPU memory on the arm that fits before judging a spill: about 250 MiB shared is the floor (pinned host buffers) on both fitting arms (248 and 274 MiB), so arm C's 484 MiB was about 235 MiB of real spill, not 484.

@@ -280,16 +280,30 @@ Test arms, if the default is reopened (all through `scripts/serve.ps1` with
 `--reasoning off`, MTP off, 131,072; the trust-ladder rungs are the test, since the
 Phase 3d loop fixture passed every contender it ran and cannot separate them):
 
-1. Stock Qwen3.8-27B IQ3_XXS (the ISTA GSQ-RCO `-mtp` file already on disk, the
+1. Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP
+   (DavidAU, GGUF repo of that name on Hugging Face; placed at the top of the queue by the
+   operator on 2026-11-04). Read from the repo name only, since web access is disarmed
+   (ruling 44): a Qwen3.8-27B derivative whose name says MTP and "Uncensored" (Heretic);
+   if so, probably the same fit class as the default (UNVERIFIED) and a candidate for a
+   later MTP test as well as this arm. Quant files, sizes, the chat template (if it
+   rejects Claude Code's second system message as the default's did, pass
+   `-ChatTemplateFile config/chat-templates/qwen3.8-27b.jinja`), whether the MTP head is
+   in the GGUF, and every quality claim are UNVERIFIED until the card is read and a file
+   is measured here (fit at 131,072 with q4_0 KV, which needs `-KvType q4_0` since a
+   non-default `-Model` defaults to q8_0, then the ladder). An MTP run also needs
+   `-ExtraArgLine '--spec-type draft-mtp --spec-draft-n-max 2'`, since `serve.ps1` adds
+   the MTP flags only for the default file and only at `-Ctx` 65536 or below (MTP at
+   131,072 did not fit for the default, MTP A/B arm C).
+2. Stock Qwen3.8-27B IQ3_XXS (the ISTA GSQ-RCO `-mtp` file already on disk, the
    patched template, q4_0 KV): same model and quant class without the abliteration.
    The quant recipe differs (GSQ-RCO against orcarouter's undisclosed imatrix; 10.44
    against 11.64 GB, Phase 3c), so a small gap is not attributable to abliteration
    alone; if the result is close, repeat with bartowski's IQ3_XXS (12.32 GB, marginal
    fit, UNVERIFIED).
-2. Qwen3.6-35B-A3B at UD-IQ4_XS (17.7 GB, q8_0 KV, experts placed by `--fit`): its
+3. Qwen3.6-35B-A3B at UD-IQ4_XS (17.7 GB, q8_0 KV, experts placed by `--fit`): its
    3-bit file measured 134 tok/s decode and a 5.4 s cold 20K prefill here (P3); 4-bit
    speed UNVERIFIED; known failure mode, an empty tool call that ends the loop.
-3. Qwen3-Coder-Next 80B-A3B at UD-IQ4_XS (38.4 GB; repo and size UNVERIFIED, see
+4. Qwen3-Coder-Next 80B-A3B at UD-IQ4_XS (38.4 GB; repo and size UNVERIFIED, see
    `config/models.md`; experts in RAM, q8_0 KV, `-b 4096 -ub 4096`): non-thinking by
    design; run `llama-bench -ncmoe N -d 0,32768,65536,131072` first (flags UNVERIFIED
    on b11868), since nobody publishes prefill at 64K to 131K with the experts on the

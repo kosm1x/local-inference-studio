@@ -14,6 +14,13 @@
   -SkipVerify extracts without either check and requires -SkipVerifyAck as well; it
   prints a warning for each zip. Not recommended.
 
+  -VerifyZip checks local zips against the pins of -LlamaRelease (by file name) with the
+  same check the install uses, and does nothing else (no network, no extract); a missing
+  pin or a mismatch throws. After an install the release tag is written to
+  bin\llama-release.txt. $pinned also holds the SHA256 of llama-server.exe and
+  llama-server-impl.dll from the pinned zip: scripts/serve.ps1 reads them (as data) and
+  refuses to start a server whose binaries differ.
+
   Models are NOT downloaded here. `llama-server -hf <repo>:<quant>` (scripts/serve.ps1)
   fetches the GGUF on first run into its own cache, and docs/SETUP.md step 4 downloads
   the default file with `hf download`. -VerifyModels checks every file listed in
@@ -24,6 +31,8 @@
   pwsh scripts/install.ps1 -WhatIf
 .EXAMPLE
   pwsh scripts/install.ps1 -VerifyModels
+.EXAMPLE
+  pwsh scripts/install.ps1 -VerifyZip bin\.download\llama-b11868-bin-win-cuda-13.4-x64.zip
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -33,7 +42,8 @@ param(
     [string]$ModelsDir = (Join-Path $PSScriptRoot '..\models'),
     [switch]$SkipVerify,
     [switch]$SkipVerifyAck,
-    [switch]$VerifyModels
+    [switch]$VerifyModels,
+    [string[]]$VerifyZip = @()
 )
 $ErrorActionPreference = 'Stop'
 
@@ -71,12 +81,35 @@ $downloadDir = Join-Path $BinDir '.download'
 # Expected SHA256 per release asset, pinned in the repo so the GitHub API is not the
 # only witness. Source: Get-FileHash of the two zips in bin\.download on the reference
 # machine, 2026-10-30; the security audit of that day found both equal to the digests
-# the GitHub API published for b11868.
+# the GitHub API published for b11868. The two server binaries (checked by serve.ps1 at
+# each start): Get-FileHash of the entries in that pinned llama zip, equal to the files
+# in bin\ on the reference machine, 2026-11-04. Keep this hashtable constants only:
+# serve.ps1 reads it with SafeGetValue.
 $pinned = @{
     'b11868' = @{
         'llama-b11868-bin-win-cuda-13.4-x64.zip' = '6b39772ceb8668e8e53af792fe6847c2c7ed7ec459c650c7531425974be8cccf'
         'cudart-llama-bin-win-cuda-13.4-x64.zip' = '738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668'
+        'llama-server.exe' = '0b5f7fc8060b1cc00b5c06b525783f46c881bc1c31fb63478eb7a9fce92d7bed'
+        'llama-server-impl.dll' = '91db23f499045a241c4fc7cedc7d2c42824b33c27c82ad7afa0900c01c9af428'
     }
+}
+
+function Assert-PinnedZip([string]$Zip, [string]$Name) {
+    $pin256 = $pinned[$LlamaRelease][$Name]
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Zip).Hash.ToLower()
+    if ($actual -ne $pin256) { throw "SHA256 mismatch for ${Name}: expected $pin256 (pinned), got $actual" }
+}
+
+if ($VerifyZip) {
+    foreach ($zip in $VerifyZip) {
+        $name = Split-Path -Leaf $zip
+        if (-not ($pinned[$LlamaRelease] -and $pinned[$LlamaRelease][$name])) {
+            throw "No pinned SHA256 for $name (release $LlamaRelease)."
+        }
+        Assert-PinnedZip $zip $name
+        Write-Host "SHA256 OK (pinned): $name"
+    }
+    return
 }
 
 # llama.cpp releases publish no .sha256 sidecars; the GitHub API exposes each
@@ -119,8 +152,7 @@ foreach ($name in $assets) {
         $api256 = $digest.Substring(7).ToLower()
         $pin256 = $pinned[$LlamaRelease][$name]
         if ($api256 -ne $pin256) { throw "GitHub API digest for $name ($api256) differs from the pinned one ($pin256); not installing." }
-        $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower()
-        if ($actual -ne $pin256) { throw "SHA256 mismatch for ${name}: expected $pin256 (pinned and API), got $actual" }
+        Assert-PinnedZip $zip $name
         Write-Host "SHA256 OK (pinned + API): $name"
     }
 
@@ -133,5 +165,6 @@ $server = Join-Path $BinDir 'llama-server.exe'
 if (-not (Test-Path $server)) {
     throw "llama-server.exe not found in $BinDir after extraction; check the zip layout and asset names."
 }
-Write-Host "Installed: $server"
+Set-Content -LiteralPath (Join-Path $BinDir 'llama-release.txt') -Value $LlamaRelease
+Write-Host "Installed: $server ($LlamaRelease)"
 Write-Host 'Next: pwsh scripts/serve.ps1   (first run downloads the model via -hf)'

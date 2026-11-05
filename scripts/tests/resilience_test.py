@@ -13,6 +13,9 @@ server, the scheduled tasks and claude are never touched. Exit 0 = all pass.
 The session supervisor of claude-local.ps1 runs against a stub claude compiled from
 STUB_CLAUDE_CS (LIS_CLAUDE_EXE; skipped without csc.exe). Optional argument: a wrapper
 file to test instead of scripts/claude-local.ps1 (for wrapper mutants).
+Ledger S-B3, S-B5, W-5: -LisPrintArgs per profile (PowerShell and Playwright denies, hook
+commands on the per-run read-only copies, the -LisFull web refusal) and a stub run whose
+hook copies are checked on disk; lis-guard.py run from a copy with --hooks-dir.
 """
 import http.server
 import json
@@ -20,6 +23,7 @@ import os
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -84,6 +88,12 @@ def make_repo(tmp, stub_exe=None):
     shutil.copy(os.path.join(REPO, 'config/chat-templates/qwen3.8-27b.jinja'),
                 os.path.join(root, 'config/chat-templates'))
     open(os.path.join(root, 'models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf'), 'w').close()
+    # serve.ps1's binary pin check (S-O1) reads the pins from install.ps1 (refusing
+    # without it); a release with no pin warns and goes on; the empty model has no
+    # manifest here, so its hash check warns too (S-O2)
+    shutil.copy(os.path.join(REPO, 'scripts', 'install.ps1'), os.path.join(root, 'scripts'))
+    with open(os.path.join(root, 'bin', 'llama-release.txt'), 'w') as f:
+        f.write('test-stub\n')
     if stub_exe:
         shutil.copy(stub_exe, os.path.join(root, 'bin', 'llama-server.exe'))
     return root
@@ -249,6 +259,193 @@ def test_wrapper_rules():
               'scripts/tests/install_verify_test.py']
     missing = [g for g in guards if f'Edit({repo}/{g})' not in rules['deny']]
     check(f'rules: Edit deny by absolute repo path for {len(guards)} guard paths', not missing, missing)
+
+
+# Every profile's per-run settings deny the PowerShell tool (ledger S-B5) and path C's three
+# riskiest Playwright tools (W-5); the hooks run from a per-run read-only copy (S-B3).
+WEB_DENIES = ['PowerShell', 'mcp__playwright__browser_evaluate',
+              'mcp__playwright__browser_run_code_unsafe', 'mcp__playwright__browser_file_upload',
+              # any server's tools of those names, plugin servers included (audit W1)
+              'mcp__*__browser_evaluate', 'mcp__*__browser_run_code_unsafe',
+              'mcp__*__browser_file_upload']
+GUARD_HOOKS = ['lis-guard.py', 'loop-guard.py', 'verify-doc.py']
+PROFILE_HOOKS = [([], GUARD_HOOKS), (['-LisTask', 'review'], GUARD_HOOKS),
+                 (['-LisTask', 'edit'], GUARD_HOOKS),
+                 (['-LisTask', 'longrun'], GUARD_HOOKS + ['facts-inject.py']),
+                 (['-LisFull'], GUARD_HOOKS),
+                 (['-LisNoLoopGuard'], ['lis-guard.py', 'verify-doc.py']),
+                 (['-LisNoGuard'], []),
+                 # path C (docs/web-access.md): the lean set with the example MCP config
+                 (['--mcp-config', 'scripts/web-access.example.mcp.json'], GUARD_HOOKS)]
+# -LisFull with a web flag is refused before anything runs (S-B5); a prompt is not a flag.
+WEB_REFUSED = [['-LisFull', '-LisWeb'], ['-LisWeb', '-LisFull'],
+               ['-LisFull', '--mcp-config', 'scripts/web-access.example.mcp.json'],
+               ['--mcp-config=x.json', '-LisFull'],
+               ['-LisFull', '--allowedTools', 'Bash(git status)', 'WebFetch(domain:example.com)'],
+               ['-LisFull', '--allowed-tools=mcp__playwright__browser_navigate'],
+               ['-LisFull', '--allowedTools', 'WebSearch', '-p', 'x']]
+# Every profile refuses a caller's settings, setting sources, plugin dir and permission
+# bypass (S-B5 audit W2): the launcher owns settings and hooks; a prompt is not checked.
+OWNED_REFUSED = [['--settings', '{"disableAllHooks":true}'], ['--settings={}'],
+                 ['--setting-sources', 'user'], ['--plugin-dir', 'x'],
+                 ['--dangerously-skip-permissions'], ['--allow-dangerously-skip-permissions'],
+                 ['--permission-mode', 'bypassPermissions'],
+                 ['--permission-mode=bypassPermissions'],
+                 ['-LisFull', '--settings', 'x.json'], ['-LisNoGuard', '--plugin-dir', 'x'],
+                 ['--mcp-config', 'scripts/web-access.example.mcp.json', '--settings', 'x.json']]
+OWNED_KEPT = [['-p', 'what does --settings do here?'], ['--permission-mode', 'acceptEdits']]
+WEB_KEPT = [['-LisFull', '-p', 'Why are WebFetch and mcp__playwright tools denied here?'],
+            ['-LisFull', '--allowedTools', 'Bash(git status)', '-p', 'WebFetch'],
+            ['-LisFull', '--disallowedTools', 'WebFetch']]
+
+
+def abs_rule(path):
+    """A Windows path in the //c/... rule form the wrapper writes."""
+    p = path.replace(os.sep, '/')
+    return '//' + p[0].lower() + p[2:]
+
+
+def print_args(args, wrapper=None):
+    """-LisPrintArgs: rc, the claude argument list, the settings dict (None when absent),
+    stdout and stderr."""
+    r = subprocess.run([PWSH, '-NoProfile', '-File', wrapper or WRAPPER, '-LisPrintArgs'] + args,
+                       capture_output=True, text=True, timeout=120, cwd=REPO)
+    a, b = 'claude arguments (JSON array, in order):', 'settings JSON (the --settings file):'
+    try:
+        argv = json.loads(r.stdout[r.stdout.index(a) + len(a):r.stdout.index(b)])
+        cfg = json.loads(r.stdout[r.stdout.index(b) + len(b):])
+    except ValueError:
+        argv, cfg = None, None
+    return r.returncode, argv, cfg, r.stdout, r.stderr
+
+
+def hook_scripts(cfg):
+    """(event, script path, the rest of the command) for every registered hook."""
+    out = []
+    for ev, groups in (cfg.get('hooks') or {}).items():
+        for g in groups:
+            for h in g['hooks']:
+                m = re.match(r'python -I "([^"]+)"(.*)$', h['command'])
+                out.append((ev, m.group(1) if m else h['command'], m.group(2) if m else ''))
+    return out
+
+
+def check_hook_settings(name, cfg, want, err):
+    """The hook commands name one per-run lis-hooks-<stamp>-<pid> directory under %TEMP%, not
+    the repo; lis-guard gets --hooks-dir <repo>/scripts/hooks; Edit and Write of that
+    directory are denied; the banner names it. Returns the directory (None without hooks)."""
+    deny = cfg['permissions']['deny']
+    hooks = hook_scripts(cfg)
+    dirs = {os.path.dirname(p) for _, p, _ in hooks}
+    temp = os.environ['TEMP'].replace(os.sep, '/')
+    named = sorted({os.path.basename(p) for _, p, _ in hooks})
+    if not want:
+        check(f'hook copies {name}: no hook, no copy directory, no banner line',
+              not hooks and 'hook copies:' not in err
+              and not [x for x in deny if 'lis-hooks-' in x],
+              f'{hooks} {err}')
+        return None
+    d = dirs.pop() if len(dirs) == 1 else ''
+    repo = REPO.replace(os.sep, '/').lower()
+    check(f'hook copies {name}: every hook command runs a copy in one %TEMP%\\lis-hooks-* dir',
+          not dirs and d.startswith(temp + '/lis-hooks-') and named == sorted(want)
+          and not [p for _, p, _ in hooks if p.lower().startswith(repo)],
+          f'{hooks}')
+    guard = [rest for _, p, rest in hooks if p.endswith('/lis-guard.py')]
+    check(f'hook copies {name}: lis-guard gets --hooks-dir <repo>/scripts/hooks',
+          guard == [f' --hooks-dir "{REPO.replace(os.sep, "/")}/scripts/hooks"'], f'{guard}')
+    vd = [rest for _, p, rest in hooks if p.endswith('/verify-doc.py')]
+    check(f'hook copies {name}: verify-doc gets --script <repo>/scripts/verify-doc.py (audit C1)',
+          vd == [f' --hook --script "{REPO.replace(os.sep, "/")}/scripts/verify-doc.py"'], f'{vd}')
+    rules = [f'{k}({abs_rule(d)}/**)' for k in ('Edit', 'Write') if d] + \
+        [f'{k}(//**/lis-hooks-*/**)' for k in ('Edit', 'Write')]
+    check(f'hook copies {name}: Edit and Write of the copies denied',
+          d and all(x in deny for x in rules), [x for x in rules if x not in deny])
+    check(f'hook copies {name}: the banner names the directory',
+          f'claude-local: hook copies: {d.replace("/", os.sep)} ' in err, err)
+    return d
+
+
+def test_wrapper_web_and_hooks():
+    """-LisPrintArgs per profile: the PowerShell and Playwright denies, the hook commands on
+    the per-run copies (nothing written: the directory does not exist), and the -LisFull
+    web refusal (S-B5), which exits before the banner or any output."""
+    for args, want in PROFILE_HOOKS:
+        name = ' '.join(args) or 'no profile'
+        rc, argv, cfg, out, err = print_args(args)
+        if cfg is None:
+            check(f'web/hooks {name}: -LisPrintArgs prints the settings', False, f'{rc} {out}{err}')
+            continue
+        deny = cfg['permissions']['deny']
+        check(f'web/hooks {name}: PowerShell and the three Playwright tools denied',
+              rc == 0 and all(x in deny for x in WEB_DENIES),
+              [x for x in WEB_DENIES if x not in deny])
+        # serve.ps1's pin sources (ledger S-B3): Edit and Write denied by absolute path.
+        pins = [f'{t}({abs_rule(REPO)}/{f})' for t in ('Edit', 'Write')
+                for f in ('scripts/install.ps1', 'models/manifest.json')]
+        check(f'web/hooks {name}: Edit and Write of install.ps1 and models/manifest.json denied',
+              not [x for x in pins if x not in deny], [x for x in pins if x not in deny])
+        d = check_hook_settings(name, cfg, want, err)
+        if d:
+            check(f'hook copies {name}: -LisPrintArgs writes no copy', not os.path.exists(d), d)
+    for args in WEB_REFUSED:
+        rc, argv, cfg, out, err = print_args(args)
+        check(f'web/-LisFull refused: {" ".join(args)}',
+              rc != 0 and cfg is None and '-LisFull cannot be combined with web access' in err
+              and 'claude-local:' not in err, f'{rc} {out}{err}')
+    for args in WEB_KEPT:
+        rc, argv, cfg, out, err = print_args(args)
+        check(f'web/-LisFull kept (no web flag): {" ".join(args)}',
+              rc == 0 and cfg is not None, f'{rc} {err}')
+    for args in OWNED_REFUSED:
+        rc, argv, cfg, out, err = print_args(args)
+        check(f'owned/refused in every profile: {" ".join(args)}',
+              rc != 0 and cfg is None and "would replace the launcher's settings" in err
+              and 'claude-local:' not in err, f'{rc} {out}{err}')
+    for args in OWNED_KEPT:
+        rc, argv, cfg, out, err = print_args(args)
+        check(f'owned/kept: {" ".join(args)}', rc == 0 and cfg is not None, f'{rc} {err}')
+    # -LisFull keeps --strict-mcp-config and the empty per-run MCP config (audit C2), so
+    # no .mcp.json server loads; it still drops --tools and the policy
+    rc, argv, cfg, out, err = print_args(['-LisFull'])
+    temp = os.environ['TEMP'].replace(os.sep, '/').lower()
+    i = argv.index('--mcp-config') if argv and '--mcp-config' in argv else -1
+    check('mcp/-LisFull: --strict-mcp-config and the empty per-run --mcp-config, no --tools',
+          rc == 0 and '--strict-mcp-config' in argv and i >= 0
+          and os.path.basename(argv[i + 1]).startswith('lis-mcp-')
+          and argv[i + 1].replace(os.sep, '/').lower().startswith(temp)
+          and '--tools' not in argv and '--append-system-prompt' not in argv, f'{rc} {argv}')
+
+
+def test_guard_copy():
+    """lis-guard.py copied out of the repo (the wrapper's per-run copy, S-B3) and run with
+    --hooks-dir <repo>/scripts/hooks decides as the repo file does; without it the copy
+    loses the repo anchor (its exemptions and repo root), so the argument is needed."""
+    src = os.path.join(REPO, 'scripts', 'hooks', 'lis-guard.py')
+    cmds = ['python -I scripts/hooks/tests/lis-guard_test.py',
+            'python -I scripts/tests/resilience_test.py',
+            'python -I scripts/hooks/lis-guard.py', 'pwsh -NoProfile -File scripts/web-smoke.ps1',
+            'cat README.md', 'git push origin main']
+    with tempfile.TemporaryDirectory() as t:
+        cp = shutil.copy(src, t)
+
+        def run(script, extra):
+            out = []
+            for c in cmds:
+                r = subprocess.run([sys.executable, '-I', script] + extra, capture_output=True,
+                                   text=True, timeout=60,
+                                   input=json.dumps({'tool_name': 'Bash', 'cwd': REPO,
+                                                     'tool_input': {'command': c}}))
+                d = json.loads(r.stdout)['hookSpecificOutput'] if r.stdout.strip() else {}
+                out.append(d.get('permissionDecision'))
+            return out
+        want = run(src, [])
+        got = run(cp, ['--hooks-dir', os.path.join(REPO, 'scripts', 'hooks').replace(os.sep, '/')])
+        bare = run(cp, [])
+    check('guard copy: with --hooks-dir the copy decides as the repo file', got == want,
+          f'{got} vs {want}')
+    check('guard copy: without --hooks-dir the copy decides otherwise (the anchor is needed)',
+          bare != want, f'{bare} vs {want}')
 
 
 FIXED_FLAGS = ['--host', '--port', '--api-key', '--api-key-file', '--connect', '--connect-code', '--tools', '--agent',
@@ -652,6 +849,9 @@ class Claude {
     File.WriteAllText(cf, n.ToString());
     File.WriteAllText(Path.Combine(dir, "args-" + n + ".txt"), string.Join("\0", a),
                       new UTF8Encoding(false));
+    int si = Array.IndexOf(a, "--settings");
+    if (si >= 0 && si + 1 < a.Length)
+      File.Copy(a[si + 1], Path.Combine(dir, "settings-" + n + ".json"), true);
     string env = "";
     foreach (string k in new[] { "LIS_RELAUNCH", "LIS_RELAUNCH_RC", "LIS_FACTS_FILE" })
       env += k + "=" + Environment.GetEnvironmentVariable(k) + "\n";
@@ -699,11 +899,22 @@ def relaunch_prefix(n, rc, facts):
             'append a CHECK line before any edit, then continue from its last NEXT line.\n')
 
 
-def run_supervised(stub_dir, args, plan, exe=None):
+def remove_hook_copies(err):
+    """The per-run hook copies the banner names (kept after exit by design), read-only."""
+    for d in set(re.findall(r'(?m)^claude-local: hook copies: (\S+) ', err)):
+        if os.path.isdir(d) and os.path.dirname(d) == os.path.normpath(os.environ['TEMP']) \
+                and os.path.basename(d).startswith('lis-hooks-'):
+            for f in os.listdir(d):
+                os.chmod(os.path.join(d, f), stat.S_IWRITE)
+            shutil.rmtree(d)
+
+
+def run_supervised(stub_dir, args, plan, exe=None, keep=False):
     """The wrapper with LIS_CLAUDE_EXE set, from a scratch working directory. Returns rc,
-    stdout bytes, stderr text, the calls made and per call its arguments and env lines."""
+    stdout bytes, stderr text, the calls made and per call its arguments and env lines.
+    The hook copies the run made are removed unless keep (the caller removes them)."""
     for f in os.listdir(stub_dir):
-        if f.startswith(('calls', 'args-', 'env-')):
+        if f.startswith(('calls', 'args-', 'env-', 'settings-')):
             os.remove(os.path.join(stub_dir, f))
     with open(os.path.join(stub_dir, 'plan.txt'), 'w') as f:
         f.write('\n'.join(plan) + '\n')
@@ -720,6 +931,8 @@ def run_supervised(stub_dir, args, plan, exe=None):
     for p in set(re.findall(r'facts inject log: (\S+\.log)', err)):
         if os.path.isfile(p) and os.path.dirname(p) == os.path.normpath(os.environ['TEMP']):
             os.remove(p)
+    if not keep:
+        remove_hook_copies(err)
     calls = []
     for n in range(1, 10):
         a = os.path.join(stub_dir, f'args-{n}.txt')
@@ -840,6 +1053,47 @@ def test_relaunch():
                                            exe=os.path.join(REPO, 'README.md'))
         check('supervisor: LIS_CLAUDE_EXE outside %TEMP% -> refused, nothing launched',
               rc != 0 and not calls and 'is not a file under %TEMP%' in err, err)
+        # S-B3: the hooks run from read-only copies in a per-run %TEMP% directory, kept after exit
+        rc, _, err, calls = run_supervised(tmp, ['-LisRelaunchMax', '0'] + longrun, ['exit:0'],
+                                           keep=True)
+        try:
+            with open(os.path.join(tmp, 'settings-1.json'), encoding='utf-8') as f:
+                cfg = json.load(f)
+            d = check_hook_settings('stub longrun', cfg, GUARD_HOOKS + ['facts-inject.py'], err)
+            d = d and os.path.normpath(d)
+            src = {n: 'scripts/hooks/' + n
+                   for n in ('lis-guard.py', 'loop-guard.py', 'facts-inject.py')}
+            src['verify-doc.py'] = 'scripts/verify-doc.py'
+            names = sorted(os.listdir(d)) if d and os.path.isdir(d) else []
+            check('hook copies: the four hook scripts copied, the directory kept after exit',
+                  rc == 0 and len(calls) == 1 and names == sorted(src), f'{rc} {names} {err}')
+            for n in names:
+                fp = os.path.join(d, n)
+                with open(fp, 'rb') as f, open(os.path.join(REPO, src[n]), 'rb') as g:
+                    same = f.read() == g.read()
+                ro = bool(os.stat(fp).st_file_attributes & stat.FILE_ATTRIBUTE_READONLY)
+                check(f'hook copies: {n} read-only and byte-identical to {src[n]}', ro and same,
+                      f'{ro} {same}')
+            # audit C1: the registered lis-guard (itself a copy) denies a literal command that
+            # would unprotect or empty a copy; this asks for the decision, nothing is run
+            guard = [(q, rest) for _, q, rest in hook_scripts(cfg) if q.endswith('/lis-guard.py')]
+            hd = re.findall(r'"([^"]+)"', guard[0][1]) if guard else []
+            for n in names if guard else []:
+                fp = os.path.join(d, n).replace(os.sep, '/')
+                got = []
+                for c in (f'chmod +w "{fp}"', f'cp /dev/null "{fp}"', f'echo > "{fp}"'):
+                    r = subprocess.run([sys.executable, '-I', guard[0][0], '--hooks-dir'] + hd,
+                                       capture_output=True, text=True, timeout=60,
+                                       input=json.dumps({'tool_name': 'Bash', 'cwd': REPO,
+                                                         'tool_input': {'command': c}}))
+                    h = json.loads(r.stdout)['hookSpecificOutput'] if r.stdout.strip() else {}
+                    got.append(h.get('permissionDecision'))
+                check(f'hook copies: the registered guard denies chmod +w, cp, echo > of {n}',
+                      got == ['deny'] * 3, f'{got}')
+        except (OSError, ValueError, KeyError) as e:
+            check('hook copies: the stub saw the per-run settings', False, f'{e} {err}')
+        finally:
+            remove_hook_copies(err)
         rc, out, err, calls = run_supervised(tmp, longrun + ['-LisPrintArgs'], ['exit:1'])
         hooks = []
         try:
@@ -864,6 +1118,8 @@ def main():
     try:
         test_wrapper(port)
         test_wrapper_rules()
+        test_wrapper_web_and_hooks()
+        test_guard_copy()
         test_key_resolvers()
         test_fixed_flags()
         test_restart_window()

@@ -38,6 +38,15 @@ sizes vary by a few hundred tokens with the cwd path). KV rule: `serve.ps1` uses
 q4_0 only for this default file and q8_0 for any other `-Model` (the KV those rows
 were benched with) unless `-KvType` is passed.
 
+Pins: `models/manifest.json` holds each local file's HF repo, revision (commit), byte
+size and SHA256; for the default file, revision
+`34e7cb013d66af05f668fe8a37087585de2e85f0` and SHA256
+`0d91ad7b2c57f545a030b1d391375a5f9a822423b90923d91cf744e717e80d03`.
+`pwsh scripts/install.ps1 -VerifyModels` checks every file present. `serve.ps1` hashes
+the `-Model` it starts against its entry at most once per boot (20 s for the default
+file cold, 8.9 s from the OS cache; marker `logs/model-verify.json`) and refuses a
+mismatch; a file not in the manifest starts with a warning.
+
 | Model | HF repo | Quant | Size | Fits all-GPU? | Decode tok/s | Prefill 20K ms | Ctx target | Status | Local file |
 |---|---|---|---|---|---|---|---|---|---|
 | Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ3_XXS | 13.2 GB | no, measured: `--fit` keeps 41/41 layers on GPU but moves part of 2 layers' experts to CPU (~535 MiB) at 131072 ctx with `--no-mmproj` and q8_0 KV | 134.0 | 5,351 | 131072 | benched (default until ruling 6; fallback) | - |

@@ -261,6 +261,14 @@ def tests(root, out_dir):
             and 'INFO' not in lines[1]):
         fails += 1
         print(f'FAIL hook cap: exit {code}, {len(ctx)} chars, first {lines[:2]}, last {lines[-1:]}')
+    # run from a copy (claude-local.ps1, ledger S-B3): --script names the repo file in the hint
+    n += 1
+    code, out = run(root, ['--hook', '--script', 'C:/repo/scripts/verify-doc.py'], stdin=json.dumps(
+        {'cwd': root, 'tool_name': 'Write', 'tool_input': {'file_path': many}}))
+    last = json.loads(out)['hookSpecificOutput']['additionalContext'].split('\n')[-1] if out else ''
+    if not (code == 0 and last.endswith(' C:/repo/scripts/verify-doc.py many.md')):
+        fails += 1
+        print(f'FAIL hook --script: exit {code}, last {last!r}')
     n += 1
     code, out = run(root, ['--hook'], stdin='not json')
     if code != 0 or out:

@@ -25,17 +25,30 @@
   per-run empty {"mcpServers":{}} file ($env:TEMP\lis-mcp-<pid>.json, deleted on exit),
   and --append-system-prompt with the one-model policy (docs/context-audit-2026-10-24.md
   section 5) plus an evidence and machine-survey block. Hooks stay on. -LisFull omits
-  all three for a session that needs the full tool set or MCP; Agent and Workflow stay
-  denied by config/claude-settings.json.
+  the tool list and the policy for a session that needs the full tool set, and keeps
+  --strict-mcp-config with the empty MCP file (ledger S-B5 audit C2), so no .mcp.json
+  server loads (a user or umbrella .mcp.json would otherwise load with no flag); the
+  explicit --mcp-config of web path C, without -LisFull, is the only MCP route. Agent,
+  Workflow and the PowerShell tool stay denied by config/claude-settings.json
+  (PowerShell since ledger S-B5: lis-guard judges Bash commands only), as do three
+  Playwright MCP tools (browser_evaluate, browser_run_code_unsafe, browser_file_upload;
+  ledger W-5), by name on the playwright server and on any server (mcp__*__<tool>,
+  plugin servers included), in every profile. -LisFull refuses web access (ledger S-B5)
+  before anything runs: the reserved switch -LisWeb, any --mcp-config (web path C loads
+  Playwright that way, and the wrapper cannot tell which server reaches the web) and an
+  --allowedTools/--allowed-tools value naming WebFetch, WebSearch or an MCP tool
+  (mcp__) throw; a prompt is not checked.
 
   Permissions (ruling 15): the per-run settings carry rule set A from
   config/claude-settings.json plus a PreToolUse Bash hook, scripts/hooks/lis-guard.py
-  (run as `python -I <repo path>`), added here so the committed JSON holds no absolute
-  path. It also turns the Edit(~/...) and Read(~/...) rules into absolute home paths and
-  denies Edit on this repo's guard files (scripts/hooks, the serve/stop/watchdog and
-  task scripts, this file, config, bin, .gitignore, .gitattributes, logs/api-key and the
-  logs/.stop-requested-<port> files, and the three scripts/tests files the guard hook
-  exempts from its content scan) by absolute path.
+  (run as `python -I <per-run copy> --hooks-dir <repo>/scripts/hooks`, below), added
+  here so the committed JSON holds no absolute path. It also turns the Edit(~/...) and
+  Read(~/...) rules into absolute home paths and denies Edit on this repo's guard files
+  (scripts/hooks, the serve/stop/watchdog and task scripts, this file, config, bin,
+  .gitignore, .gitattributes, logs/api-key and the logs/.stop-requested-<port> files,
+  and the three scripts/tests files the guard hook exempts from its content scan) by
+  absolute path, and Edit and Write of the two pin
+  sources serve.ps1 trusts (scripts/install.ps1, models/manifest.json; ledger S-B3).
   The hook denies critical writes, also inside interpreter and ssh payloads,
   and allows read-only commands and read-only scripts; see docs/SETUP.md step 8.
   A PostToolUse Write|Edit hook, scripts/verify-doc.py --hook, checks the figures in
@@ -44,6 +57,19 @@
   A PreToolUse hook on every tool, scripts/hooks/loop-guard.py, denies the 4th identical
   call within the last 12 counted calls (docs/SETUP.md step 8). -LisNoGuard drops it too;
   -LisNoLoopGuard drops only it (benches that measure raw loop behaviour).
+  Hook copies (ledger S-B3): every hook script the run registers (lis-guard.py,
+  loop-guard.py, verify-doc.py, facts-inject.py) runs from a copy in
+  $env:TEMP\lis-hooks-<stamp>-<pid>\, made at launch, byte-identical, marked read-only and
+  kept after exit (path in the banner), so an edit of the repo files mid-session changes
+  no hook. lis-guard.py gets --hooks-dir <repo>/scripts/hooks so its exemptions and
+  repo root still name the repo; verify-doc.py gets --script <repo>/scripts/verify-doc.py
+  so its "+N more; run:" hint names the repo file. The per-run settings deny Edit and
+  Write of that directory and of lis-hooks-* at any depth, and lis-guard denies a Bash
+  command that names lis-hooks-, lis-settings- or lis-mcp- (a literal chmod, cp or echo
+  could otherwise empty a copy, and an emptied hook exits 0: fail open), also through a
+  glob that can match a copy, the settings or the MCP file (the stamp and pid are digits
+  and dashes); a computed name, or a glob with fewer than 3 letters in a part, is not
+  covered. -LisNoGuard without longrun registers no hook and makes no copy.
 
   Task profiles (ROADMAP "Trust ladder"): -LisTask review|edit|longrun is chosen by the
   person launching the session and nothing in the session can change it. A profile sets
@@ -105,9 +131,13 @@
   -LisTask cannot be combined with -LisFull, with -LisNoGuard or with claude options that
   would override what it fixes (--tools, --settings, system-prompt options, permission
   bypass, --allowedTools, --mcp-config, --plugin-dir, --add-dir).
+  In every profile, with or without -LisTask, the wrapper refuses a caller's --settings,
+  --setting-sources, --plugin-dir, --dangerously-skip-permissions,
+  --allow-dangerously-skip-permissions and --permission-mode bypassPermissions (ledger
+  S-B5 audit W2): the launcher owns the settings and the hooks. A prompt is not checked.
   -LisPrintArgs prints the claude argument list and the settings JSON to stdout and
-  exits 0 without writing temp files, changing the environment, querying the server or
-  launching claude.
+  exits 0 without writing temp files (the hook copies included), changing the
+  environment, querying the server or launching claude.
 
   Server preflight (not under -LisPrintArgs): before any env change, GET /health on
   127.0.0.1:8080 must return status ok, else the script throws with the start command;
@@ -258,6 +288,31 @@ if ($LisTask) {
         }
     }
 }
+# Every profile (ledger S-B5 audit W2, docstring): the launcher owns settings and hooks, so
+# no caller option may replace the settings, drop a hook or bypass permissions.
+foreach ($a in $claudeArgs) {
+    $owned = '^--(settings|setting-sources|plugin-dir|(allow-)?dangerously-skip-permissions)(=|$)'
+    if ("$a" -match $owned -or "$a" -match '^(--permission-mode=)?bypassPermissions$') {
+        throw ("'$a' would replace the launcher's settings, hooks or permissions " +
+            '(ledger S-B5); leave it out.')
+    }
+}
+# -LisFull with web access (ledger S-B5, docstring): -LisFull drops the lean tool list (it
+# keeps the empty MCP config, audit C2), so nothing beside it may arm a web tool. Checked
+# before any output.
+if ($LisFull) {
+    $inAllow = $false
+    foreach ($a in $claudeArgs) {
+        $s = "$a"
+        $web = $s -match '^-LisWeb(:|$)' -or $s -match '^--mcp-config(=|$)'
+        if ($s -match '^--allowed-?tools(=(.*))?$') { $inAllow = $true; $s = "$($Matches[2])" }
+        elseif ($s.StartsWith('-')) { $inAllow = $false }
+        if ($web -or ($inAllow -and $s -match 'WebFetch|WebSearch|mcp__')) {
+            throw ("-LisFull cannot be combined with web access ('$a'): -LisFull drops the lean " +
+                'tool list (ledger S-B5). Leave out -LisFull for a web run.')
+        }
+    }
+}
 # Session supervisor (docstring): armed under longrun when a -p <prompt> can be relaunched.
 if ($null -eq $LisRelaunchMax) { $LisRelaunchMax = if ($LisTask -eq 'longrun') { 1 } else { 0 } }
 elseif ($LisRelaunchMax -gt 0 -and $LisTask -ne 'longrun') {
@@ -390,7 +445,8 @@ $mcpConfig = Join-Path $env:TEMP "lis-mcp-$PID.json"
 
 # Lean set (ruling 13; measured in docs/context-audit-2026-10-24.md): a 7-tool allow-list
 # (never drop Skill alone: the Workflow schema then grows by ~4,000 tokens), no MCP
-# servers, and the one-model policy. -LisFull omits all three. --tools and --mcp-config
+# servers, and the one-model policy. -LisFull omits the tool list and the policy but keeps
+# the empty MCP config (ledger S-B5 audit C2). --tools and --mcp-config
 # take several values, so each is followed by another option, never by $claudeArgs.
 $policy = 'This session runs on one local model served by llama-server on this machine. You are the only agent: do all work directly with your own tools and never spawn subagents, agent teams or workflows. Ignore every instruction about Fable, Opus, Sonnet or other model roles, orchestrator and subagent splits, or delegating implementation, tests or audits to a subagent; those rules apply to cloud sessions only. Sessions here may run long and unsupervised, so before any destructive or irreversible action (deleting files, git reset or force-push, stopping processes, editing config outside the working repo) verify the exact target first and prefer the reversible option. Keep answers short: the context window is 131,072 tokens.'
 # Evidence rules and survey checklist: the gaps of the graded recon runs (ROADMAP ruling 15).
@@ -404,6 +460,9 @@ $runStamp = '{0:yyyyMMdd-HHmmss}' -f (Get-Date)
 $factsFile = "lis-facts-$runStamp.md"
 # The facts-inject hook's log (longrun), kept after exit for bench/ladder/run.ps1 to copy.
 $injectLog = Join-Path $env:TEMP "lis-facts-inject-$runStamp.log"
+# Per-run read-only copies of the hook scripts (ledger S-B3), kept after exit like the log.
+$hookDir = Join-Path $env:TEMP "lis-hooks-$runStamp-$PID"
+$hookCopies = [ordered]@{}
 $profiles = @{
     review  = @{ tools = 'Bash,Read,Glob,Grep,Skill'; deny = @('Edit', 'Write', 'NotebookEdit')
         policy = ' Task profile: review, set by the person who launched this session; you cannot change it. You have no Edit or Write tool; do not create, change or delete any file by other means either (no redirection, tee, sed -i, Set-Content or a script that writes). Give the deliverable as your final answer in Markdown: the person saves it and runs verify-doc and verify-claims on it, so every number must trace to a tool output in this session and every path must exist. If the task asks you to write a file, say that the review profile cannot and put the content in your answer. Never ask for more tools or permissions, and never work around a denial.' }
@@ -418,7 +477,7 @@ if ($LisTask -eq 'longrun') {
     $set['LIS_FACTS_FILE'] = $factsFile
     $set['LIS_FACTS_INJECT_LOG'] = $injectLog
 }
-$leanArgs = if ($LisFull) { @() } else {
+$leanArgs = if ($LisFull) { @('--strict-mcp-config', '--mcp-config', $mcpConfig) } else {
     @('--tools', $tools, '--strict-mcp-config',
       '--mcp-config', $mcpConfig, '--append-system-prompt', $policy)
 }
@@ -447,8 +506,16 @@ $checks = switch ($LisTask) {
         "(Get-Content -LiteralPath '$factsFile' | Measure-Object -Line).Lines   # expect > 0"
     }
 }
+# A hook script to copy at launch (name -> repo file); returns the copy's path for the settings.
+function Add-LisHook([string]$Rel) {
+    $src = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot $Rel)).Path
+    $name = Split-Path -Leaf $src
+    $hookCopies[$name] = $src
+    return (Join-Path $hookDir $name).Replace('\', '/')
+}
 function Write-LisBanner {
     $e = [Console]::Error
+    if ($hookCopies.Count) { $e.WriteLine("claude-local: hook copies: $hookDir (read-only, kept after exit)") }
     if (-not $LisTask) { $e.WriteLine('claude-local: profile: none'); return }
     $guardState = if ($LisNoGuard) { 'off' } elseif ($LisNoLoopGuard) { 'on, loop-guard off' } else { 'on' }
     $e.WriteLine("claude-local: profile: $LisTask   tools: $tools   guard: $guardState")
@@ -497,6 +564,10 @@ try {
         'scripts/watchdog.ps1', 'scripts/register-watchdog.ps1', 'config/**', 'bin/**', '.gitignore',
         '.gitattributes', 'logs/api-key', 'logs/.stop-requested*', 'scripts/tests/resilience_test.py',
         'scripts/tests/claude_settings_test.py', 'scripts/tests/install_verify_test.py' | ForEach-Object { "Edit($repoRule/$_)" })
+    # serve.ps1 trusts these two as pin sources (zip/exe/dll and GGUF sha256s; ledger S-B3).
+    $cfg.permissions['deny'] = @($cfg.permissions['deny']) +
+        @('scripts/install.ps1', 'models/manifest.json' |
+            ForEach-Object { "Edit($repoRule/$_)"; "Write($repoRule/$_)" })
     if ($LisTask -and $profiles[$LisTask].deny) {
         $cfg.permissions['deny'] = @($cfg.permissions['deny']) + $profiles[$LisTask].deny
     }
@@ -509,17 +580,18 @@ try {
                 "$k($tempRule/lis-facts-inject-*)"; "$k(//**/lis-facts-inject-*)" })
     }
     if (-not $LisNoGuard) {
-        $guard = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'hooks\lis-guard.py')).Path.Replace('\', '/')
+        $guard = Add-LisHook 'hooks\lis-guard.py'
         if (-not $cfg.hooks) { $cfg.hooks = [ordered]@{} }
         $cfg.hooks['PreToolUse'] = @($cfg.hooks['PreToolUse'] | Where-Object { $_ }) + @([ordered]@{
                 matcher = 'Bash'
-                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$guard`""; timeout = 10; onFailure = 'block' })
+                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$guard`" --hooks-dir `"$r/scripts/hooks`""
+                    timeout = 10; onFailure = 'block' })
             })
         if (-not $LisNoLoopGuard) {
             # loop-guard: denies an identical tool call repeated 3+ times in the last 12
             # counted calls; no onFailure = 'block', so a guard error never blocks a call
             # (docs/SETUP.md step 8).
-            $loop = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'hooks\loop-guard.py')).Path.Replace('\', '/')
+            $loop = Add-LisHook 'hooks\loop-guard.py'
             $cfg.hooks['PreToolUse'] = @($cfg.hooks['PreToolUse'] | Where-Object { $_ }) + @([ordered]@{
                     matcher = '*'
                     hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$loop`""; timeout = 5 })
@@ -527,17 +599,17 @@ try {
         }
         # verify-doc: deterministic figure checks on every .md the session writes or edits,
         # fed back to the model as additionalContext (docs/SETUP.md step 8).
-        $verify = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'verify-doc.py')).Path.Replace('\', '/')
+        $verify = Add-LisHook 'verify-doc.py'
         $cfg.hooks['PostToolUse'] = @($cfg.hooks['PostToolUse'] | Where-Object { $_ }) + @([ordered]@{
                 matcher = 'Write|Edit'
-                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$verify`" --hook"; timeout = 30 })
+                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$verify`" --hook --script `"$r/scripts/verify-doc.py`""; timeout = 30 })
             })
     }
     if ($LisTask -eq 'longrun') {
         # facts-inject (ledger T-9): after each compaction it puts the facts file back into
         # context. Not a guard, so it registers with the profile alone (-LisTask already
         # refuses -LisNoGuard); no onFailure = 'block': it always exits 0.
-        $factsHook = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'hooks\facts-inject.py')).Path.Replace('\', '/')
+        $factsHook = Add-LisHook 'hooks\facts-inject.py'
         if (-not $cfg.hooks) { $cfg.hooks = [ordered]@{} }
         # Also at startup: it injects there only in a relaunched session (LIS_RELAUNCH set).
         $cfg.hooks['SessionStart'] = @($cfg.hooks['SessionStart'] | Where-Object { $_ }) + @(
@@ -547,6 +619,13 @@ try {
                     hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$factsHook`""; timeout = 10 })
                 }
             })
+    }
+    if ($hookCopies.Count) {
+        # The hook copies (ledger S-B3): no Edit or Write, by their TEMP path or at any depth.
+        $hd = $hookDir.Replace('\', '/')
+        $hookRule = '//' + $hd.Substring(0, 1).ToLower() + $hd.Substring(2)
+        $cfg.permissions['deny'] = @($cfg.permissions['deny']) + @(foreach ($k in 'Edit', 'Write') {
+                "$k($hookRule/**)"; "$k(//**/lis-hooks-*/**)" })
     }
     $json = $cfg | ConvertTo-Json -Depth 10
     Write-LisBanner
@@ -560,8 +639,16 @@ try {
     } else {
         if ($claudeExe -eq 'claude') { Test-LisServer $baseUrl $apiKey $LisStrictSlot }
         else { [Console]::Error.WriteLine("claude-local: LIS_CLAUDE_EXE $claudeExe (tests only): server preflight skipped") }
+        if ($hookCopies.Count) {
+            $null = New-Item -ItemType Directory -Path $hookDir
+            foreach ($name in $hookCopies.Keys) {
+                $dst = Join-Path $hookDir $name
+                Copy-Item -LiteralPath $hookCopies[$name] -Destination $dst
+                Set-ItemProperty -LiteralPath $dst -Name IsReadOnly -Value $true
+            }
+        }
         Set-Content -LiteralPath $settings -Value $json -Encoding utf8NoBOM
-        if (-not $LisFull) { Set-Content -LiteralPath $mcpConfig -Value '{"mcpServers":{}}' -Encoding utf8NoBOM }
+        Set-Content -LiteralPath $mcpConfig -Value '{"mcpServers":{}}' -Encoding utf8NoBOM
         # An empty log at launch: after a compaction, no line means the hook did not inject.
         if ($LisTask -eq 'longrun') { [IO.File]::WriteAllText($injectLog, '') }
         foreach ($k in $set.Keys) { Set-Item "env:$k" $set[$k] }

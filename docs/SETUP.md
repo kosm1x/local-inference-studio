@@ -67,6 +67,23 @@ release; check its asset names and pin its digests first. Tests (pins, manifest,
 `-SkipVerifyAck` gate; no network): `python -I scripts/tests/install_verify_test.py`
 (`--full` also hashes the default GGUF).
 
+`$pinned` also holds the SHA256 of `llama-server.exe` and `llama-server-impl.dll` as
+they are in the pinned llama zip, and the install writes the release tag to
+`bin\llama-release.txt`; `serve.ps1` checks both binaries before each start (step 5).
+To check a downloaded zip against its pin offline (the same check the install runs; no
+network, no extract), one zip per run, since under `pwsh -File` a second path binds to
+`-LlamaRelease`:
+
+```powershell
+pwsh scripts\install.ps1 -VerifyZip bin\.download\llama-b11868-bin-win-cuda-13.4-x64.zip
+```
+
+Success: `SHA256 OK (pinned): <name>`. A changed zip throws `SHA256 mismatch for <name>:
+expected <pin> (pinned), got <hash>`; on 2026-11-04 a copy of the real llama zip with
+one byte changed was refused this way, and both real zips passed. `-VerifyZip` checks
+any file whose name has a pin for `-LlamaRelease`, so it also takes the cudart zip or a
+loose `llama-server.exe`.
+
 ## 3. NVIDIA setting: Prefer No Sysmem Fallback
 
 When VRAM runs out, the Windows driver can silently spill into system RAM, and the
@@ -181,6 +198,59 @@ means the task's own
 server is up (`Get-NetTCPConnection -LocalPort 8080 -State Listen` shows a
 `llama-server` PID); use it and go to step 8. Otherwise see Troubleshooting.
 `Model file not found`: step 4 is not done. Stop with Ctrl+C or `pwsh scripts\stop.ps1`.
+
+**Start checks.** Before it writes the key file, `serve.ps1` hashes
+`bin\llama-server.exe` and `bin\llama-server-impl.dll` (the exe is a 9 KB loader for
+the dll) against the pins next to the zip digests in `scripts\install.ps1`, for the
+release in `bin\llama-release.txt` (written by `install.ps1`; without that file, the
+pinned release the exe matches). A mismatch, or an exe that matches no pin while that
+file is absent, refuses the start and prints both hashes, and so does a missing
+`install.ps1` or a `$pinned` that does not read as a table of constants. A release
+with no exe pin, or a pinned release with no pin for the dll, warns and starts, so an
+upgrade is not blocked (add its hashes to `$pinned` after checking them). Other DLLs
+(`llama.dll`, `llama-common.dll`, the ggml and CUDA DLLs) are not checked. Then it
+hashes the model file against
+`models\manifest.json` (`-ModelManifest` names another), at most once per boot: the
+first start after a boot pays the hash, 20 s for the default 11.6 GB file on the
+reference machine (cold; 8.9 s when the file was in the OS cache; 2026-11-04), and
+writes `logs\model-verify.json` (boot time, path, size, mtime, SHA256). The checks run
+once per `serve.ps1` run, before its restart loop, so a relaunch after a crash never
+rehashes, and a later `serve.ps1` in the same boot (the watchdog's, or a manual
+restart) takes the marker. A size or SHA256 mismatch refuses the start with both
+values; a file not in the manifest, or an `-hf` model, warns and starts. A shutdown
+with Windows Fast Startup may keep the boot time (UNVERIFIED); such a start takes the
+marker while size and mtime match. When the boot time cannot be read, the file is
+hashed and no marker is written. The marker saves time; it is not a seal: whoever can
+replace the GGUF can also rewrite `logs\model-verify.json` (same user, same rights).
+`-SkipModelVerify` skips the model hash in an emergency and logs `WARNING model hash
+check skipped (-SkipModelVerify)`. A check that throws refuses the start with its
+message, in `-LogFile` too. A `stop.ps1` while the checks run (the hash can take 20 s)
+is honoured: `serve.ps1` logs `not starting: [stop.ps1] stop requested ...` and exits
+0 without starting the server; a stop request from before the run is deleted, as
+before. A `stop.ps1` after the checks, while the model loads (nothing listens on the
+port yet), leaves the server running until it exits and then prevents the restart (as
+before these checks). `-VerifyOnly` runs both checks and exits (0 = pass); `-PrintArgs`
+prints the `llama-server.exe` command line and exits. Neither takes the port
+mutex, checks the port, writes the key, deletes a stop request, rotates or appends to
+`-LogFile` (their lines go to the console) or starts a server; `-VerifyOnly` writes
+only `logs\` and `logs\model-verify.json` (when the hash runs and matches),
+`-PrintArgs` nothing. Both are safe while the server runs:
+
+```powershell
+pwsh scripts\serve.ps1 -VerifyOnly
+pwsh scripts\serve.ps1 -Web -PrintArgs
+```
+
+On 2026-11-04, with the server up, `-VerifyOnly` printed `llama-server binaries match
+the b11868 pins (llama-server.exe, llama-server-impl.dll)` and `model sha256 matches
+... (8.9 s)`, and a second run printed `model sha256 verified earlier this boot`. A
+real start through these checks is UNVERIFIED until the next operator start.
+
+`-Web` is the server half of a web session (`docs\web-access.md`; web access is still
+DISARMED): it passes `-lv 3` (info, the server's default threshold), clears
+`LLAMA_ARG_LOG_VERBOSITY` and refuses `-v`, `--verbose`, `--log-verbose` and any `-lv`,
+`--verbosity` or `--log-verbosity` above 3 in `-ExtraArgs` or `-ExtraArgLine`: levels 4
+(trace) and 5 (debug) may log request bodies (UNVERIFIED).
 
 **Launching by hand.** The scripts need PowerShell 7 (`#Requires -Version 7.0`);
 Windows PowerShell 5.1 refuses them with a `#requires` error. Start `pwsh` first and
@@ -372,9 +442,10 @@ absent), and `ANTHROPIC_MODEL` plus the Opus, Sonnet and Haiku
 default aliases to `local`. It unsets `ANTHROPIC_API_KEY` (a real key would be sent to
 the local server) and the `CLAUDE_CODE_SUBAGENT_MODEL*` variables, and passes
 `--settings config\claude-settings.json` (model and subagent model `local`,
-auto-compact at 131072, WebSearch, WebFetch, Agent and Workflow denied; the wrapper
-passes a per-run copy in `%TEMP%` with the auto-compact value rewritten to
-`-LisContextTokens`). Why: a global `~\.claude\settings.json` that pins cloud models or
+auto-compact at 131072, WebSearch, WebFetch, Agent, Workflow, the PowerShell tool and
+three Playwright MCP tools denied; the wrapper passes a per-run copy in `%TEMP%` with
+the auto-compact value rewritten to `-LisContextTokens`). Why: a global
+`~\.claude\settings.json` that pins cloud models or
 a subagent model would otherwise win, and those models do not exist locally. Your
 environment is restored on exit.
 
@@ -396,15 +467,19 @@ the prompt figures below); 641 tokens in all, 540 before the loop guards; the te
 Fresh-session prompt: about 12,735 tokens from a dir outside `Z:\repos` and about 13,163
 from this repo (measured 12,347 and 12,775 before the 2026-10-25 policy block, plus 388;
 was 25,578 and 26,224 to 32,988). `-LisFull` (also `-LisFull:true` /
-`-LisFull:false`) omits the three additions for a session that needs the full tool set
-or MCP (measured 21,908 tokens from the scratch dir; Agent and Workflow stay denied by
-the settings file). Absolute sizes vary by a few hundred tokens with the cwd path and
+`-LisFull:false`) omits the tool list and the policy for a session that needs the full
+tool set (measured 21,908 tokens from the scratch dir; Agent and Workflow stay denied by
+the settings file). Since 2026-11-04 it keeps `--strict-mcp-config` with the empty MCP
+file (ledger S-B5 audit C2): without it, the `.mcp.json` above this repo and servers
+enabled in user settings load with no flag. The 21,908 figure predates that change and
+is not re-measured. The only MCP route is an explicit `--mcp-config` without
+`-LisFull` (web path C). Absolute sizes vary by a few hundred tokens with the cwd path and
 environment text; the reproducible figure is the lean saving, about 9,172 tokens against
 `-LisFull` in the same cwd and about 12,812 against the pre-ruling full set (9,560 and
 13,200 before the 2026-10-25 policy block), all measured before the loop guards (+101
 tokens).
 
-What a lean session cannot do (`-LisFull` restores these tools and MCP, nothing else):
+What a lean session cannot do (`-LisFull` restores these tools, nothing else; no MCP):
 
 - task tracking (TodoWrite / Task* tools), NotebookEdit, LSP, Monitor, reading the output
   of a background Bash command, AskUserQuestion, ToolSearch;
@@ -422,6 +497,28 @@ delegate to subagents (`/ship-it`, multi-round-audit, code-review, the `/diagnos
 `/sweep` fan-out) cannot run as written locally. A `--tools` or `--append-system-prompt`
 you pass yourself lands after the wrapper's; which one wins is UNVERIFIED, so pass
 `-LisFull` instead of overriding `--tools`.
+
+The PowerShell tool is denied by name in every local session, `-LisFull` included
+(ledger S-B5): lis-guard judges Bash commands only, so a PowerShell tool call had no
+hook. A bare tool name in `deny` removes the tool from the model's context (Claude Code
+permissions docs, read 2026-11-04; not observed in a local session). Run PowerShell
+through Bash (`pwsh -NoProfile -Command '...'`), where lis-guard parses the payload.
+Three Playwright MCP tools are denied the same way in every session (ledger W-5):
+`mcp__playwright__browser_evaluate`, `mcp__playwright__browser_run_code_unsafe` and
+`mcp__playwright__browser_file_upload` (page and Node code, file upload; web path C),
+and the same three tool names on any server: `mcp__*__browser_evaluate`,
+`mcp__*__browser_run_code_unsafe`, `mcp__*__browser_file_upload` (a plugin's server is
+named `mcp__plugin_<plugin>_<server>__*`). The permissions docs (read 2026-11-04) say
+deny rules accept glob patterns in the tool-name position that must match the full
+tool name (`"mcp__*"` matches every MCP tool); that the `mcp__*__<tool>` form matches a
+plugin server's tool is UNVERIFIED in a session, so both forms stay.
+
+`-LisFull` refuses web access (ledger S-B5): with `-LisWeb` (a reserved name; the
+switch is proposed, not built), any `--mcp-config` (web path C loads Playwright that
+way, and the wrapper cannot tell which server reaches the web) or an
+`--allowedTools`/`--allowed-tools` value naming WebFetch, WebSearch or an MCP tool
+(`mcp__`), the wrapper throws before it prints or launches anything. A prompt is not
+checked. A web run, once armed, uses the lean set.
 
 Permissions (ruling 15: only writes and deletes of critical files block or ask; the rest
 runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
@@ -975,6 +1072,39 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `facts_injected_*` fields are forgeable and report-only (the transcript check decides
   `facts_read_after_boundary_any`). Tests:
   `python -I scripts/hooks/tests/facts-inject_test.py`.
+- Hook copies (ledger S-B3): every hook script a run registers (`lis-guard.py`,
+  `loop-guard.py`, `verify-doc.py`, `facts-inject.py`) runs from a copy in
+  `%TEMP%\lis-hooks-<stamp>-<pid>\`, made at launch, byte-identical to the repo file,
+  marked read-only and kept after exit for forensics (the banner names it:
+  `claude-local: hook copies: <dir>`). An edit of the repo files mid-session changes no
+  hook of that session. lis-guard runs as `lis-guard.py --hooks-dir
+  <repo>/scripts/hooks`, so its exempt files and repo root still name the repo;
+  verify-doc runs with `--script <repo>/scripts/verify-doc.py`, so its "+N more; run:"
+  hint names the repo file. The per-run settings deny Edit and Write of the directory,
+  by its path and as `//**/lis-hooks-*/**`. lis-guard denies any Bash command that
+  names `lis-hooks-`, `lis-settings-` or `lis-mcp-` (a read included): in Git Bash
+  `chmod +w` clears the read-only flag, and an emptied hook exits 0, which fails open.
+  A glob path whose last two parts can match `lis-hooks-<x>/<hook>`, or whose last part
+  can match `lis-settings-<x>.json` or `lis-mcp-<x>.json`, counts as that file for the
+  write checks (`cp /dev/null $TEMP/*/lis-guard.py`, a `glob.glob('.../lis-h*/*.py')`
+  in Python code that writes, `$env:TEMP\lis-h*\lis-guard.py` in a pwsh payload). `<x>`
+  is the stamp or pid, digits and dashes only, so `ls src/*.test.js` is not a per-run
+  file; a part needs 3 letters besides `.py`/`.json`, so `ls */*.py` stays undecided.
+  A pwsh write cmdlet fed by a pipe from a segment that names a critical path is a write
+  to it (`Get-ChildItem <path> | Clear-Content`) when it names no path of its own and is
+  not Out-File, Tee-Object or Copy-Item. The name must stand alone
+  (`lis_settings_test.py` and `chrysalis-mcp-server` are not it). Residual: a computed
+  name (built in a payload or a variable), a glob with fewer letters (`$TEMP/*/*.py`)
+  or a pwsh pipe through a filter, ForEach-Object or a variable (`... | Where-Object
+  Name -eq lis-guard.py | Clear-Content`) still reaches a copy, the same residual as
+  the facts-inject log. Deleting the
+  facts-inject copy suppresses the injection silently (no log line, nothing injected);
+  `longrun.py`'s `facts_injected_*` fields show the gap on a graded rep. `-LisNoGuard`
+  without longrun registers no hook and makes no copy; `-LisPrintArgs` shows the copy
+  paths but writes nothing. The hooks' tests import the repo files. Remove old
+  directories by hand when `%TEMP%` fills. The per-run settings also deny Edit and Write
+  of the two pin sources `serve.ps1` trusts, `scripts/install.ps1` (zip, exe and dll
+  digests) and `models/manifest.json` (GGUF digests), by absolute path in every profile.
 - Verifier pass (verify-claims), by hand, not a hook: `pwsh scripts/verify-claims.ps1
   -Document <file.md> [-Root <repo>] [-Batch 1] [-MaxTurns 8] [-MaxClaims 0]
   [-OutDir <dir>] [-DryRun]` (Root defaults to the current directory, OutDir to this
@@ -1074,7 +1204,8 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
 
 All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The
 wrapper options are `-LisContextTokens N` (default 131072, minimum 1024; set it to the
-server's `-Ctx` when that is smaller), `-LisFull`, `-LisNoGuard`, `-LisNoLoopGuard`,
+server's `-Ctx` when that is smaller), `-LisFull` (refused with web access, above),
+`-LisNoGuard`, `-LisNoLoopGuard`,
 `-LisTask NAME`, `-LisRelaunchMax N` (longrun, below) and `-LisPrintArgs`. Success:
 Claude Code answers and the server log shows the requests. A
 `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
@@ -1135,6 +1266,11 @@ session ends:
 Without `-LisTask` no profile applies; stderr shows `profile: none`. `-LisTask` refuses
 `-LisFull`, `-LisNoGuard`, `--tools`, `--settings`, system-prompt options, permission
 bypass, `--allowedTools`, `--mcp-config`, `--plugin-dir` and `--add-dir`.
+In every profile, with or without `-LisTask`, the wrapper refuses `--settings`,
+`--setting-sources`, `--plugin-dir`, `--dangerously-skip-permissions`,
+`--allow-dangerously-skip-permissions` and `--permission-mode bypassPermissions`
+(ledger S-B5 audit W2): the launcher owns the settings and the hooks, and
+`--settings '{"disableAllHooks":true}'` reached claude before. A prompt is not checked.
 `-LisPrintArgs` prints the claude arguments and settings JSON and exits without
 starting claude.
 

@@ -95,12 +95,50 @@
   <name>.1 first (replacing an older .1), and appends "llama-server exited <code>" when
   llama-server exits; the logon task from scripts/register-task.ps1 uses
   logs/llama-server.log. Stop with scripts/stop.ps1.
+  Supply-chain checks (security audit S-O1, S-O2) run once per serve.ps1 run, before
+  the key file is written and outside the restart loop. llama-server.exe and
+  llama-server-impl.dll (the exe is a 9 KB loader for that dll) are hashed and compared
+  with the pins next to the zip digests in scripts/install.ps1 ($pinned, read as data),
+  for the release named in bin\llama-release.txt (install.ps1 writes it) or, without
+  that file, the pinned release the exe matches. A mismatch, or an exe that matches no
+  pinned release while that file is absent, refuses the start and prints both hashes,
+  and so does a missing install.ps1 or a $pinned table that cannot be read. A release
+  with no exe pin in install.ps1, or a pinned release with no pin for the dll, warns
+  and goes on, so an upgrade is not blocked. Other DLLs (llama.dll, llama-common.dll,
+  ggml, CUDA) are not checked. A local -Model listed in models/manifest.json
+  (-ModelManifest, relative to the repo root) is hashed at most once per boot: when
+  logs/model-verify.json holds the same boot time (Win32_OperatingSystem
+  LastBootUpTime), path, size, mtime and manifest sha256, it is not hashed; otherwise a
+  size or sha256 mismatch refuses the start with both values and a match writes that
+  marker (none when the boot time cannot be read, so the next run hashes again).
+  Hashing the default 11.6 GB file took 20 s cold and 8.9 s from the OS file cache on
+  the reference machine (2026-11-04); restarts in the loop never rehash, and a later
+  serve.ps1 in the same boot (the watchdog's) takes the marker. A file not in the
+  manifest, or an -hf model, warns and goes on. -SkipModelVerify skips the model hash
+  and logs that it did. A check that throws refuses the start with its message. A stop
+  request written while the checks run is honoured: serve.ps1 logs it and exits 0
+  without starting llama-server (one from before this run is deleted, as above).
+  -VerifyOnly runs both checks and exits (0 = pass); -PrintArgs prints the llama-server
+  command line and exits without the checks. Neither takes the port mutex, checks the
+  port, writes the key file, deletes a stop request, rotates or appends to -LogFile
+  (their lines go to the console) or starts anything. -VerifyOnly creates logs\ and
+  writes logs/model-verify.json when the model hash runs and matches; -PrintArgs
+  writes nothing.
+  -Web is the server half of a web session (docs/web-access.md, still DISARMED): it
+  passes -lv 3 (info, llama-server's default threshold), clears LLAMA_ARG_LOG_VERBOSITY
+  and refuses -v, --verbose, --log-verbose and any -lv, --verbosity or --log-verbosity
+  above 3 in -ExtraArgs or -ExtraArgLine (security audit S-L1: levels 4 and 5 may log
+  request bodies, UNVERIFIED).
 .EXAMPLE
   pwsh scripts/serve.ps1 -Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ4_XS -NCpuMoe 8
 .EXAMPLE
   pwsh scripts/serve.ps1 -ExtraArgLine '-lv 4'
 .EXAMPLE
   pwsh scripts/serve.ps1 -Reasoning on
+.EXAMPLE
+  pwsh scripts/serve.ps1 -VerifyOnly
+.EXAMPLE
+  pwsh scripts/serve.ps1 -Web -PrintArgs
 #>
 [CmdletBinding()]
 param(
@@ -115,6 +153,11 @@ param(
     [string]$Reasoning = 'off',
     [switch]$WithMmproj,
     [switch]$NoMtp,
+    [switch]$Web,
+    [switch]$VerifyOnly,
+    [switch]$PrintArgs,
+    [switch]$SkipModelVerify,
+    [string]$ModelManifest = 'models\manifest.json',
     [string[]]$ExtraArgs = @(),
     [string]$ExtraArgLine = '',
     [string]$LogFile = '',
@@ -135,21 +178,40 @@ if ($badFlag) {
     throw ("-ExtraArgs/-ExtraArgLine may not set $($badFlag -join ', '): serve.ps1 fixes --host, --port, the API key " +
         'and keeps the web UI, tools, MCP and the server''s file paths off.')
 }
+# A web session logs at -lv 3 or lower (security audit S-L1: higher levels may log
+# bodies).
+if ($Web) {
+    $loud = @()
+    for ($i = 0; $i -lt $extraTokens.Count; $i++) {
+        $t = $extraTokens[$i]
+        if ($t -match '^(-v|--verbose|--log-verbose)$') { $loud += $t; continue }
+        if ($t -match '^(-lv|--verbosity|--log-verbosity)(=(.*))?$') {
+            $v = if ($Matches[2]) { $Matches[3] } else { $extraTokens[$i + 1] }
+            if ("$v" -notmatch '^[0-3]$') { $loud += "$t $v" }
+        }
+    }
+    if ($loud) { throw "-Web keeps the server log at -lv 3 or lower; refused: $($loud -join ', ')" }
+}
 
 $binDir = Join-Path $PSScriptRoot '..\bin'
 $exe = Join-Path $binDir 'llama-server.exe'
 if (-not (Test-Path $exe)) { throw "llama-server.exe not found in $binDir. Run scripts/install.ps1 first." }
 
 # One instance per port, held until this process exits (two at once would race on the
-# key file and the port check below).
+# key file and the port check below). -VerifyOnly and -PrintArgs start nothing and
+# skip it.
+$dryRun = $VerifyOnly -or $PrintArgs
 $mutex = [Threading.Mutex]::new($false, "Global\LocalInferenceStudio-serve-$Port")
-try { $owned = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $owned = $true }
-if (-not $owned) { Write-Host "another serve.ps1 holds port $Port"; exit 1 }
+$owned = $false
+if (-not $dryRun) {
+    try { $owned = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $owned = $true }
+    if (-not $owned) { Write-Host "another serve.ps1 holds port $Port"; exit 1 }
+}
 # Released in the finally below, not only at process exit: an in-process run
 # (& serve.ps1) would otherwise keep the port's mutex until its pwsh exits.
 try {
     $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Ignore | Select-Object -First 1
-    if ($listener) {
+    if ($listener -and -not $dryRun) {
         $owner = Get-Process -Id $listener.OwningProcess -ErrorAction Ignore
         Write-Host "Port $Port is already in use by PID $($listener.OwningProcess) ($($owner.ProcessName)). Stop it first: pwsh scripts/stop.ps1 -Port $Port"
         exit 1
@@ -172,22 +234,132 @@ try {
         $ChatTemplateFile = [IO.Path]::GetFullPath($ChatTemplateFile, $repoRoot)
         if (-not (Test-Path -LiteralPath $ChatTemplateFile -PathType Leaf)) { throw "Chat template not found: $ChatTemplateFile" }
     }
-    # Per-start API key. The file is deleted and recreated so this user owns it, its ACL is
-    # set (current user only, no inherited entries) while it is empty, then the key is written.
     $logsDir = Join-Path $repoRoot 'logs'
     $keyFile = Join-Path $logsDir 'api-key'
     $stopFile = Join-Path $logsDir ".stop-requested-$Port"
-    New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
-    Remove-Item -LiteralPath $keyFile -Force -ErrorAction Ignore
-    New-Item -ItemType File -Path $keyFile | Out-Null
-    $acl = [Security.AccessControl.FileSecurity]::new()
-    $acl.SetAccessRuleProtection($true, $false)
-    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-            [Security.Principal.WindowsIdentity]::GetCurrent().User, 'FullControl', 'Allow'))
-    Set-Acl -LiteralPath $keyFile -AclObject $acl
-    $apiKey = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
-    [IO.File]::WriteAllText($keyFile, "$apiKey`n")
-    Remove-Item -LiteralPath $stopFile -Force -ErrorAction Ignore
+    if (-not $PrintArgs) { New-Item -ItemType Directory -Force -Path $logsDir | Out-Null }
+    # A stop request from before this run is stale; one written while the checks below
+    # run is honoured before the start.
+    if (-not $dryRun) { Remove-Item -LiteralPath $stopFile -Force -ErrorAction Ignore }
+    # A dry run neither rotates nor appends to -LogFile: its lines go to the console.
+    if ($LogFile -and -not $dryRun) {
+        # Relative to the current filesystem location, not the process cwd (which
+        # Set-Location does not change); $PWD can be a non-filesystem drive (HKCU:, Env:).
+        $LogFile = [IO.Path]::GetFullPath($LogFile, (Get-Location -PSProvider FileSystem).ProviderPath)
+        $logDir = Split-Path -Parent $LogFile
+        New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+        if ((Test-Path -LiteralPath $LogFile) -and (Get-Item -LiteralPath $LogFile).Length -gt 50MB) {
+            Move-Item -LiteralPath $LogFile -Destination "$LogFile.1" -Force
+        }
+    }
+    # stop.ps1 writes its log marker into the stop file too; it cannot append to the log
+    # while llama-server's output is redirected into it.
+    function Get-StopRequest { "$(Get-Content -LiteralPath $stopFile -TotalCount 1 -ErrorAction Ignore) ($stopFile)" }
+    function Get-RecentRestarts([datetime[]]$Times, [datetime]$Now, [int]$WindowMin) {
+        @($Times | Where-Object { ($Now - $_).TotalMinutes -lt $WindowMin })
+    }
+    function Write-ServeLog([string]$Line) {
+        if ($LogFile -and -not $dryRun) {
+            Add-Content -Path $LogFile -Value "[$(Get-Date -Format o)] $Line"
+        } else { Write-Host $Line }
+    }
+    # Supply-chain checks (security audit S-O1, S-O2). Each returns 'ok', 'marker', 'warn'
+    # or 'refuse' and a message. $pinned is read from install.ps1 as data: SafeGetValue
+    # evaluates constants only and runs no code.
+    function Test-ServerBinary([string]$BinDir, [string]$InstallScript) {
+        $have = [ordered]@{}
+        foreach ($n in 'llama-server.exe', 'llama-server-impl.dll') {
+            $p = Join-Path $BinDir $n
+            $have[$n] = if (Test-Path -LiteralPath $p -PathType Leaf) {
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLower()
+            } else { 'absent' }
+        }
+        if (-not (Test-Path -LiteralPath $InstallScript -PathType Leaf)) {
+            return 'refuse', "$InstallScript not found: the llama-server pins are read from it"
+        }
+        $ast = [Management.Automation.Language.Parser]::ParseFile($InstallScript, [ref]$null, [ref]$null)
+        $set = $ast.Find({ param($a) $a -is [Management.Automation.Language.AssignmentStatementAst] -and
+                "$($a.Left)" -eq '$pinned' }, $true)
+        $pinned = if ($set) { $set.Right.Expression.SafeGetValue() }
+        if ($pinned -isnot [hashtable] -or -not $pinned.Count) {
+            return 'refuse', "no `$pinned table of release pins in $InstallScript; llama-server not checked"
+        }
+        $exe = $have['llama-server.exe']
+        $tag = Join-Path $BinDir 'llama-release.txt'
+        $release = "$(Get-Content -LiteralPath $tag -TotalCount 1 -ErrorAction Ignore)".Trim()
+        if (-not $release) {
+            $release = @($pinned.Keys | Where-Object { $pinned[$_]['llama-server.exe'] -eq $exe })[0]
+            if (-not $release) {
+                $pins = @($pinned.Keys | ForEach-Object { "$_ $($pinned[$_]['llama-server.exe'])" }) -join '; '
+                return 'refuse', ("llama-server.exe sha256 $exe matches no release pinned in scripts/install.ps1 " +
+                    "($(if ($pins) { $pins } else { 'no pins found' })) and bin\llama-release.txt is absent; " +
+                    'after an upgrade by hand write its release tag there')
+            }
+        }
+        $pin = $pinned[$release]
+        if (-not ($pin -and $pin['llama-server.exe'])) {
+            return 'warn', "no llama-server.exe pin for release $release in scripts/install.ps1; not checked (sha256 $exe)"
+        }
+        $bad = @($have.Keys | Where-Object { $pin[$_] -and $pin[$_] -ne $have[$_] } |
+                ForEach-Object { "$_ sha256 $($have[$_]), pinned for $release $($pin[$_])" })
+        if ($bad) { return 'refuse', ($bad -join '; ') }
+        $ok = "llama-server binaries match the $release pins ($(@($have.Keys | Where-Object { $pin[$_] }) -join ', '))"
+        $none = @($have.Keys | Where-Object { -not $pin[$_] } | ForEach-Object { "$_ (sha256 $($have[$_]))" })
+        if ($none) { return 'warn', "$ok; no $release pin for $($none -join ', '); not checked" }
+        'ok', $ok
+    }
+    # At most once per boot: a marker with this boot time, path, size, mtime and manifest
+    # sha256 skips the hash (the default file took 20 s on the reference machine).
+    function Test-ModelHash([string]$Path, [string]$Manifest, [string]$Root, [string]$Marker) {
+        $entry = $null
+        if (Test-Path -LiteralPath $Manifest -PathType Leaf) {
+            $entry = @((Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json).files |
+                    Where-Object { [IO.Path]::GetFullPath($_.path, $Root) -eq $Path })[0]
+        }
+        if (-not $entry) { return 'warn', "no entry for $Path in $Manifest; model hash not checked" }
+        $item = Get-Item -LiteralPath $Path
+        # Unreadable boot time: no marker is taken or written, the file is hashed.
+        $boot = try { (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().Ticks } catch { $null }
+        $mark = [ordered]@{
+            boot = $boot
+            path = $Path; size = $item.Length; mtime = $item.LastWriteTimeUtc.Ticks; sha256 = $entry.sha256
+        }
+        $old = try { Get-Content -LiteralPath $Marker -Raw -ErrorAction Stop | ConvertFrom-Json } catch { $null }
+        if ($null -ne $boot -and $old -and -not @($mark.Keys | Where-Object { "$($old.$_)" -ne "$($mark[$_])" }).Count) {
+            return 'marker', "model sha256 verified earlier this boot ($Marker); not hashed again"
+        }
+        if ($item.Length -ne [long]$entry.size) {
+            return 'refuse', "$Path is $($item.Length) bytes, $Manifest says $($entry.size)"
+        }
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLower()
+        if ($hash -ne $entry.sha256) { return 'refuse', "$Path sha256 $hash, $Manifest says $($entry.sha256)" }
+        $note = if ($null -eq $boot) { 'boot time unreadable, no marker written' } else {
+            $mark | ConvertTo-Json | Set-Content -LiteralPath $Marker
+            "marker $Marker written"
+        }
+        'ok', "model sha256 matches $Manifest ($([Math]::Round($sw.Elapsed.TotalSeconds, 1)) s); $note"
+    }
+    function Confirm-Check([scriptblock]$Check) {
+        $Result = try { & $Check } catch { 'refuse', "check failed: $($_.Exception.Message)" }
+        if ($Result[0] -eq 'refuse') {
+            Write-ServeLog "serve.ps1: refusing to start: $($Result[1])"
+            throw "serve.ps1: refusing to start: $($Result[1])"
+        }
+        Write-ServeLog "serve.ps1: $(if ($Result[0] -eq 'warn') { 'WARNING ' })$($Result[1])"
+    }
+    if (-not $PrintArgs) {
+        Confirm-Check { Test-ServerBinary $binDir (Join-Path $PSScriptRoot 'install.ps1') }
+        if ($source -ne '-m') { Confirm-Check { 'warn', "model hash not checked: $Model is an -hf download" } }
+        elseif ($SkipModelVerify) { Confirm-Check { 'warn', 'model hash check skipped (-SkipModelVerify)' } }
+        else {
+            $verifyMarker = Join-Path $logsDir 'model-verify.json'
+            Confirm-Check { Test-ModelHash $Model ([IO.Path]::GetFullPath($ModelManifest, $repoRoot)) $repoRoot $verifyMarker }
+        }
+        if ($VerifyOnly) { exit 0 }
+        # stop.ps1 ran while the checks did (the model hash can take 20 s)
+        if (Test-Path -LiteralPath $stopFile) { Write-ServeLog "serve.ps1: not starting: $(Get-StopRequest)"; exit 0 }
+    }
     # Numbers are passed as strings so the decimal separator never depends on the culture.
     $cmdArgs = @(
         $source, $Model,
@@ -205,6 +377,7 @@ try {
         '--host', '127.0.0.1', '--port', "$Port"
     )
     if (-not $WithMmproj) { $cmdArgs += '--no-mmproj' }
+    if ($Web) { $cmdArgs += '-lv', '3' }
     if ($NCpuMoe -gt 0) { $cmdArgs += '--n-cpu-moe', "$NCpuMoe" }
     if ($ChatTemplateFile) { $cmdArgs += '--chat-template-file', $ChatTemplateFile }
     if ($Model -eq $defaultModel -and -not $NoMtp) {
@@ -218,25 +391,18 @@ try {
     $cmdArgs += $ExtraArgLine -split '\s+' | Where-Object { $_ }
 
     $cmdLine = "$exe $($cmdArgs -join ' ')"
-    if ($LogFile) {
-        # Relative to the current filesystem location, not the process cwd (which
-        # Set-Location does not change); $PWD can be a non-filesystem drive (HKCU:, Env:).
-        $LogFile = [IO.Path]::GetFullPath($LogFile, (Get-Location -PSProvider FileSystem).ProviderPath)
-        $logDir = Split-Path -Parent $LogFile
-        New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-        if ((Test-Path -LiteralPath $LogFile) -and (Get-Item -LiteralPath $LogFile).Length -gt 50MB) {
-            Move-Item -LiteralPath $LogFile -Destination "$LogFile.1" -Force
-        }
-    }
-    # stop.ps1 writes its log marker into the stop file too; it cannot append to the log
-    # while llama-server's output is redirected into it.
-    function Get-StopRequest { "$(Get-Content -LiteralPath $stopFile -TotalCount 1 -ErrorAction Ignore) ($stopFile)" }
-    function Get-RecentRestarts([datetime[]]$Times, [datetime]$Now, [int]$WindowMin) {
-        @($Times | Where-Object { ($Now - $_).TotalMinutes -lt $WindowMin })
-    }
-    function Write-ServeLog([string]$Line) {
-        if ($LogFile) { Add-Content -Path $LogFile -Value "[$(Get-Date -Format o)] $Line" } else { Write-Host $Line }
-    }
+    if ($PrintArgs) { Write-Host $cmdLine; exit 0 }
+    # Per-start API key. The file is deleted and recreated so this user owns it, its ACL is
+    # set (current user only, no inherited entries) while it is empty, then the key is written.
+    Remove-Item -LiteralPath $keyFile -Force -ErrorAction Ignore
+    New-Item -ItemType File -Path $keyFile | Out-Null
+    $acl = [Security.AccessControl.FileSecurity]::new()
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.WindowsIdentity]::GetCurrent().User, 'FullControl', 'Allow'))
+    Set-Acl -LiteralPath $keyFile -AclObject $acl
+    $apiKey = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
+    [IO.File]::WriteAllText($keyFile, "$apiKey`n")
     # Free VRAM per GPU before each start (resilience audit W4: 858 MiB free once, so a
     # reload after a crash can fail). A hung nvidia-smi is left behind after the timeout.
     function Get-VramFree([int]$TimeoutMs = 10000) {
@@ -258,6 +424,7 @@ try {
     $envOverrides = @('LLAMA_ARG_AGENT', 'LLAMA_ARG_TOOLS', 'LLAMA_ARG_CONNECT', 'LLAMA_ARG_CONNECT_CODE',
         'LLAMA_ARG_MCP_SERVERS_CONFIG', 'LLAMA_ARG_MCP_SERVERS_JSON', 'LLAMA_ARG_UI_MCP_PROXY', 'LLAMA_ARG_STATIC_PATH',
         'LLAMA_ARG_REUSE_PORT', 'LLAMA_API_KEY', 'LLAMA_ARG_HOST', 'LLAMA_ARG_PORT', 'LLAMA_ARG_ENDPOINT_PROPS')
+    if ($Web) { $envOverrides += 'LLAMA_ARG_LOG_VERBOSITY' }
     $cleared = @($envOverrides | Where-Object { Test-Path "Env:$_" })
     foreach ($v in $cleared) { Remove-Item "Env:$v" -ErrorAction Ignore }
     if ($cleared) { Write-ServeLog "serve.ps1: cleared $($cleared.Count) llama-server env overrides ($($cleared -join ', '))" }

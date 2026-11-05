@@ -42,6 +42,10 @@ GUARDED = ['scripts/hooks/**', 'scripts/verify-doc.py', 'scripts/serve.ps1', 'sc
            '.gitattributes', '.gitignore']
 REQUIRED = (
     ['WebSearch', 'WebFetch', 'Agent', 'Workflow']
+    # the PowerShell tool (ledger S-B5) and path C's riskiest Playwright tools (W-5), whole
+    + ['PowerShell', 'mcp__playwright__browser_evaluate',
+       'mcp__playwright__browser_run_code_unsafe', 'mcp__playwright__browser_file_upload',
+       'mcp__*__browser_evaluate', 'mcp__*__browser_run_code_unsafe', 'mcp__*__browser_file_upload']
     + [f'Read(~/{p})' for p in HOME_READS] + [f'Read(//c/Users/*/{p})' for p in HOME_READS]
     + ['Read(//c/Users/*/AppData/Roaming/GitHub CLI/**)', 'Read(**/.env*)']
     # any-depth and WSL forms (audit A2 W4): another user's profile, a copied home, the distro

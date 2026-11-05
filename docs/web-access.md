@@ -37,8 +37,14 @@ shows code paths, not behaviour, so each point is UNVERIFIED until a session sho
   WebSearch only. The deny stays while disarmed.
 - The lean set (`scripts/claude-local.ps1:212`, `:224-225`) allows 7 tools, none of them
   a web tool, and loads no MCP server: `--strict-mcp-config` with an empty file written
-  at `:320`. `-LisFull` restores MCP (the umbrella `.mcp.json` above this repo) but keeps
-  the deny. `-LisTask` refuses `--mcp-config` (`:166-168`), so ladder runs had no web.
+  at `:320`. `-LisFull` keeps the empty MCP config since 2026-11-04 (ledger S-B5
+  audit C2); before, it loaded the umbrella `.mcp.json` above this repo and kept the
+  deny. `-LisTask` refuses `--mcp-config` (`:166-168`), so ladder runs had no web.
+- Since 2026-11-04 every local session, `-LisFull` included, denies the PowerShell tool
+  and the three Playwright tools named under "Injection risk" (ledger S-B5, W-5; also as
+  `mcp__*__<tool>` for any server), and `-LisFull` refuses `-LisWeb`, any
+  `--mcp-config` and an `--allowedTools` value naming WebFetch, WebSearch or an MCP
+  tool (docs/SETUP.md, "Lean set").
 - Benches deny both tools by flag too: `bench/compact/run.ps1:55`,
   `scripts/verify-claims.ps1:60`.
 - Bash `curl`: `scripts/hooks/lis-guard.py` allows a plain GET to 127.0.0.1 or
@@ -76,8 +82,10 @@ Interpreter one-liners carry code the hook cannot judge.
 
 ### `-LisFull` drops the tool limits
 
-`-LisFull` removes the lean `--tools` list and may load umbrella MCP servers
-(UNVERIFIED).
+`-LisFull` removes the lean `--tools` list. Closed for MCP 2026-11-04 (ledger S-B5):
+`-LisFull` refuses the web flags above and keeps `--strict-mcp-config` with the empty
+MCP file (audit C2), so the umbrella `.mcp.json` (which declares a `playwright` server)
+does not load; the three riskiest Playwright tools are denied on any server as well.
 
 ### llama-server CORS reflects any origin with credentials and the key `local` is public
 

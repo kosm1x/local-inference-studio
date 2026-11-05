@@ -57,12 +57,17 @@ MAX_INPUT = 32_768          # inputs above this get no decision (ReDoS guard, W1
 # hook and its test, which name the facts-inject log (batch E). The per-run settings
 # deny all nine to Edit and CRITICAL_PATH protects them from shell writes.
 _HOOK_DIR = os.path.dirname(os.path.abspath(__file__))
+# claude-local.ps1 runs a read-only per-run copy of this file from %TEMP% (ledger S-B3) as
+# `lis-guard.py --hooks-dir <repo>/scripts/hooks`, so the paths below still name the repo.
+if __name__ == '__main__' and len(sys.argv) == 3 and sys.argv[1] == '--hooks-dir':
+    _HOOK_DIR = os.path.abspath(sys.argv[2])
 SELF_TEST = os.path.normcase(os.path.realpath(os.path.join(_HOOK_DIR, 'tests', 'lis-guard_test.py')))
 EXEMPT_SCRIPTS = {SELF_TEST, os.path.normcase(os.path.realpath(os.path.join(
     _HOOK_DIR, 'tests', 'lis-guard_property_test.py')))} | {
     os.path.normcase(os.path.realpath(os.path.join(_HOOK_DIR, '..', 'tests', n)))
     for n in ('claude_settings_test.py', 'install_verify_test.py', 'resilience_test.py')} | {
     os.path.normcase(os.path.realpath(os.path.abspath(__file__))),   # the hook quotes every shape (A3 W8)
+    os.path.normcase(os.path.realpath(os.path.join(_HOOK_DIR, 'lis-guard.py'))),   # run from a copy
     os.path.normcase(os.path.realpath(os.path.join(_HOOK_DIR, '..', '..', 'bench', 'ladder', 'run.ps1')))}
 EXEMPT_SCRIPTS |= {os.path.normcase(os.path.realpath(os.path.join(_HOOK_DIR, p)))
                    for p in ('facts-inject.py', os.path.join('tests', 'facts-inject_test.py'))}
@@ -143,6 +148,14 @@ CRITICAL_VERBS = [
     # mention denies, a read included (lis-facts-inject-<stamp>.log, LIS_FACTS_INJECT_LOG),
     # so the session cannot forge an injection line
     (r'(?i)lis[-_]facts[-_]inject', 'facts-inject log'),
+    # the launcher's per-run files in %TEMP% (ledger S-B3): the read-only hook copies, the
+    # settings and the MCP config. Any mention denies, so a literal chmod, cp or echo cannot
+    # empty a hook copy (an emptied hook exits 0, which fails open); a computed name is not
+    # covered, the same residual as the facts-inject log. The name stands alone: no word
+    # character or '-' before it, and a digit (stamp, pid), glob, variable, quote or slash
+    # after it, so lis_settings_test.py or chrysalis-mcp-server is not it
+    (r'(?i)' + r'(?<![\w-])lis[-_](?:hooks|settings|mcp)[-_]' + r'(?=[\d*?\[$%{(`"\'\\/]|$)',
+     'per-run launcher file'),
     # environment dumps (audit A2 W5/6): the env: drive, .NET and Deno whole-environment reads
     # (audit A5: the Environment provider by name, and -Path:env: / -LiteralPath:env:)
     (r'(?i)(?:(?<![\w$:{-])|(?<=-Path:)|(?<=-LiteralPath:))env:|\bGetEnvironmentVariables\b'
@@ -193,6 +206,89 @@ CRIT_FILES = ('scripts/hooks/lis-guard.py', 'scripts/hooks/loop-guard.py', 'scri
               'scripts/watchdog.ps1', 'scripts/register-watchdog.ps1',
               'scripts/tests/claude_settings_test.py', 'scripts/tests/install_verify_test.py',
               'scripts/tests/resilience_test.py', 'config/claude-settings.json', 'bench/ladder/run.ps1')
+# The launcher's per-run files in %TEMP% (ledger S-B3, audit C1 re-check): a glob word
+# that can match a hook copy (lis-hooks-<x>/<hook>) counts as that hook in scripts/hooks,
+# one that can match the settings or MCP file (lis-settings-<x>.json, lis-mcp-<x>.json)
+# as config/claude-settings.json, both for the write checks; one that can match the copy
+# directory itself counts as naming it. <x> is the stamp or pid, digits and dashes only
+# (lis-hooks-<yyyymmdd>-<hhmmss>-<pid>), so `ls src/*.test.js` is not a per-run file (C1
+# round 3). A glob part needs 3 letters besides its .py/.json extension (4 for the
+# directory alone); letters cannot fall in <x>, so they always spell part of the name, and
+# `ls */*.py` or `ls */lis*` stays undecided.
+HOOK_NAMES = ('lis-guard.py', 'loop-guard.py', 'verify-doc.py', 'facts-inject.py')
+STAMP_CHARS = '0123456789-'
+
+
+def _glob_letters(part):
+    """Literal letters of a glob part outside [...] classes, a trailing .py or .json left out."""
+    rest = re.sub(r'\[[^\]]*\]|[*?]', '', re.sub(r'(?i)\.(?:py|json)$', '', part))
+    return sum(c.isascii() and c.isalpha() for c in rest)
+
+
+def _glob_can_match(part, prefix, suffix=''):
+    """True when glob part can match some name prefix + <x> + suffix, <x> any run of digits
+    and dashes (ignoring case): a walk over (glob token, name position) pairs; a [...] class
+    matches as its members."""
+    toks = re.findall(r'\[[^\]]*\]|.', part.lower())
+    name = list(prefix) + [None] + list(suffix)          # None: the free <x>, any length
+    seen, todo = set(), [(0, 0)]
+    while todo:
+        i, j = todo.pop()
+        if (i, j) in seen:
+            continue
+        seen.add((i, j))
+        if i == len(toks) and j == len(name):
+            return True
+        if j < len(name) and name[j] is None:
+            todo.append((i, j + 1))                     # <x> ends
+        if i < len(toks) and toks[i] == '*':
+            todo.append((i + 1, j))                     # * ends
+        if i == len(toks) or j == len(name):
+            continue
+        t, c = toks[i], name[j]
+        ni = i if t == '*' else i + 1
+        nj = j if c is None else j + 1
+        if c is None:                                   # one more character of <x>
+            ok = t in ('*', '?') or t in STAMP_CHARS or (t.startswith('[') and len(t) > 1
+                                                          and any(fnmatch.fnmatchcase(d, t)
+                                                                  for d in STAMP_CHARS))
+        else:
+            ok = t in ('*', '?') or t == c or (
+                t.startswith('[') and len(t) > 1 and fnmatch.fnmatchcase(c, t))
+        if ok:
+            todo.append((ni, nj))
+    return False
+
+
+def run_file_glob(parts):
+    """The file a glob path (its parts) stands for among the per-run files, or None."""
+    last = parts[-1] if parts else ''
+    if (len(parts) > 1 and max(_glob_letters(parts[-2]), _glob_letters(last)) >= 3
+            and _glob_can_match(parts[-2], 'lis-hooks-')):
+        for h in HOOK_NAMES:
+            if fnmatch.fnmatchcase(h, last.lower()):
+                return 'scripts/hooks/' + h
+    if _glob_letters(last) >= 3 and any(_glob_can_match(last, f, '.json')
+                                        for f in ('lis-settings-', 'lis-mcp-')):
+        return 'config/claude-settings.json'
+    if _glob_letters(last) >= 4 and _glob_can_match(last, 'lis-hooks-'):
+        return 'lis-hooks-0'
+    return None
+
+
+def crit_glob_word(w):
+    """A glob word with a slash that can match one of this repo's guard files or a per-run
+    file, as that file; any other word unchanged."""
+    if not re.search(r'[\\/]', w) or not re.search(r'[*?\[]', w):
+        return w
+    parts = [p for p in re.split(r'[\\/]', w) if p not in ('', '.')]
+    for f in CRIT_FILES:
+        fp = f.split('/')
+        if len(fp) == len(parts) and all(fnmatch.fnmatchcase(a, b) for a, b in zip(fp, parts)):
+            return f
+    return run_file_glob(parts) or w
+
+
 # Executables the per-run settings deny (config/claude-settings.json): the hook denies
 # them too, after exe() normalisation (quotes, full path, case, leading backslash, .exe,
 # env prefix), so a form the literal prefix rules miss is still denied.
@@ -218,11 +314,48 @@ CRITICAL_PATH = re.compile(
     # task's serve script, the per-run settings and the server binary
     r'|scripts[\\/]+(?:hooks\b|verify-doc\.py\b|(?:serve|stop|claude-local|register-task|watchdog|register-watchdog)\.ps1\b'
     r'|tests[\\/]+(?:claude_settings|install_verify|resilience)_test\.py\b)'
-    r'|config[\\/]+claude-settings\.json\b|llama-server\.exe\b|bench[\\/]+ladder[\\/]+run\.ps1\b)')
+    r'|config[\\/]+claude-settings\.json\b|llama-server\.exe\b|bench[\\/]+ladder[\\/]+run\.ps1\b'
+    r'|(?<![\w-])lis[-_]hooks[-_](?=[\d*?\[$%{(`"\'\\/]|$))')   # the per-run hook copies (S-B3)
 
 WRITE_VERBS = {'tee', 'mv', 'cp', 'chmod', 'chown', 'ln', 'install', 'truncate', 'touch'}
 PS_WRITE = re.compile(r'(?i)\b(?:Set-Content|Out-File|Add-Content|New-Item|Copy-Item|Move-Item|Rename-Item|Set-Acl'
                       r'|Tee-Object|Set-Item|Clear-Content|Clear-Item|Invoke-Item)\b')
+# A pipeline write cmdlet that writes elsewhere (an output file or a copy), and the options
+# that name a path (-Path, -LiteralPath/-LP, -PSPath, -FilePath, prefixes too; -Destination
+# and -Filter are not: Move-Item still moves the piped file) or take no value: a write fed
+# by a pipe takes the producer's path only when it names none of its own, or names it by a
+# delay-bind script block ({$_.FullName}, $PSItem) that is the piped item (C1 rounds 4-5).
+PS_PIPE_ELSEWHERE = {'out-file', 'tee-object', 'tee', 'copy-item', 'cp', 'copy', 'cpi'}
+PS_PATH_OPT = re.compile(r'(?i)-(?:pat?h?|li\w*|lp|psp\w*|filep\w*|fi)$')
+PS_SWITCHES = {'force', 'whatif', 'confirm', 'nonewline', 'passthru', 'recurse', 'append',
+               'noclobber'}
+
+
+def ps_pipe_takes_path(code):
+    """True when a write cmdlet fed by a pipe writes the items piped into it: not an output
+    file or a copy, and no path argument (positional or by name) of its own other than a
+    delay-bind script block over the piped item."""
+    t = tokens(code.strip()) or []
+    if not t or t[0].lower() in PS_PIPE_ELSEWHERE:
+        return False
+    piped = lambda w: w.startswith('{') or re.search(r'(?i)\$(?:_|PSItem)\b', w) is not None
+    value = False                                   # the word after a valued option
+    for w in t[1:]:
+        if w.startswith('-'):
+            name, _, inline = w.partition(':')
+            if PS_PATH_OPT.match(name):
+                if inline:
+                    return piped(inline)
+                value = False
+                continue
+            value = not inline and name[1:].lower() not in PS_SWITCHES
+        elif value:
+            value = False
+        else:
+            return piped(w)                         # a path, positional or after a path option
+    return True
+
+
 # PowerShell aliases of the delete/move/write/exec cmdlets (ni = New-Item, ii = Invoke-Item, W4).
 PS_DEL_ALIAS = re.compile(r'(?i)(?<![\w-])(?:del|erase|ri|rd|rmdir|rm|move|mv|copy|cp|mi|cpi'
                           r'|ni|ii|ren|rni|si|sc|ac|clc|cli|tee)\b')
@@ -530,8 +663,14 @@ def code_critical(code):
             spans.append([start, end])
     for start, end in spans:
         line = code[start:end]
-        if any(CRITICAL_PATH.search(' ' + s) for s in code_strings(line) + code_strings(join_concat(line))):
+        if any(CRITICAL_PATH.search(' ' + s) or CRITICAL_PATH.search(' ' + crit_glob_word(s))
+               for s in code_strings(line) + code_strings(join_concat(line))):
             return 'interpreter write/delete on a critical path'
+    # a glob literal that can match a per-run file (audit C1 re-check) anywhere in code that
+    # writes: in a heredoc the glob and the write are often on different lines
+    if CODE_WRITE.search(code) and any(re.search(r'[*?\[]', x) and run_file_glob(
+            [q for q in re.split(r'[\\/]', x) if q not in ('', '.')]) for x in lits):
+        return 'interpreter write/delete on a critical path'
     if CODE_ENV_DUMP.search(code):
         return 'environment dump in interpreter code'
     if CODE_UPLOAD.search(code) and not loopback_only(lits):
@@ -623,22 +762,17 @@ def normalize(cmd):
             b += 1
         pre, post = s[a:m.start()], s[m.end():b]
         s = s[:a] + ' '.join(pre + x + post for x in m.group(1).split(',')[:20]) + s[b:]
+    # a backslash glob (a pwsh path, single-quoted in bash) is mapped before the unescape
+    # below drops a backslash before a letter (audit C1 round 3)
+    s = re.sub(r'[^\s\'"`;|&()<>=,]+', lambda m: crit_glob_word(m.group(0))
+               if '\\' in m.group(0) else m.group(0), s)     # one pass per word: linear
     s = re.sub(r'\\(?=[A-Za-z.])', '', s)
     s = s.replace('>|', '>')        # noclobber override; the segment split reads it as a pipe
     s = re.sub(r'(?<=[\\/])\.(?=[\\/])', '', s)
     s = re.sub(r'(?<!:)[\\/]{2,}', '/', s)
 
-    def crit_glob(m):
-        w = m.group(0)
-        if not re.search(r'[\\/]', w) or not re.search(r'[*?\[]', w):
-            return w
-        parts = [p for p in re.split(r'[\\/]', w) if p not in ('', '.')]
-        for f in CRIT_FILES:
-            fp = f.split('/')
-            if len(fp) == len(parts) and all(fnmatch.fnmatchcase(a, b) for a, b in zip(fp, parts)):
-                return f
-        return w
-    return re.sub(r'[^\s\'"`;|&()<>=,]+', crit_glob, s)   # one pass per word: linear (A3 W6)
+    # one pass per word: linear (A3 W6)
+    return re.sub(r'[^\s\'"`;|&()<>=,]+', lambda m: crit_glob_word(m.group(0)), s)
 
 
 def cd_rewrite(cmd):
@@ -1276,9 +1410,10 @@ def critical(cmd, ctx0='local', _alt=False):
     if m and CRITICAL_PATH.search(m.group(1)):
         return 'cat of a critical file piped into ssh'
     ps_cd = False  # PowerShell: Set-Location into a critical dir earlier in the same payload (W4)
+    ps_prev = ''   # PowerShell: the segment before, when it names a critical path (C1 round 3)
     for ctx, seg in walk(cmd, ctx0):
         if ctx != 'ps':
-            ps_cd = False
+            ps_cd, ps_prev = False, ''
         if ctx in ('py', 'js'):
             hit = code_critical(seg)
             if hit:
@@ -1313,6 +1448,12 @@ def critical(cmd, ctx0='local', _alt=False):
             if pt and (w := settings_denied(pt) or segment_denied(pt, code, ctx)
                        or upload_hit(exe(pt[0]), pt[1:])):            # & curl -T x https://e (A4 W6)
                 return w
+            # `Get-ChildItem <critical> | Clear-Content`: the write takes its path from the pipe
+            if (ps_prev and (PS_WRITE.match(code.lstrip()) or PS_DEL_ALIAS.match(code.lstrip()))
+                    and ps_pipe_takes_path(code)
+                    and re.search(re.escape(ps_prev) + r'\s*\|\s*' + re.escape(seg.strip()), cmd)):
+                return 'PowerShell pipeline write to a critical path'
+            ps_prev = seg.strip() if CRITICAL_PATH.search(' ' + code) else ''
             m = PS_CD.match(code.strip())
             if m:
                 ps_cd = bool(m.group(1) and CRITICAL_PATH.search(' ' + m.group(1)))

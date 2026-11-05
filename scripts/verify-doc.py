@@ -2,6 +2,7 @@
 
 Usage: python -I scripts/verify-doc.py <file.md> [--root <repo root>]
        python -I scripts/verify-doc.py --hook   (PostToolUse hook, reads stdin JSON)
+       [--script <file>: the path its "+N more; run:" hint names; default this file]
 
 Checks (one line per finding; any FAIL -> exit 1; a usage error -> exit 2):
   sum    a total followed by a labelled split of 3 or more parts, "546 rows (172 deny,
@@ -243,7 +244,7 @@ def check(doc, root):
     return sorted(out, key=lambda f: not f.startswith('FAIL'))
 
 
-def hook():
+def hook(me):
     data = json.load(sys.stdin)
     root = os.path.realpath(data.get('cwd') or os.getcwd())
     fp = os.path.join(root, data['tool_input']['file_path'])
@@ -257,7 +258,7 @@ def hook():
            f'partial figure is not an error; INFO is advisory):')
     for i, f in enumerate(found):
         if len(msg) + len(f) + 1 > MAX_CONTEXT - 100:  # 100: room for the "+N more" line
-            me = os.path.abspath(__file__).replace('\\', '/')
+            me = me.replace('\\', '/')
             me = f'"{me}"' if ' ' in me else me
             msg += f'\n+{len(found) - i} more; run: python -I {me} {rel}'
             break
@@ -267,8 +268,12 @@ def hook():
 
 def main(argv):
     if '--hook' in argv:
+        # claude-local.ps1 runs a per-run copy from %TEMP% (ledger S-B3) with --script <repo
+        # file>, so the "+N more" hint names the repo file, not the copy (lis-guard denies it)
+        i = argv.index('--script') if '--script' in argv else -1
+        me = argv[i + 1] if 0 <= i < len(argv) - 1 else os.path.abspath(__file__)
         try:
-            hook()
+            hook(me)
         except Exception:
             pass  # a hook failure must never fail the Write
         return 0

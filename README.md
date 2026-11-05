@@ -71,7 +71,8 @@ one-model policy appended to the system prompt (plus evidence rules and a machin
 checklist since 2026-10-25; 540 tokens, +388; TEST 6 loop guards add 101), hooks on;
 before the loop guards a fresh session's first prompt is about 12,735 tokens from a
 dir outside `Z:\repos` (12,347 measured before the policy block, plus 388; was
-25,578). `-LisFull` drops the three additions. Absolute sizes vary by a few hundred
+25,578). `-LisFull` drops the tool list and the policy and keeps the empty MCP
+config (no MCP server loads). Absolute sizes vary by a few hundred
 tokens with the cwd path; the reproducible figure is the saving, about 9,172 tokens
 against `-LisFull` in the same cwd (9,560 before the policy block) and about 12,812
 against the pre-ruling full set (13,200 before), all measured before the loop guards
@@ -90,7 +91,11 @@ pwsh scripts/claude-local.ps1   # Claude Code pointed at the local server
 
 `install.ps1` fetches binaries only. The default model is a local file from the gated
 `orcarouter/Qwen3.8-27B-Uncensored-GGUF` repo and is not downloaded by any script; it
-must already be in `models/qwen3.8-27b-uncensored/`. `-Model` also takes a Hugging Face
+must already be in `models/qwen3.8-27b-uncensored/`. `install.ps1` checks each zip
+against a SHA256 pinned in the script; `serve.ps1` refuses to start when
+`bin/llama-server.exe` or its dll differs from its pin, or the model file from its
+`models/manifest.json` entry (hashed once per boot, about 20 s for the default file);
+see docs/SETUP.md steps 2 and 5. `-Model` also takes a Hugging Face
 `repo:quant`, which `llama-server -hf` downloads on first run into its own cache (the
 previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`).
 
@@ -128,7 +133,12 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - [docs/web-access.md](docs/web-access.md) — web fetch/search for the local model,
   staged DISARMED
 - [config/models.md](config/models.md) — tracked model candidates
-- [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 131072, WebSearch, WebFetch, Agent and Workflow denied, rule set A: read-only allow and critical-write ask rules, ruling 15); the wrapper adds the `scripts/hooks/lis-guard.py` payload hook (docs/SETUP.md step 8)
+- [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used
+  by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 131072,
+  WebSearch, WebFetch, Agent, Workflow, the PowerShell tool and three Playwright MCP
+  tools denied, rule set A: read-only allow and critical-write ask rules, ruling 15);
+  the wrapper adds the `scripts/hooks/lis-guard.py` payload hook, run from a read-only
+  per-run copy like the other hooks (docs/SETUP.md step 8)
   and the `scripts/verify-doc.py` PostToolUse hook, which checks the sums, file counts,
   line counts and paths in every `.md` a session writes and reports them to the model
 - [scripts/verify-claims.ps1](scripts/verify-claims.ps1) — verifier pass, run by hand

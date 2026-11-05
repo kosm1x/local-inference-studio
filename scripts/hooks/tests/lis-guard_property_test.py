@@ -22,13 +22,18 @@ for any input. It may allow only through its grammar. Every generated case is ch
         when its ASCII form is and is never allowed; a case flip of a pwsh option name keeps
         the decision; a '' or "" splice of a denied command is never allowed;
   (vi)  a command naming a credential token or -ec/-EncodedCommand/Invoke-Expression/iex,
-        also behind a '' / "" / backslash-newline splice, is never allowed.
+        also behind a '' / "" / backslash-newline splice, is never allowed;
+  (vii) a '*'-led glob over ordinary names (.test.js, -error.log, .spec.ts, -ledger.md) is
+        never denied, and a write through a glob that fnmatch matches against a launcher
+        per-run file (a hook copy, the settings or the MCP file), with 3 letters in a part,
+        is always denied (ledger S-B3, audit C1 round 3).
 
 Generators: (a) random strings with non-ASCII, (b) mutations of every row in
 lis-guard_test.py, (c) PS_RO_SPEC-shaped payloads with one corruption, (d) cd / -wd /
 option-prefix / script-target combinations in a fake repo root with an outside dir and a
 junction into it, then UNC targets on random hosts and credential tokens behind a splice in
-allow-shaped commands and script bodies (their own rng, so the earlier streams are unchanged).
+allow-shaped commands and script bodies (their own rng, so the earlier streams are unchanged),
+then (vii)'s globs (a third rng).
 (a)-(c) run with the repo root as cwd and (d) under a temp path named by seed and a fixed-width
 pid (parallel runs never share it; the pid feeds no generator), so a seed gives the same counts
 from any cwd.
@@ -37,6 +42,7 @@ Run from the repo root: python -I scripts/hooks/tests/lis-guard_property_test.py
 Options: --seed N (default 45), --cases N (default 20000), --hook PATH (another hook file,
 for red-before-green runs).
 """
+import fnmatch
 import importlib.util
 import os
 import random
@@ -586,6 +592,56 @@ def gen_splice(rng):
     return rng.choice(SPLICE_FORMS).replace('{t}', rng.choice(SPLICED))
 
 
+GLOB_TAILS = ('.test.js', '-error.log', '.spec.ts', '-ledger.md')
+GLOB_DIRS = ('src', 'tests', 'logs', 'docs/audits', 'out', 'a/b', '*', 'longfix/test', '$TEMP')
+GLOB_VERBS = ('ls {}', 'cat {}', 'head -5 {}', 'grep -n x {}', 'wc -l {}', 'diff a.txt {}',
+              'cp /dev/null {}', ': > {}', 'chmod +w {}')
+RUN_HOOKS = ('lis-guard.py', 'loop-guard.py', 'verify-doc.py', 'facts-inject.py')
+RUN_FILES = ([('lis-hooks-20261104-120000-4242', h) for h in RUN_HOOKS]
+             + [(None, 'lis-settings-4242.json'), (None, 'lis-mcp-4242.json')])
+RUN_WRITES = ('cp /dev/null {}', ': > {}', 'chmod +w {}', 'printf x > {}', 'truncate -s 0 {}',
+              "pwsh -NoProfile -Command 'Clear-Content -Force {}'")
+
+
+def gen_plain_glob(rng):
+    """A command over a '*'-led glob of ordinary names, never a launcher per-run file."""
+    mid = rng.choice(('', '', '2024', '-', 'x', '*', 'lis', '42-'))
+    return rng.choice(GLOB_VERBS).format(f'{rng.choice(GLOB_DIRS)}/*{mid}{rng.choice(GLOB_TAILS)}')
+
+
+def glob_of(rng, name):
+    """A glob that matches name: a few characters become '?', a few runs become '*'."""
+    out, i = [], 0
+    while i < len(name):
+        r = rng.random()
+        if r < 0.12:
+            out.append('?')
+            i += 1
+        elif r < 0.22:
+            out.append('*')
+            i += rng.randint(1, 6)
+        else:
+            out.append(name[i])
+            i += 1
+    return ''.join(out)
+
+
+def letters(part):
+    rest = re.sub(r'[*?]', '', re.sub(r'(?i)\.(?:py|json)$', '', part))
+    return sum(c.isalpha() for c in rest)
+
+
+def gen_run_glob(rng):
+    """(command, dir glob, file glob, real parts) for a write through a glob of a per-run file."""
+    d, f = rng.choice(RUN_FILES)
+    gd, gf = (glob_of(rng, d) if d else None), glob_of(rng, f)
+    form = rng.choice(RUN_WRITES)
+    sep = '\\' if form.startswith('pwsh') else '/'
+    root = '$env:TEMP' if form.startswith('pwsh') else '$TEMP'
+    path = sep.join([root] + ([gd] if gd else []) + [gf])
+    return form.format(path), gd, gf, d, f
+
+
 def write(d, name, body):
     p = os.path.join(d, name)
     os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -691,6 +747,24 @@ def main():
             ck.check(cmd, t, rng2)
         for _ in range(CASES // 20):                        # spliced credential tokens: (vi)
             ck.check(gen_splice(rng2), t, rng2)
+        rng3 = random.Random(SEED * 1000 + 29)              # (vii): its own stream as well
+        for _ in range(CASES // 40):                        # converse: ordinary globs
+            cmd = gen_plain_glob(rng3)
+            ck.check(cmd, REPO, rng3)
+            if kind(d := g.decide(cmd, REPO)) == 'deny':
+                ck.fail('deny of a glob over ordinary names', cmd, d)
+        pos = 0
+        while pos < CASES // 40:                            # positive: globs of per-run files
+            cmd, gd, gf, d0, f0 = gen_run_glob(rng3)
+            if not fnmatch.fnmatchcase(f0, gf) or (d0 and not fnmatch.fnmatchcase(d0, gd)):
+                ck.fail('generator: the glob does not match its file', cmd, None)
+                break
+            if max(letters(gd or ''), letters(gf)) < 3:
+                continue                                    # the documented residual
+            pos += 1
+            ck.check(cmd, REPO, rng3)
+            if kind(d := g.decide(cmd, REPO)) != 'deny':
+                ck.fail('no deny of a write through a glob of a per-run file', cmd, d)
     finally:
         g.REPO_ROOT = old_root
         clear(base)

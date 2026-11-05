@@ -140,3 +140,8 @@
 - **Mistake:** the brief told the supervisor to match the result record as a line "starting `{"type":"result"`", and the stub was written to that spec, so the tests were green on a path that never fires on a real stream (Claude Code writes `duration_api_ms` first). -> A stub for an external record copies the shape of a real record on disk (bench/results), never the brief's description of it; parse JSON, never match key order.
 - **Better:** when a fold adds a parser for harness output, the auditor's first probe is `grep -c` of the assumed shape over every stream on disk; 0 hits means the parser is dead.
 
+## 2026-11-05 — S-B3 per-run hook copies: glob coverage (audit C1 rounds 2-3)
+
+- **Mistake:** modelled the stamp in `lis-hooks-<x>` as free text, so any `*`-led glob with 5 literals (`ls src/*.test.js`, `cat logs/*-error.log`) became a guard file and was denied; the corpus had deny rows only, no converse rows. -> A glob-to-name model gives its free slot the real alphabet (`[0-9-]` for a stamp or pid) and ships with converse rows plus a property oracle both ways (ordinary globs never deny; fnmatch-true globs always deny).
+- **Mistake:** wrote test rows holding backslash paths through a Bash heredoc again; the doubled backslashes collapsed and the rows tested different strings. -> The standing rule holds for test rows too: Write tool, raw strings.
+- **Better:** before building a new matcher, measure the simpler route against the old guard (here: mirroring the copies under `scripts\hooks\`); the measurement showed which rows each route misses.

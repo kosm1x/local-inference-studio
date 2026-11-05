@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (19 LANDED, 6 BUILT, 24 OPEN of 49 on 2026-11-04) in
+owner, fix and proof is in one table (23 LANDED, 8 BUILT, 18 OPEN of 49 on 2026-11-05) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -278,6 +278,25 @@ Batches (IDs in the ledger):
   (205530 at 65536: exit 0, 72 of 72, 115 turns, 6 compactions, the stream graded
   through the tee, no relaunch); live proof = the first long-fix rep whose session
   exits rc != 0. A session decision the operator can overturn, not a ruling.
+- Launcher rows, 2026-11-04: S-B3 BUILT (every hook runs from a read-only per-run copy
+  in `%TEMP%\lis-hooks-<stamp>-<pid>\`; lis-guard denies a command naming the copies,
+  settings or MCP file, or a glob of them; Edit and Write of install.ps1 and
+  models/manifest.json, serve.ps1's pin sources, denied; residual: a computed name, a
+  pwsh pipe through a filter or variable; proof waits on a live session), LANDED: S-B5
+  (PowerShell tool denied; `-LisFull` refuses web flags and keeps the empty MCP config;
+  every profile refuses `--settings`, `--setting-sources`, `--plugin-dir` and permission
+  bypass), W-5 (three Playwright denies by name and on any server, every profile);
+  proof `-LisPrintArgs`, resilience_test, lis-guard_test and claude_settings_test.
+- Start-check rows, 2026-11-04: S-O1 LANDED (serve.ps1 checks llama-server.exe and
+  its dll against pins in install.ps1; `install.ps1 -VerifyZip` refused a one-byte
+  change to a copy of the real zip), S-O2 BUILT (the GGUF against models/manifest.json
+  once per boot, 20 s cold for the default file, restarts reuse the marker; a real
+  start waits on the operator), S-L1 LANDED (`serve.ps1 -Web` passes `-lv 3` and
+  refuses higher). New switches: `-Web`, `-VerifyOnly`, `-PrintArgs`,
+  `-SkipModelVerify`, `-ModelManifest` (docs/SETUP.md step 5). Audit folds the same
+  day: an unreadable pin table refuses, a check that throws refuses through the log,
+  a stop request during the checks stops the start, and the dry runs leave the port
+  mutex, the stop request and `-LogFile` alone.
 - Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
   cost of the user-scope load (the orientation hook re-injected at every compaction and
   the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the

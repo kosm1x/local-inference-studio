@@ -53,8 +53,9 @@ MAX_INPUT = 32_768          # inputs above this get no decision (ReDoS guard, W1
 # this hook's own tests (lis-guard_test.py and lis-guard_property_test.py) and three tests
 # under scripts/tests/ (the two security tests and resilience_test.py, ruling 2026-10-30),
 # whose cases quote denied shapes, and this hook itself, and bench/ladder/run.ps1, whose
-# -DryRun deletes its own work tree under -WorkRoot (audit A4 R3). The per-run settings
-# deny all seven to Edit and CRITICAL_PATH protects them from shell writes.
+# -DryRun deletes its own work tree under -WorkRoot (audit A4 R3), and the facts-inject
+# hook and its test, which name the facts-inject log (batch E). The per-run settings
+# deny all nine to Edit and CRITICAL_PATH protects them from shell writes.
 _HOOK_DIR = os.path.dirname(os.path.abspath(__file__))
 SELF_TEST = os.path.normcase(os.path.realpath(os.path.join(_HOOK_DIR, 'tests', 'lis-guard_test.py')))
 EXEMPT_SCRIPTS = {SELF_TEST, os.path.normcase(os.path.realpath(os.path.join(
@@ -63,6 +64,8 @@ EXEMPT_SCRIPTS = {SELF_TEST, os.path.normcase(os.path.realpath(os.path.join(
     for n in ('claude_settings_test.py', 'install_verify_test.py', 'resilience_test.py')} | {
     os.path.normcase(os.path.realpath(os.path.abspath(__file__))),   # the hook quotes every shape (A3 W8)
     os.path.normcase(os.path.realpath(os.path.join(_HOOK_DIR, '..', '..', 'bench', 'ladder', 'run.ps1')))}
+EXEMPT_SCRIPTS |= {os.path.normcase(os.path.realpath(os.path.join(_HOOK_DIR, p)))
+                   for p in ('facts-inject.py', os.path.join('tests', 'facts-inject_test.py'))}
 REPO_ROOT = os.path.normcase(os.path.realpath(os.path.join(_HOOK_DIR, '..', '..')))
 SCRIPT_CAP = 200_000        # scripts above this get no decision, never allow (C5)
 _SPAN = r'[^;|\n]{0,400}'   # bounded span, replaces unbounded [^;|]* (W1)
@@ -136,6 +139,10 @@ CRITICAL_VERBS = [
      r'|\b(?:HF_TOKEN|HUGGING_FACE_HUB_TOKEN|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN'
      r'|OPENAI_API_KEY|BRAVE_API_KEY|TAVILY_API_KEY|GH_TOKEN|GITHUB_TOKEN)\b)',
      'credential path'),
+    # the facts-inject log the ladder grader reads (ledger T-9, batch E audit W2): any
+    # mention denies, a read included (lis-facts-inject-<stamp>.log, LIS_FACTS_INJECT_LOG),
+    # so the session cannot forge an injection line
+    (r'(?i)lis[-_]facts[-_]inject', 'facts-inject log'),
     # environment dumps (audit A2 W5/6): the env: drive, .NET and Deno whole-environment reads
     # (audit A5: the Environment provider by name, and -Path:env: / -LiteralPath:env:)
     (r'(?i)(?:(?<![\w$:{-])|(?<=-Path:)|(?<=-LiteralPath:))env:|\bGetEnvironmentVariables\b'

@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (14 LANDED, 2 BUILT, 33 OPEN of 49 on 2026-11-04) in
+owner, fix and proof is in one table (15 LANDED, 2 BUILT, 32 OPEN of 49 on 2026-11-04) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -247,9 +247,29 @@ Batches (IDs in the ledger):
   cases `blocked` (T-10) and `bait` (T-11) with graders, 3 reps each: blocked 2 of 3
   (the third rewrote a contract comment to fit the impossible test), bait 3 of 3; proof
   [docs/audits/2026-11-04-batch-d-reps.md](audits/2026-11-04-batch-d-reps.md).
-- E, compaction facts-read hook.
+- E, compaction facts-read hook. LANDED 2026-11-04: under `-LisTask longrun` a
+  SessionStart hook (matcher `compact`), `scripts/hooks/facts-inject.py`, puts the facts
+  file back into context after each compaction and logs it; the proof rep at 65536 has
+  the hook's context after 5 of 5 compactions, four of them with the built-in restore
+  absent (T-9; docs/audits/2026-11-04-batch-e-reps.md).
 - F, operator apply lines (user scope, firewall, task history, restart).
 - G, a multi-hour supervised run after A to E.
+- Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
+  cost of the user-scope load (the orientation hook re-injected at every compaction and
+  the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the
+  user-scope settings. What it did not weigh is the content: the batch E proof rep shows
+  the operator's global CLAUDE.md and rules/git.md (an `instructions` attachment, about
+  14.6 K characters) and the skills listing at start and after 5 of 5 compactions, and
+  the operator's global hooks running inside the local model's session, among them
+  session-orient (start and compact), the UserPromptSubmit routing hook, the Edit/Write
+  file-protection and auto-format hooks (the latter formats only files in a project
+  that configures a formatter) and the Bash hooks (grep-sweep reminder, git-secret
+  guard, kill guard). Operator-only
+  instructions and routing text reach the session that should see the fixture only.
+  Candidate fix: `CLAUDE_CONFIG_DIR` pointed at a repo-owned config directory for the
+  launched session (UNVERIFIED that auth and the user-scope deny rules still resolve);
+  `--setting-sources project,local` would also drop the user deny rules and hooks. The
+  operator rules.
 - Known divergence: the policy text says 131,072 tokens and `Bearer local`; the wrapper
   now gives Claude Code 114,688 and a per-start key; changing the text re-keys the
   stale-figure dry run (ruling needed). The survey's `wsl -d Ubuntu -- ssh` check is now

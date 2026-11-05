@@ -161,7 +161,9 @@ What `run.ps1` does:
    `bench/compact/run.ps1` does, and copied to `<base>.transcript.jsonl`; the meta's
    `transcript` is null when it is not found. The facts file the banner names is copied
    to `<base>.facts.md` (meta `facts_copy`), and `grade.py` grades that copy; without
-   one it grades the file in the kept work tree (`facts_source`).
+   one it grades the file in the kept work tree (`facts_source`). The facts-inject log
+   the banner names (in `%TEMP%`) is copied to `<base>.inject.log` (meta `inject_log`,
+   null when not found).
 6. `python -I bench/ladder/grade.py <base>` writes `<base>.json` and one summary line.
    Any other call (no argument, more than one, or one starting with `-` such as
    `--help`) prints the usage and exits 2 without writing; `--help` wrote
@@ -297,6 +299,27 @@ counts agree can meet it; `target_fixed` records whether every test passes. That
 stream-json emits `compact_boundary` was VERIFIED on 2026-10-26 by reps 2 and 3: 12 and
 5 `compact_boundary` records with `compact_metadata`, equal to the transcript counts
 (Results); the transcript count stays the cross-check (`compaction_consistency`).
+
+Facts hook (ledger T-9, batch E, built and run 2026-11-04): under `-LisTask longrun`
+the wrapper registers `scripts/hooks/facts-inject.py` as a SessionStart hook with
+matcher `compact`.
+After each compaction it prints the facts file as `additionalContext` (a header line,
+then the content; over 9,000 UTF-16 units only its last whole lines, said in the
+header) and appends one line to `%TEMP%\lis-facts-inject-<stamp>.log`, injected or not
+(time, source, facts name, `injected=yes` with lines, bytes and truncated, or
+`injected=no` with a reason), which the wrapper creates empty at launch and names in
+its banner; lis-guard denies a Bash command that names it literally and the per-run
+settings deny Edit and Write of it, but a computed name still reaches it, so the log
+is report-only.
+`run.ps1` copies that log to `<base>.inject.log` (meta `inject_log`), and `longrun.py`
+reads its k-th line as the k-th boundary: `facts_injected_after_boundary` is true for
+an `injected=yes` line, which means the hook ran (report-only). The proof is the
+transcript: `facts_context_after_boundary` is true when a `hook_additional_context`
+attachment carrying the hook's header for the facts file follows that boundary, and
+that is what `facts_read_after_boundary_any` counts. The bar is unchanged. Claude Code
+adds the context after a `-p` compaction: the 2026-11-04 proof rep's transcript has it
+after 5 of 5 boundaries, four of them without the built-in file restore
+([proof](../../docs/audits/2026-11-04-batch-e-reps.md)).
 
 Two counted reps must share `rep_key`, a SHA-256 over the inputs listed in
 `rep_key_inputs`, nine of them: the fixture's `fixture_sha256`, the generator
@@ -1851,7 +1874,11 @@ before `|`, `||`, `&&` or `;` and less a trailing `2>&1`, is the test command) a
 | `facts_fixed_verified` | FIXED tests passing in the run before (TAP, spec or reporter) |
 | `facts_read_after_boundary` | per boundary: facts file Read in the next 3 tool calls |
 | `facts_read_after_boundary_strict` | the number of boundaries with that Read |
-| `facts_read_after_boundary_any` | per boundary: that Read or a restore attachment |
+| `facts_read_after_boundary_any` | per boundary: that Read, a restore attachment or the hook's context in the transcript |
+| `facts_context_after_boundary` | per boundary: a `hook_additional_context` attachment with the facts-inject header for the facts file follows it; null as the restore |
+| `facts_context_count` | those attachments in the whole transcript; null without the transcript or on a boundary count mismatch |
+| `facts_injected_after_boundary` | per boundary: the k-th facts-inject log line says `injected=yes` (the hook ran; report-only); null without the log |
+| `facts_injected_count` | `injected=yes` log lines for the facts file; null without the log |
 | `facts_write_tools` | Write, Edit and Bash calls on the facts file |
 | `facts_gate` | file kept, a fact at the 1st boundary, survived, no false or open line |
 | `compaction_fired`, `compaction_boundaries` | count (stream, else transcript); each |
@@ -1948,8 +1975,11 @@ false FIXED verdict carries a `reason`: `name_unmatched`, `passed_before`,
 carry null. A
 restore attachment is a transcript record with `attachment.type`
 `file` whose path basename is the facts file, between that boundary and the next
-(Claude Code's post-compaction file restore); `facts_read_after_boundary_any` is null
-without a transcript or when its boundary count differs from the stream's.
+(Claude Code's post-compaction file restore); the restore is null without a transcript
+or when its boundary count differs from the stream's, and the hook's context
+(`facts_context_after`) likewise. `facts_read_after_boundary_any` is true when the Read,
+the restore or the context is true, else null when the restore and the context are both
+null, else false; the injection log line does not count.
 `compaction_failed`
 scans the claim, the stderr, the
 result envelope, the assistant text and the debug log; `compaction_failed_source`
@@ -1957,9 +1987,10 @@ lists the ones that matched (`claim`, `stderr`, `envelope`, `assistant_text`,
 `debug_log`).
 
 Every `<base>.meta.json` carries `profile`, `manifest` (path), `transcript` (path),
-`facts_copy` (path), `before_output_chars`, `before_output_chars_tap` and
-`allow_reasoning_on`. For fix-one and fix-all the paths and sizes are null; in long-fix
-they are non-null, except `transcript` or `facts_copy` when that file was not found
+`facts_copy` (path), `inject_log` (path; from batch E), `before_output_chars`,
+`before_output_chars_tap` and `allow_reasoning_on`. For fix-one and fix-all the paths
+and sizes are null; in long-fix they are non-null, except `transcript`, `facts_copy` or
+`inject_log` when that file was not found
 (through series 3 also `before_output_chars_tap` when both nodes had the same version,
 and `before_output_chars` when Git Bash found no node; now that run refuses). Every
 case also carries `context_tokens` (the wrapper's

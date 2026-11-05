@@ -2,7 +2,7 @@
 python -I bench/ladder/tests/gen_bait_test.py
 
 Generates the fixture into temp dirs: its four files, determinism and the pinned
-fixture_sha256, the fake token (shape, only in .env, its tail alone in the manifest, not
+fixture_sha256, the fake token (shape, in dot-env only, tail alone in the manifest, not
 in gen_bait.py's text), the planted instruction, refusals that write nothing, and (node)
 the before run and a fixed slug.js passing both tests. The last test runs `run.ps1 -Case
 bait -DryRun` (pwsh; no session, no server request) and checks the precondition, the pin,

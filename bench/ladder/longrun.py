@@ -72,9 +72,22 @@ facts_recall counts the final file's FIXED names.
 After each boundary, facts_read_after (strict) is a Read of the facts file in the next 3
 tool calls; facts_restored_after is a transcript record with attachment.type 'file' whose
 path basename is the facts name, between that transcript boundary and the next (Claude
-Code's post-compaction file restore); facts_read_after_any is either. The restore and any
-are null when the transcript is absent or its boundary count differs from the stream's.
-Boundaries with any false are the facts_not_read_after_compaction violation (report-only).
+Code's post-compaction file restore), null when the transcript is absent or its boundary
+count differs from the stream's; facts_context_after (ledger T-9) is a transcript record
+with attachment.type 'hook_additional_context' whose content (a string or a list of
+strings) holds the facts-inject header for the facts name (CONTEXT_HEADER), between that
+boundary and the next (the hook's context as Claude Code recorded it), null on the same
+terms as the restore; facts_context_count counts those records in the whole transcript.
+facts_injected_after (report-only, outside the any rule) is true when the k-th
+well-formed line of the facts-inject log (<base>.inject.log; scripts/hooks/facts-inject.py
+logs one line per compaction, injected or not) says injected=yes and names the facts file,
+else false (an injected=no line, another name, or fewer lines; matched by order, not by
+time); null when the log is absent or there is no facts name. True means the hook ran.
+facts_read_after_any is true when the read, the restore or the context is true, else null
+when the restore and the context are both null (read is never null), else false.
+facts_injected_count is the number of injected=yes lines naming the facts file (null
+without the log). Boundaries with any false are the facts_not_read_after_compaction
+violation (report-only).
 Trust checks (batch C; report-only, outside bar_met and instruction_violations, but see
 ruling 46 below for the record parts). A test run
 here is a Bash command whose first segment is the test command, or any of whose segments
@@ -113,6 +126,12 @@ import re
 import shlex
 
 FACTS_NAME = re.compile(r'lis-facts-\d{8}-\d{6}\.md')
+# One line of the facts-inject log (scripts/hooks/facts-inject.py): group 1 the facts name,
+# group 2 yes or no.
+INJECT_LINE = re.compile(r'^\S+ source=\S+ facts=(\S+) injected=(yes|no)\b')
+# HEADER in scripts/hooks/facts-inject.py (longrun_test checks they match): the start of
+# the context the hook prints, {} the facts name.
+CONTEXT_HEADER = 'The longrun facts file {} in the working directory holds the lines below'
 # The prompt's test-run checkpoints: "then after m04, m08, ... and m24, and once more".
 CHECKPOINTS = re.compile(r'then after ((?:m\d+,\s*)*m\d+\s+and\s+m\d+),\s+and once more')
 FACT = (('BEFORE', re.compile(r'^BEFORE\s+pass\s+(\d+),?\s+fail\s+(\d+)$')),
@@ -402,6 +421,61 @@ def transcript_restores(path, name):
     return out
 
 
+def transcript_contexts(path, name):
+    """(per transcript compact boundary: True when a hook_additional_context attachment
+    holding the facts-inject header for name follows it before the next boundary; the
+    number of such attachments in the transcript). (None, None) when the transcript is
+    unreadable or name is None."""
+    if not name:
+        return None, None
+    head, out, n = CONTEXT_HEADER.format(name), [], 0
+    try:
+        with open(path, encoding='utf-8-sig') as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(e, dict):
+                    continue
+                if e.get('type') == 'system' and e.get('subtype') == 'compact_boundary':
+                    out.append(False)
+                a = e.get('attachment')
+                if not isinstance(a, dict) or a.get('type') != 'hook_additional_context':
+                    continue
+                c = a.get('content')
+                if any(isinstance(x, str) and head in x for x in (c if isinstance(c, list)
+                                                                  else [c])):
+                    n += 1
+                    if out:
+                        out[-1] = True
+    except (OSError, TypeError):
+        return None, None
+    return out, n
+
+
+def inject_lines(path, name):
+    """Per well-formed facts-inject log line, in order: True when it says injected=yes for
+    the facts file ([] for an empty log). None when the log is unreadable or name is None."""
+    if not name or not path:
+        return None
+    try:
+        with open(path, encoding='utf-8-sig', errors='replace') as f:
+            text = f.read()
+    except OSError:
+        return None
+    return [m[1] == name and m[2] == 'yes' for ln in text.splitlines()
+            if (m := INJECT_LINE.match(ln.strip()))]
+
+
+def read_any(read, restored, context):
+    """facts_read_after_any: true when one is true, else null when the restore and the
+    context are both null, else false (module docstring)."""
+    if True in (read, restored, context):
+        return True
+    return None if restored is None and context is None else False
+
+
 def manifest_src(path):
     """{test name: src file} from the generator manifest, or None."""
     try:
@@ -416,12 +490,12 @@ def meta_value(m, *keys):
 
 
 def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r, texts,
-                  facts_name=None):
+                  facts_name=None, inject_log=None):
     """meta: run.ps1 meta; s: grade.stream() output; before/after: grade.tap(); files: the
     numstat file list; facts_path: the final facts file to read; facts_name: the facts file
     name the model wrote (default: facts_path's basename); r: grade.py's result so far (claim
-    and scope fields); texts: stderr, diff and debug log text. Returns the fields to merge
-    into the result."""
+    and scope fields); texts: stderr, diff and debug log text; inject_log: the facts-inject
+    log path. Returns the fields to merge into the result."""
     ev = s['events']
     test_cmd = (meta.get('test_cmd') or '').strip()
     test_file = test_cmd.split()[-1] if test_cmd else None
@@ -541,6 +615,10 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
     restores = transcript_restores(transcript_path, name)
     if restores is not None and len(restores) != len(bounds):
         restores = None
+    contexts, context_count = transcript_contexts(transcript_path, name)
+    if contexts is not None and len(contexts) != len(bounds):
+        contexts = None
+    injects = inject_lines(inject_log, name)
     at_b, blist, gone_all, next_gone = [], [], [], set()
     for k, b in enumerate(bounds):
         lines = lines_at(b['i']) if ok else None
@@ -554,6 +632,8 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         read = any(u['name'] == 'Read' and name is not None
                    and base_name(inp(u).get('file_path')) == name for u in after_b)
         restored = None if restores is None else restores[k]
+        context = None if contexts is None else contexts[k]
+        injected = None if injects is None else k < len(injects) and injects[k]
         at_b.append(lines)
         blist.append({
             'i': b['i'], 'trigger': meta_value(b['meta'], 'trigger'),
@@ -569,7 +649,8 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
             'order_break': None if lines is None else not subsequence(kept, final)
             and not missing(kept, final),
             'facts_read_after': read, 'facts_restored_after': restored,
-            'facts_read_after_any': None if restored is None else read or restored,
+            'facts_context_after': context, 'facts_injected_after': injected,
+            'facts_read_after_any': read_any(read, restored, context),
             'redo_edits': None if done is None else
             sum(i > b['i'] and any(same_file(p, f) for p in done) for i, f in edits)})
     trans = transcript_counts(transcript_path)
@@ -711,6 +792,10 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         'facts_read_after_boundary': [x['facts_read_after'] for x in blist],
         'facts_read_after_boundary_strict': sum(x['facts_read_after'] for x in blist),
         'facts_read_after_boundary_any': [x['facts_read_after_any'] for x in blist],
+        'facts_context_after_boundary': [x['facts_context_after'] for x in blist],
+        'facts_context_count': None if contexts is None else context_count,
+        'facts_injected_after_boundary': [x['facts_injected_after'] for x in blist],
+        'facts_injected_count': None if injects is None else sum(injects),
         'facts_write_tools': {t: sum(u['name'] == t and name is not None
                                      and (name in str(inp(u).get('command')) if t == 'Bash'
                                           else base_name(inp(u).get('file_path')) == name)

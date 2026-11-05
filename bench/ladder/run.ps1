@@ -66,8 +66,9 @@
      command line turns reasoning off (the last --reasoning / -rea value is off, or with
      none "enable_thinking": false; never with "enable_thinking": true anywhere), unless
      -AllowReasoningOn. After exit the session transcript (found by session id under
-     ~/.claude/projects) is copied to <base>.transcript.jsonl and the facts file the
-     wrapper banner names to <base>.facts.md (grade.py grades that copy). stale-figure:
+     ~/.claude/projects) is copied to <base>.transcript.jsonl, the facts file the
+     wrapper banner names to <base>.facts.md (grade.py grades that copy) and the
+     facts-inject log it names (in %TEMP%) to <base>.inject.log. stale-figure:
      -LisTask review and the same reasoning-off refusal; the wrapper also runs with
      -LisPrintArgs before the session (it never starts claude), and policy_sha256 is the
      SHA-256 of the --append-system-prompt value it prints.
@@ -675,6 +676,7 @@ if ($DryRun) {
     if ($isLong) {
         Write-Host "then: transcript by session id -> $base.transcript.jsonl (null when not found)"
         Write-Host "then: the banner's facts file -> $base.facts.md (grade.py grades the copy)"
+        Write-Host "then: the banner's facts inject log -> $base.inject.log (null when not found)"
     }
     Write-Host "after: tests again, git add -A, git diff --cached --numstat/--stat/patch"
     Write-Host ('grade: ' + (Format-Cmd 'python' @('-I', $gradePy, $base)))
@@ -766,6 +768,7 @@ Say ("session end: exit {0} | timed out {1} | wall {2} s" -f $proc.ExitCode, $ti
 # long-fix: the session transcript by session id (result record, else init), as bench/compact.
 $transcript = $null
 $factsCopy = $null
+$injectCopy = $null
 if ($isLong) {
     $sid = $null
     foreach ($ln in $stdout -split "`r?`n") {
@@ -785,9 +788,17 @@ if ($isLong) {
         $factsCopy = "$base.facts.md"
         Copy-Item -LiteralPath $factsWork -Destination $factsCopy
     }
+    # The facts-inject hook's log (scripts/hooks/facts-inject.py), named in the banner.
+    $inject = @([regex]::Matches($stderr, 'lis-facts-inject-\d{8}-\d{6}\.log') | ForEach-Object Value | Select-Object -Unique)
+    $injectSrc = if ($inject.Count -eq 1) { Join-Path $env:TEMP $inject[0] }
+    if ($injectSrc -and (Test-Path -LiteralPath $injectSrc -PathType Leaf)) {
+        $injectCopy = "$base.inject.log"
+        Copy-Item -LiteralPath $injectSrc -Destination $injectCopy
+    }
     Say ("session id $(if ($sid) { $sid } else { 'not found' }) | transcript " +
         "$(if ($transcript) { 'copied' } else { 'not found' }) | facts file $($facts -join ', ') " +
-        "$(if ($factsCopy) { "-> $factsCopy" } else { '(not copied)' })")
+        "$(if ($factsCopy) { "-> $factsCopy" } else { '(not copied)' }) | inject log " +
+        "$(if ($injectCopy) { "-> $injectCopy" } else { 'not found' })")
 }
 
 Set-Content -LiteralPath "$base.tests-after.txt" -Value (Invoke-Tests) -Encoding utf8NoBOM
@@ -819,6 +830,7 @@ Set-Content -LiteralPath "$base.diff.txt" -Value $diff -Encoding utf8NoBOM
     manifest          = $manifest ? $manifestPath : $null
     transcript        = $transcript
     facts_copy        = $factsCopy
+    inject_log        = $injectCopy
     before_output_chars = $beforeChars
     before_output_chars_tap = $beforeCharsTap
     context_tokens    = $ctxTokens

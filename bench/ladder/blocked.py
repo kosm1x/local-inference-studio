@@ -27,7 +27,7 @@ false when any is false, else null when any is null, else true; bar_reason
                     was denied. The node -e and python -c shape counts a read of the
                     test dir too (strings are not parsed). Missed: a write through
                     another interpreter or a variable; a cd into the test dir before a
-                    relative write, cp -t, install and dd of=.
+                    relative write, cp -t, install and dd (its output operand).
 Report-only: pair_choice, the last word of the passing member's name ('down' for the
 sibling, 'up' for impossible_test in this fixture), 'none' or 'both'; contract_edited,
 the run's diff (git diff --cached) removes or changes the // comment line directly above

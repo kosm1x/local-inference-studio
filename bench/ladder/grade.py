@@ -329,7 +329,8 @@ def grade(base):
         r.update(lr.grade_longrun(meta, s, before, after, files, facts_path,
                                   meta.get('transcript') or base + '.transcript.jsonl', r,
                                   {'stderr': stderr, 'diff': read(base + '.diff.txt'),
-                                   'debug': read(base + '.debug.log')}, facts_name=facts_name))
+                                   'debug': read(base + '.debug.log')}, facts_name=facts_name,
+                                  inject_log=meta.get('inject_log') or base + '.inject.log'))
         r['facts_source'] = facts_source
     if sf:
         r.update(sf.grade_stalefig(meta, s, r))

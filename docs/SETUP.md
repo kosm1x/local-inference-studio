@@ -398,11 +398,12 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `Get-Volume` and `Get-CimInstance` reads by parsing the payload. The matcher sees the
   raw command string, and every `;` / `&&` / `|` segment of a command must match. An
   allowed command skips the auto-mode classifier (about 60 s per decision on the local
-  model). Fifteen exact rules run tests: twelve run this repo's tests from its root,
+  model). Sixteen exact rules run tests: thirteen run this repo's tests from its root,
   `Bash(python -I scripts/hooks/tests/lis-guard_test.py)`,
   `Bash(python -I scripts/hooks/tests/lis-guard_property_test.py)` (exact: its `--hook`
   option runs any Python file),
   `Bash(python -I scripts/hooks/tests/loop-guard_test.py)`,
+  `Bash(python -I scripts/hooks/tests/facts-inject_test.py)`,
   `Bash(python -I bench/ladder/tests/grade_test.py)`,
   `Bash(python -I bench/ladder/tests/gen_longfix_test.py)`,
   `Bash(python -I bench/ladder/tests/longrun_test.py)`,
@@ -919,6 +920,22 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `python -I scripts/hooks/tests/loop-guard_test.py`; replay of the effort-low-forced
   capture: `python -I scripts/hooks/tests/loop-guard_replay.py` (prints SKIP when the
   gitignored capture is absent, as in a fresh clone).
+- SessionStart hook `scripts/hooks/facts-inject.py` (Python 3, stdlib, `python -I`;
+  matcher `compact`, added for `-LisTask longrun` only; ledger T-9). After each
+  compaction it prints the facts file the profile names (`LIS_FACTS_FILE`, looked up in
+  the stdin `cwd`, then in the hook's cwd) as `additionalContext`: a header line, then
+  the content; over 9,000 UTF-16 units only its last whole lines, said in the header
+  (Claude Code moves a string over 10,000 characters to a file and shows a 2,000
+  character preview). Every run appends one line to `LIS_FACTS_INJECT_LOG`
+  (`%TEMP%\lis-facts-inject-<stamp>.log`, created empty at launch, path in the banner):
+  `injected=yes` with the file's lines and bytes, or `injected=no` with a reason (input,
+  unset, missing, empty, oversize or error) and no output. It always exits 0.
+  lis-guard denies a Bash command that names the log literally (`lis-facts-inject` or
+  `LIS_FACTS_INJECT_LOG`, a read included) and the per-run settings deny Edit and Write
+  of `lis-facts-inject-*`; a globbed or computed name still reaches it, so the grader's
+  `facts_injected_*` fields are forgeable and report-only (the transcript check decides
+  `facts_read_after_boundary_any`). Tests:
+  `python -I scripts/hooks/tests/facts-inject_test.py`.
 - Verifier pass (verify-claims), by hand, not a hook: `pwsh scripts/verify-claims.ps1
   -Document <file.md> [-Root <repo>] [-Batch 1] [-MaxTurns 8] [-MaxClaims 0]
   [-OutDir <dir>] [-DryRun]` (Root defaults to the current directory, OutDir to this
@@ -1037,7 +1054,9 @@ session ends:
   Checks: the repo tests (CLAUDE.md), `git diff --stat` against the named files, then
   verify-doc and verify-claims on the report.
 - longrun: as edit, plus a facts file `lis-facts-<stamp>.md` in the working directory
-  that the model appends verified figures to, so a compaction cannot lose them.
+  that the model appends verified figures to, so a compaction cannot lose them. It also
+  registers the facts-inject hook (step 8) and denies Edit and Write of
+  `lis-facts-inject-*`.
 
 Without `-LisTask` no profile applies; stderr shows `profile: none`. `-LisTask` refuses
 `-LisFull`, `-LisNoGuard`, `--tools`, `--settings`, system-prompt options, permission

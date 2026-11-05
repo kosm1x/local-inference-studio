@@ -20,6 +20,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location('grade', os.path.join(HERE, '..', 'grade.py'))
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
+spec = importlib.util.spec_from_file_location(
+    'facts_inject', os.path.join(HERE, '..', '..', '..', 'scripts', 'hooks', 'facts-inject.py'))
+fi = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fi)
 lr = g.load_longrun()
 
 A, B, G = 'm01 alphaTrim keeps short input', 'm02 betaSort orders numbers', 'm01 alphaTrim guard'
@@ -44,6 +48,25 @@ def run_out(p, f, names=()):
 
 def text(lines):
     return ''.join(ln + '\n' for ln in lines)
+
+
+def ilog(n, name=FACTS):
+    """n facts-inject log lines (scripts/hooks/facts-inject.py) saying injected=yes."""
+    return [f'2026-11-04T12:00:0{i}+00:00 source=compact facts={name} injected=yes lines=4 '
+            'bytes=80 truncated=no' for i in range(n)]
+
+
+def nlog(reason, name=FACTS):
+    """One facts-inject log line saying injected=no."""
+    return f'2026-11-04T12:00:09+00:00 source=compact facts={name} injected=no reason={reason}'
+
+
+def ctx(name=FACTS, as_list=True):
+    """A transcript record of the facts-inject hook's context as Claude Code writes it."""
+    c = fi.HEADER.format(name) + ' (4 lines, 80 bytes), as written before this compaction.\nX'
+    return {'type': 'attachment', 'attachment': {
+        'type': 'hook_additional_context', 'hookName': 'SessionStart', 'toolUseID': 'x',
+        'hookEvent': 'SessionStart', 'content': [c] if as_list else c}}
 
 
 def boundary(camel=False):
@@ -86,11 +109,12 @@ class LongRun(unittest.TestCase):
     def grade(self, steps=None, claim=CLAIM, final=L1 + L2, after=(True, True),
               transcript=(1, 1), meta_extra=None, profile='longrun',
               numstat=f'1\t1\t{S1}\n1\t1\t{S2}\n6\t0\t{FACTS}\n', debug=None, copy=None,
-              result=True):
+              result=True, inject=None):
         """steps: (tool, input, result text, is_error), boundary() or ('text', text). copy:
         the lines of <base>.facts.md (run.ps1's copy), not written when None. transcript:
         (boundaries, summaries), a list of records, or None (no transcript file). result:
-        False leaves out the final result event (a session cut off before its report)."""
+        False leaves out the final result event (a session cut off before its report).
+        inject: the lines of <base>.inject.log (the facts-inject log), absent when None."""
         self.n += 1
         base = os.path.join(self.root, f'case{self.n}')
         man = base + '.manifest.json'
@@ -133,6 +157,8 @@ class LongRun(unittest.TestCase):
             files['.debug.log'] = debug
         if copy is not None:
             files['.facts.md'] = text(copy)
+        if inject is not None:
+            files['.inject.log'] = text(inject)
         if isinstance(transcript, list):
             files['.transcript.jsonl'] = '\n'.join(json.dumps(x) for x in transcript)
         elif transcript:
@@ -618,6 +644,104 @@ class LongRun(unittest.TestCase):
                               r['facts_read_after_boundary_strict']), ([None], 0))
             self.assertIsNone(r['compaction_boundaries'][0]['facts_restored_after'])
             self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
+
+    def no_read(self):
+        return [s for s in good(self.work) if s[0] != 'Read']
+
+    def test_facts_context_counts_as_read(self):
+        # T-9: no Read and no restore, but the hook's context is in the transcript after
+        # the boundary, as a list of strings or as a string.
+        for as_list in (True, False):
+            t = self.restore_transcript(attach=False) + [ctx(as_list=as_list)]
+            r = self.grade(self.no_read(), transcript=t)
+            b = r['compaction_boundaries'][0]
+            self.assertEqual((b['facts_read_after'], b['facts_restored_after'],
+                              b['facts_context_after'], b['facts_read_after_any']),
+                             (False, False, True, True), as_list)
+            self.assertEqual((r['facts_context_after_boundary'], r['facts_context_count']),
+                             ([True], 1))
+            self.assertEqual(r['instruction_violations'], ['piped_test_runs:1'])
+
+    def test_facts_context_follows_its_boundary(self):
+        # Two boundaries, the context after the second only; a header for another facts
+        # name and one before the first boundary do not count for a boundary.
+        steps = self.no_read()
+        steps.insert(7, boundary())
+        b, summ = ({'type': 'system', 'subtype': 'compact_boundary'},
+                   {'type': 'user', 'isCompactSummary': True})
+        other = ctx(name='lis-facts-20261026-999999.md')
+        r = self.grade(steps, transcript=[ctx(), b, summ, other, b, summ, ctx(as_list=False)])
+        self.assertEqual((r['facts_context_after_boundary'], r['facts_context_count'],
+                          r['facts_read_after_boundary_any']), ([False, True], 2, [False, True]))
+        self.assertIn('facts_not_read_after_compaction:1', r['instruction_violations'])
+
+    def test_facts_context_null_without_transcript(self):
+        for t in (None, (2, 2)):  # absent, or a boundary count that differs from the stream
+            r = self.grade(self.no_read(), transcript=t, inject=ilog(1))
+            self.assertEqual((r['facts_context_after_boundary'],
+                              r['facts_read_after_boundary_any']), ([None], [None]))
+        self.assertIsNone(self.grade(transcript=None)['facts_context_count'])
+
+    def test_facts_injected_is_report_only(self):
+        # The hook ran (injected=yes) but no context reached the transcript: any is false.
+        r = self.grade(self.no_read(), transcript=self.restore_transcript(attach=False),
+                       inject=ilog(1))
+        b = r['compaction_boundaries'][0]
+        self.assertEqual((b['facts_injected_after'], b['facts_context_after'],
+                          b['facts_read_after_any']), (True, False, False))
+        self.assertEqual((r['facts_injected_after_boundary'], r['facts_injected_count']),
+                         ([True], 1))
+        self.assertIn('facts_not_read_after_compaction:1', r['instruction_violations'])
+
+    def test_context_header_matches_the_hook(self):
+        self.assertEqual(lr.CONTEXT_HEADER, fi.HEADER)
+
+    def test_facts_injected_null_without_log(self):
+        r = self.grade()
+        self.assertIsNone(r['compaction_boundaries'][0]['facts_injected_after'])
+        self.assertEqual((r['facts_injected_after_boundary'], r['facts_injected_count'],
+                          r['facts_read_after_boundary_any']), ([None], None, [True]))
+        # A Read decides any even when the restore and the injection are both unknown.
+        r = self.grade(transcript=None)
+        self.assertEqual(r['facts_read_after_boundary_any'], [True])
+
+    def test_facts_injected_matches_boundaries_by_order(self):
+        # Two boundaries, one injection logged (plus a line for another facts file and a
+        # malformed one): the first boundary is injected, the second is not.
+        steps = self.no_read()
+        steps.insert(7, boundary())
+        b, summ = ({'type': 'system', 'subtype': 'compact_boundary'},
+                   {'type': 'user', 'isCompactSummary': True})
+        log = ilog(1) + ilog(1, name='lis-facts-20261026-999999.md') + ['not a log line']
+        r = self.grade(steps, transcript=[b, summ, b, summ], inject=log)
+        self.assertEqual((r['facts_injected_after_boundary'], r['facts_injected_count']),
+                         ([True, False], 1))
+
+    def test_facts_injected_no_line_holds_its_boundary(self):
+        # Batch E audit W3: the first compaction came before the facts file existed. Its
+        # injected=no line keeps the second boundary's yes line on the second boundary.
+        steps = self.no_read()
+        steps.insert(7, boundary())
+        b, summ = ({'type': 'system', 'subtype': 'compact_boundary'},
+                   {'type': 'user', 'isCompactSummary': True})
+        r = self.grade(steps, transcript=[b, summ, b, summ], inject=[nlog('missing')] + ilog(1))
+        self.assertEqual((r['facts_injected_after_boundary'], r['facts_injected_count']),
+                         ([False, True], 1))
+        # Only yes lines count; a no line for every reason is false.
+        for reason in ('unset', 'empty', 'oversize', 'input', 'error'):
+            r = self.grade(self.no_read(), transcript=self.restore_transcript(attach=False),
+                           inject=[nlog(reason, name='-' if reason in ('unset', 'input')
+                                        else FACTS)])
+            self.assertEqual((r['facts_injected_after_boundary'], r['facts_injected_count']),
+                             ([False], 0), reason)
+
+    def test_facts_injection_leaves_the_bar_alone(self):
+        for extra in (None, {'bar_v': 2}):
+            a = self.grade(meta_extra=extra)
+            z = self.grade(meta_extra=extra, inject=ilog(1),
+                           transcript=self.restore_transcript(attach=False) + [ctx()])
+            self.assertEqual([(x['bar_parts'], x['bar_met'], x['bar_reason']) for x in (a, z)],
+                             [(a['bar_parts'], a['bar_met'], a['bar_reason'])] * 2)
 
     def test_transcript_consistency(self):
         self.assertTrue(self.grade(transcript=(1, 1))['compaction_consistency'])

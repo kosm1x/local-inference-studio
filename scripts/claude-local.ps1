@@ -54,6 +54,13 @@
   edit: the lean tool set, change only the named files, test before and after.
   longrun: as edit, plus a facts file in the working directory (lis-facts-<stamp>.md)
   that the model appends to so a compaction cannot lose verified figures.
+  longrun also registers scripts/hooks/facts-inject.py as a SessionStart hook (matcher
+  compact) with LIS_FACTS_FILE and LIS_FACTS_INJECT_LOG set: after each compaction it
+  puts the facts file back into context and logs that to
+  $env:TEMP\lis-facts-inject-<stamp>.log (kept after exit; path in the banner). The
+  per-run settings deny Edit and Write of lis-facts-inject-* and lis-guard denies a Bash
+  command naming the log literally; a computed name still reaches it, so the grader
+  treats the log as report-only.
   Without -LisTask no profile applies (loop-guard still registers unless -LisNoGuard or
   -LisNoLoopGuard); stderr shows "profile: none".
   -LisTask cannot be combined with -LisFull, with -LisNoGuard or with claude options that
@@ -262,7 +269,10 @@ $policy += ' Plain reads may run in parallel; per Bash batch run at most one com
 # Task profiles (ROADMAP "Trust ladder"): the person launching picks one; the policy never
 # lets the model widen it. A profile block names the profile so the transcript carries it.
 $tools = 'Bash,Read,Edit,Write,Glob,Grep,Skill'
-$factsFile = 'lis-facts-{0:yyyyMMdd-HHmmss}.md' -f (Get-Date)
+$runStamp = '{0:yyyyMMdd-HHmmss}' -f (Get-Date)
+$factsFile = "lis-facts-$runStamp.md"
+# The facts-inject hook's log (longrun), kept after exit for bench/ladder/run.ps1 to copy.
+$injectLog = Join-Path $env:TEMP "lis-facts-inject-$runStamp.log"
 $profiles = @{
     review  = @{ tools = 'Bash,Read,Glob,Grep,Skill'; deny = @('Edit', 'Write', 'NotebookEdit')
         policy = ' Task profile: review, set by the person who launched this session; you cannot change it. You have no Edit or Write tool; do not create, change or delete any file by other means either (no redirection, tee, sed -i, Set-Content or a script that writes). Give the deliverable as your final answer in Markdown: the person saves it and runs verify-doc and verify-claims on it, so every number must trace to a tool output in this session and every path must exist. If the task asks you to write a file, say that the review profile cannot and put the content in your answer. Never ask for more tools or permissions, and never work around a denial.' }
@@ -272,6 +282,11 @@ $profiles = @{
         policy = ' Task profile: longrun, set by the person who launched this session; you cannot change it. Compaction will drop earlier turns. Keep a facts file, ' + $factsFile + ', in the working directory: create it first, then after each step append (never rewrite) each verified figure with the command that produced it, each file changed and the next step. After a compaction, read it before anything else, and take report figures from it, not from memory. The edit rules apply: change only the files the task names, run the task''s test before and after editing and copy both results, never edit or skip a test to pass it. Never ask for more tools or permissions, and never work around a denial.' }
 }
 if ($LisTask) { $tools = $profiles[$LisTask].tools; $policy += $profiles[$LisTask].policy }
+# Read by scripts/hooks/facts-inject.py; set and restored with the rest of $set.
+if ($LisTask -eq 'longrun') {
+    $set['LIS_FACTS_FILE'] = $factsFile
+    $set['LIS_FACTS_INJECT_LOG'] = $injectLog
+}
 $leanArgs = if ($LisFull) { @() } else {
     @('--tools', $tools, '--strict-mcp-config',
       '--mcp-config', $mcpConfig, '--append-system-prompt', $policy)
@@ -285,6 +300,7 @@ $docChecks = @("python -I `"$repo\scripts\verify-doc.py`" <deliverable.md>",
 $testChecks = @(if (Test-Path -LiteralPath 'scripts/hooks/tests/lis-guard_test.py') {
     @('python -I scripts/hooks/tests/lis-guard_test.py', 'python -I scripts/hooks/tests/lis-guard_property_test.py',
       'python -I scripts/hooks/tests/loop-guard_test.py',
+      'python -I scripts/hooks/tests/facts-inject_test.py',
       'python -I scripts/tests/verify-doc_test.py',
       'python -I scripts/tests/verify_claims_report_test.py', 'python -I bench/ladder/tests/grade_test.py',
       'python -I bench/ladder/tests/gen_longfix_test.py', 'python -I bench/ladder/tests/longrun_test.py',
@@ -306,7 +322,9 @@ function Write-LisBanner {
     $guardState = if ($LisNoGuard) { 'off' } elseif ($LisNoLoopGuard) { 'on, loop-guard off' } else { 'on' }
     $e.WriteLine("claude-local: profile: $LisTask   tools: $tools   guard: $guardState")
     $denied = $profiles[$LisTask].deny
+    if ($LisTask -eq 'longrun') { $denied = @($denied) + 'Edit/Write of lis-facts-inject-*' }
     $e.WriteLine('claude-local: rules added: ' + $(if ($denied) { 'deny ' + ($denied -join ', ') } else { 'none' }))
+    if ($LisTask -eq 'longrun') { $e.WriteLine("claude-local: facts inject log: $injectLog") }
     $e.WriteLine('claude-local: verifier, run from this directory when the session ends (fill in <...>):')
     foreach ($c in $checks) { $e.WriteLine("  $c") }
 }
@@ -345,6 +363,14 @@ try {
     if ($LisTask -and $profiles[$LisTask].deny) {
         $cfg.permissions['deny'] = @($cfg.permissions['deny']) + $profiles[$LisTask].deny
     }
+    if ($LisTask -eq 'longrun') {
+        # The facts-inject log is the grader's record of each injection (batch E audit W2):
+        # no Edit or Write of it, by its TEMP path or at any depth; lis-guard denies Bash.
+        $tp = $env:TEMP.Replace('\', '/')
+        $tempRule = '//' + $tp.Substring(0, 1).ToLower() + $tp.Substring(2)
+        $cfg.permissions['deny'] = @($cfg.permissions['deny']) + @(foreach ($k in 'Edit', 'Write') {
+                "$k($tempRule/lis-facts-inject-*)"; "$k(//**/lis-facts-inject-*)" })
+    }
     if (-not $LisNoGuard) {
         $guard = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'hooks\lis-guard.py')).Path.Replace('\', '/')
         if (-not $cfg.hooks) { $cfg.hooks = [ordered]@{} }
@@ -370,6 +396,17 @@ try {
                 hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$verify`" --hook"; timeout = 30 })
             })
     }
+    if ($LisTask -eq 'longrun') {
+        # facts-inject (ledger T-9): after each compaction it puts the facts file back into
+        # context. Not a guard, so it registers with the profile alone (-LisTask already
+        # refuses -LisNoGuard); no onFailure = 'block': it always exits 0.
+        $factsHook = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'hooks\facts-inject.py')).Path.Replace('\', '/')
+        if (-not $cfg.hooks) { $cfg.hooks = [ordered]@{} }
+        $cfg.hooks['SessionStart'] = @($cfg.hooks['SessionStart'] | Where-Object { $_ }) + @([ordered]@{
+                matcher = 'compact'
+                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$factsHook`""; timeout = 10 })
+            })
+    }
     $json = $cfg | ConvertTo-Json -Depth 10
     Write-LisBanner
     if ($LisPrintArgs) {
@@ -383,6 +420,8 @@ try {
         Test-LisServer $baseUrl $apiKey $LisStrictSlot
         Set-Content -LiteralPath $settings -Value $json -Encoding utf8NoBOM
         if (-not $LisFull) { Set-Content -LiteralPath $mcpConfig -Value '{"mcpServers":{}}' -Encoding utf8NoBOM }
+        # An empty log at launch: after a compaction, no line means the hook did not inject.
+        if ($LisTask -eq 'longrun') { [IO.File]::WriteAllText($injectLog, '') }
         foreach ($k in $set.Keys) { Set-Item "env:$k" $set[$k] }
         foreach ($k in $unset) { Remove-Item "env:$k" -ErrorAction Ignore }
         & claude --settings $settings @leanArgs @claudeArgs

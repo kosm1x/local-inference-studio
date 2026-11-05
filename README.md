@@ -100,6 +100,11 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - Unregister: `pwsh scripts/unregister-task.ps1` (leaves a running server alone).
 - Stop: `pwsh scripts/stop.ps1`. A stop stays down until the next logon or `Start-ScheduledTask`; after a llama-server crash `serve.ps1` starts it again (at most 5 times an hour). The task also runs on battery.
 - Watchdog: `pwsh scripts/register-watchdog.ps1` (task `LocalInferenceStudio-watchdog`, at logon + 5 min) runs `scripts/watchdog.ps1`: polls `/health` and restarts a hung or dead server, at most 3 times an hour; log `logs/watchdog.log` ([docs/SETUP.md](docs/SETUP.md) step 7a).
+- Logoff: the task runs only while you are logged on (interactive token, no stored
+  password), so a logoff stops the server; it starts again at the next logon.
+- Free VRAM: each start and restart logs `serve.ps1: vram free: <N> MiB` (or
+  `unavailable`); the default model fills nearly the whole card, so close other GPU
+  apps before a start ([docs/SETUP.md](docs/SETUP.md) step 7).
 - Re-run `register-task.ps1` after moving the repo (paths are absolute).
 - Log: `logs/llama-server.log` (appended, renamed to `.1` past 50 MB, ends each run with `llama-server exited <code>`; gitignored). From a shell, `serve.ps1 -LogFile <path>` does the same.
 - Ollama is paused, not uninstalled: [docs/ollama-paused.md](docs/ollama-paused.md).

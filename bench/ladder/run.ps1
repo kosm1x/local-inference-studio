@@ -68,7 +68,16 @@
      -AllowReasoningOn. After exit the session transcript (found by session id under
      ~/.claude/projects) is copied to <base>.transcript.jsonl, the facts file the
      wrapper banner names to <base>.facts.md (grade.py grades that copy) and the
-     facts-inject log it names (in %TEMP%) to <base>.inject.log. stale-figure:
+     facts-inject log it names (in %TEMP%) to <base>.inject.log. The wrapper's session
+     supervisor (longrun: one fresh -p session after an exit with rc != 0, ledger R-W2)
+     writes both sessions to the same stdout, so <base>.jsonl holds both; each system init
+     record starts a session, the first session's transcript is <base>.transcript.jsonl
+     and the relaunched one's <base>.transcript.2.jsonl (meta transcript_2), and each
+     "claude-local: relaunch n=N rc=RC reason=R" stderr line goes to the run log as
+     "relaunch n=N rc=RC reason=R" (meta relaunches, relaunch_rcs), as does a
+     "relaunch skipped rc=RC reason=max_turns" line. A relaunched session writes its own
+     debug log, <base>.debug.2.log (meta debug_log_2); grade.py reads the first.
+     stale-figure:
      -LisTask review and the same reasoning-off refusal; the wrapper also runs with
      -LisPrintArgs before the session (it never starts claude), and policy_sha256 is the
      SHA-256 of the --append-system-prompt value it prints.
@@ -306,7 +315,8 @@ $repKeyInputs = @('fixture_sha256', 'generator_args', 'prompt', 'server_cmdline'
 if ($isStale) { $repKeyInputs += 'policy_sha256' }
 # long-fix only: the bar version, so reps graded under different bars never share a key.
 if ($isLong) { $repKeyInputs += 'bar_v' }
-$stripEnv = '^(CLAUDECODE|CLAUDE_PID|CLAUDE_CODE_(SESSION_ID|SESSION_ATTENDED|CHILD_SESSION|BRIDGE_SESSION_ID|MESSAGING_SOCKET|MESSAGING_TOKEN|ENTRYPOINT))$'
+# LIS_CLAUDE_EXE is the wrapper's test-only stub override: a rep always runs claude.
+$stripEnv = '^(CLAUDECODE|CLAUDE_PID|LIS_CLAUDE_EXE|CLAUDE_CODE_(SESSION_ID|SESSION_ATTENDED|CHILD_SESSION|BRIDGE_SESSION_ID|MESSAGING_SOCKET|MESSAGING_TOKEN|ENTRYPOINT))$'
 
 # Loop guard ON: no -LisNoLoopGuard, no -LisNoGuard (the edit and longrun profiles refuse
 # -LisNoGuard). --debug-file is not in the wrapper's -LisTask override list.
@@ -675,6 +685,8 @@ if ($DryRun) {
     Write-Host "capture: stdout -> $base.jsonl, stderr -> $base.stderr.txt"
     if ($isLong) {
         Write-Host "then: transcript by session id -> $base.transcript.jsonl (null when not found)"
+        Write-Host "then: a relaunched session's transcript -> $base.transcript.2.jsonl (null without one)"
+        Write-Host "then: a relaunched session's debug log -> $base.debug.2.log (null without one)"
         Write-Host "then: the banner's facts file -> $base.facts.md (grade.py grades the copy)"
         Write-Host "then: the banner's facts inject log -> $base.inject.log (null when not found)"
     }
@@ -767,19 +779,41 @@ Say ("session end: exit {0} | timed out {1} | wall {2} s" -f $proc.ExitCode, $ti
 
 # long-fix: the session transcript by session id (result record, else init), as bench/compact.
 $transcript = $null
+$transcript2 = $null
 $factsCopy = $null
 $injectCopy = $null
+# The wrapper's supervisor lines (scripts/claude-local.ps1), one per relaunch.
+$relaunchLines = @([regex]::Matches($stderr, '(?m)^claude-local: (relaunch n=\d+ rc=(-?\d+) reason=\w+)\r?$'))
+$relaunchRcs = @($relaunchLines | ForEach-Object { [long]$_.Groups[2].Value })
+foreach ($m in $relaunchLines) { Say $m.Groups[1].Value }
+foreach ($m in [regex]::Matches($stderr, '(?m)^claude-local: (relaunch skipped rc=-?\d+ reason=\w+)\r?$')) {
+    Say $m.Groups[1].Value
+}
+# The wrapper gives a relaunched session its own --debug-file: <base>.debug.2.log.
+$debugLog2 = if ($isLong -and (Test-Path -LiteralPath "$base.debug.2.log")) { "$base.debug.2.log" }
 if ($isLong) {
-    $sid = $null
+    # One id per session: each init record starts one (a relaunch adds the second); the
+    # session's result record id wins over its init's.
+    $sids = [Collections.Generic.List[string]]::new()
     foreach ($ln in $stdout -split "`r?`n") {
         if ($ln -notmatch '"type"\s*:\s*"(result|system)"') { continue }
         try { $o = $ln | ConvertFrom-Json -Depth 50 } catch { continue }
-        if ($o.type -eq 'result' -and $o.session_id) { $sid = $o.session_id }
-        elseif (-not $sid -and $o.type -eq 'system' -and $o.subtype -eq 'init' -and $o.session_id) { $sid = $o.session_id }
+        if ($o.type -eq 'system' -and $o.subtype -eq 'init') { $sids.Add("$($o.session_id)") }
+        elseif ($o.type -eq 'result' -and $o.session_id) {
+            if (-not $sids.Count) { $sids.Add('') }
+            $sids[$sids.Count - 1] = "$($o.session_id)"
+        }
     }
-    if ("$sid" -match '^[0-9A-Fa-f-]{36}$') {
-        $src = Get-ChildItem -LiteralPath (Join-Path $HOME '.claude\projects') -Recurse -File -Filter "$sid.jsonl" -ErrorAction Ignore | Select-Object -First 1
-        if ($src) { $transcript = "$base.transcript.jsonl"; Copy-Item -LiteralPath $src.FullName -Destination $transcript }
+    $sid = if ($sids.Count) { $sids[0] }
+    $sid2 = if ($sids.Count -gt 1) { $sids[1] }
+    foreach ($k in 0, 1) {
+        $id = @($sid, $sid2)[$k]
+        if ("$id" -notmatch '^[0-9A-Fa-f-]{36}$') { continue }
+        $src = Get-ChildItem -LiteralPath (Join-Path $HOME '.claude\projects') -Recurse -File -Filter "$id.jsonl" -ErrorAction Ignore | Select-Object -First 1
+        if (-not $src) { continue }
+        $dest = if ($k) { "$base.transcript.2.jsonl" } else { "$base.transcript.jsonl" }
+        Copy-Item -LiteralPath $src.FullName -Destination $dest
+        if ($k) { $transcript2 = $dest } else { $transcript = $dest }
     }
     $facts = @([regex]::Matches($stderr, 'lis-facts-\d{8}-\d{6}\.md') | ForEach-Object Value | Select-Object -Unique)
     # The facts file as the session left it, next to the other artifacts (grade.py reads it).
@@ -798,7 +832,10 @@ if ($isLong) {
     Say ("session id $(if ($sid) { $sid } else { 'not found' }) | transcript " +
         "$(if ($transcript) { 'copied' } else { 'not found' }) | facts file $($facts -join ', ') " +
         "$(if ($factsCopy) { "-> $factsCopy" } else { '(not copied)' }) | inject log " +
-        "$(if ($injectCopy) { "-> $injectCopy" } else { 'not found' })")
+        "$(if ($injectCopy) { "-> $injectCopy" } else { 'not found' })" +
+        $(if ($sids.Count -gt 1) {
+                " | session 2 id $(if ($sid2) { $sid2 } else { 'not found' }) | transcript 2 " +
+                "$(if ($transcript2) { 'copied' } else { 'not found' })" }))
 }
 
 Set-Content -LiteralPath "$base.tests-after.txt" -Value (Invoke-Tests) -Encoding utf8NoBOM
@@ -829,6 +866,8 @@ Set-Content -LiteralPath "$base.diff.txt" -Value $diff -Encoding utf8NoBOM
     test_cmd          = $c.test_cmd
     manifest          = $manifest ? $manifestPath : $null
     transcript        = $transcript
+    transcript_2      = $transcript2
+    debug_log_2       = $debugLog2
     facts_copy        = $factsCopy
     inject_log        = $injectCopy
     before_output_chars = $beforeChars
@@ -848,6 +887,8 @@ Set-Content -LiteralPath "$base.diff.txt" -Value $diff -Encoding utf8NoBOM
     timeout_min       = $TimeoutMin
     exit_code         = $proc.ExitCode
     timed_out         = $timedOut
+    relaunches        = $relaunchLines.Count
+    relaunch_rcs      = $relaunchRcs
     wall_s            = [math]::Round($sw.Elapsed.TotalSeconds, 1)
     git_add_exit      = $gitAddExit
     work_status       = $workStatus

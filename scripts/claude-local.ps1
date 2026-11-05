@@ -61,6 +61,45 @@
   per-run settings deny Edit and Write of lis-facts-inject-* and lis-guard denies a Bash
   command naming the log literally; a computed name still reaches it, so the grader
   treats the log as report-only.
+  Session supervisor (ledger R-W2, T-5; a session decision of 2026-11-04 that the operator
+  can overturn, not a ruling): under -LisTask longrun with -p <prompt>, a claude exit with
+  rc != 0 relaunches one fresh -p session, at most -LisRelaunchMax N times (0 to 3; the
+  default is 1 under longrun and 0 otherwise; N > 0 needs longrun). Never --continue or
+  --resume: the dead session's context (an autocompact thrash) is what ended it, and
+  Claude Code itself says to start fresh. The relaunch keeps the arguments, settings and
+  env, sets LIS_RELAUNCH=<n> and LIS_RELAUNCH_RC=<rc>, and puts one line before the
+  prompt: "Relaunch <n> after the previous session exited (rc <rc>). The facts file
+  <name> in the working directory holds the progress so far: run the test command first
+  and append a CHECK line before any edit, then continue from its last NEXT line."
+  stderr gets "claude-local: relaunch n=<n> rc=<rc> reason=thrash|exit" (thrash when the
+  result field of the dead session's last stream-json result record on stdout, where the
+  live run of 2026-11-04 printed it, or its last 50 stderr lines hold Claude Code's
+  "Autocompact is thrashing" message; any other stdout line, such as a tool result
+  quoting it, does not count) and the wrapper exits with the last session's rc. A result
+  record is any stdout line starting with { that contains "type":"result" and parses
+  with type result (Claude Code writes the key late in the line). It is parsed as a
+  hashtable, so keys that differ only by case or an empty key, which a real
+  permission_denials tool_input can carry, still parse; a line that does not parse is
+  checked by substring for the subtype and the message instead. A session
+  whose last result record has subtype error_max_turns is not relaunched (a relaunch
+  would double the turn budget): stderr gets "claude-local: relaunch skipped rc=<rc>
+  reason=max_turns". A "--debug-file <path>" argument becomes <path minus
+  extension>.<session><extension> for a relaunch (base.debug.log -> base.debug.2.log),
+  so each session keeps its own log; the --debug-file=<path> form is not rewritten, and
+  both sessions then write that one file.
+  While the supervisor is armed, claude's stdout and stderr pass through the wrapper line
+  by line as UTF-8 with LF line ends (to read the result record and keep the stderr
+  tail); otherwise they go straight to the console as before. rc -1 (a claude killed by
+  .NET Process.Kill) never relaunches; a kill that sets another code (taskkill /F gives
+  1, UNVERIFIED) does. The wrapper has no timeout of its own, and bench/ladder/run.ps1's
+  timeout kills the wrapper's whole tree, so it cannot relaunch after one. longrun also
+  registers
+  facts-inject.py for SessionStart startup: with LIS_RELAUNCH set it puts the facts file
+  into context at the start of the relaunched session (without it, it logs and outputs
+  nothing). Without -p <prompt> (an interactive session) the supervisor stays off.
+  LIS_CLAUDE_EXE (tests only, scripts/tests/resilience_test.py): an executable under
+  %TEMP% to run instead of claude, any other path throws; the server preflight is then
+  skipped (a stub talks to no server). Unset, claude resolves from PATH as before.
   Without -LisTask no profile applies (loop-guard still registers unless -LisNoGuard or
   -LisNoLoopGuard); stderr shows "profile: none".
   -LisTask cannot be combined with -LisFull, with -LisNoGuard or with claude options that
@@ -85,8 +124,8 @@
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The script options, -LisContextTokens N, -LisFull, -LisNoGuard,
-  -LisNoLoopGuard, -LisStrictSlot, -LisTask NAME and -LisPrintArgs, are taken out of
-  $args here.
+  -LisNoLoopGuard, -LisStrictSlot, -LisTask NAME, -LisRelaunchMax N and -LisPrintArgs,
+  are taken out of $args here.
   -LisContextTokens defaults to 114688: the default server ctx of 131072 (ruling 14)
   minus CLAUDE_CODE_MAX_OUTPUT_TOKENS 16384, so a prompt at Claude Code's limit plus a
   full-length reply still fits the server's window (the server runs without context
@@ -105,6 +144,8 @@
   pwsh scripts/claude-local.ps1 -LisFull
 .EXAMPLE
   pwsh scripts/claude-local.ps1 -LisTask review -LisPrintArgs
+.EXAMPLE
+  pwsh scripts/claude-local.ps1 -LisTask longrun -LisRelaunchMax 0 -LisPrintArgs
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -119,6 +160,7 @@ $LisNoGuard = $false
 $LisNoLoopGuard = $false
 $LisStrictSlot = $false
 $LisTask = $null
+$LisRelaunchMax = $null
 $LisPrintArgs = $false
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
@@ -158,6 +200,21 @@ for ($j = 0; $j -lt $args.Count; $j++) {
         if ($v -is [bool]) { $on = $v }
         elseif (-not [bool]::TryParse("$v".TrimStart('$'), [ref]$on)) { throw "-$name value '$v' is not true or false." }
         Set-Variable -Name $name -Value $on
+        continue
+    }
+    # -LisRelaunchMax N, -LisRelaunchMax:N: the session supervisor's bound (0 to 3).
+    if ($a -is [string] -and $a -match '^-LisRelaunchMax(:(.*))?$') {
+        if ($null -ne $LisRelaunchMax) { throw "-LisRelaunchMax was given more than once." }
+        $v = $Matches[2]
+        if (-not $v) {
+            if ($j + 1 -ge $args.Count) { throw "-LisRelaunchMax needs a value (0 to 3)." }
+            $v = "$($args[++$j])"
+        }
+        $n = 0
+        if (-not [int]::TryParse($v, [ref]$n) -or $n -lt 0 -or $n -gt 3) {
+            throw "-LisRelaunchMax value '$v' is not an integer from 0 to 3."
+        }
+        $LisRelaunchMax = $n
         continue
     }
     # -LisTask NAME, -LisTask:NAME; the set check stands in for ValidateSet (no param()).
@@ -201,6 +258,30 @@ if ($LisTask) {
         }
     }
 }
+# Session supervisor (docstring): armed under longrun when a -p <prompt> can be relaunched.
+if ($null -eq $LisRelaunchMax) { $LisRelaunchMax = if ($LisTask -eq 'longrun') { 1 } else { 0 } }
+elseif ($LisRelaunchMax -gt 0 -and $LisTask -ne 'longrun') {
+    throw "-LisRelaunchMax $LisRelaunchMax needs -LisTask longrun (a relaunch resumes from its facts file)."
+}
+$promptAt = -1
+for ($i = 0; $i + 1 -lt $claudeArgs.Count; $i++) {
+    if (("$($claudeArgs[$i])" -cin '-p', '--print') -and "$($claudeArgs[$i + 1])" -notmatch '^-') {
+        $promptAt = $i + 1
+        break
+    }
+}
+$relaunchOn = $LisRelaunchMax -gt 0 -and $promptAt -ge 0
+# Tests only: LIS_CLAUDE_EXE runs a stub under %TEMP% instead of claude (docstring).
+$claudeExe = 'claude'
+if ($env:LIS_CLAUDE_EXE) {
+    $tempDir = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') + '\'
+    $stub = [IO.Path]::GetFullPath($env:LIS_CLAUDE_EXE)
+    if (-not $stub.StartsWith($tempDir, [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $stub -PathType Leaf)) {
+        throw "LIS_CLAUDE_EXE '$($env:LIS_CLAUDE_EXE)' is not a file under %TEMP% (a test-only override); unset it."
+    }
+    $claudeExe = $stub
+}
 
 # The per-start key from scripts/serve.ps1, else the old fixed key.
 function Get-LisApiKey([string]$KeyFile) {
@@ -230,6 +311,53 @@ function Test-LisServer([string]$BaseUrl, [string]$ApiKey, [bool]$StrictSlot) {
         [Console]::Error.WriteLine("claude-local: warning: $msg; this session queues behind it.")
     }
 }
+# A supervised launch: claude's stdout and stderr pass through line by line as UTF-8 with
+# LF ends. Returns the exit code, whether the last stdout result record's result text or
+# the last 50 stderr lines hold Claude Code's autocompact thrash message, and that record's
+# subtype.
+function Invoke-LisSession([string]$Exe, [object[]]$Argv) {
+    $enc = [Console]::OutputEncoding
+    $utf8 = [Text.UTF8Encoding]::new($false)
+    $err = [IO.StreamWriter]::new([Console]::OpenStandardError(), $utf8)
+    $err.AutoFlush = $true
+    $tail = [Collections.Generic.Queue[string]]::new()
+    $subtype = $null
+    $text = $null
+    try {
+        [Console]::OutputEncoding = $utf8
+        & $Exe @Argv 2>&1 | ForEach-Object {
+            $line = "$_"
+            if ($_ -is [Management.Automation.ErrorRecord]) {
+                $err.Write($line + "`n")
+                $tail.Enqueue($line)
+                if ($tail.Count -gt 50) { $null = $tail.Dequeue() }
+            } else {
+                [Console]::Out.Write($line + "`n")
+                # A stream-json result record: one per session, the last one is the session's end.
+                # Claude Code writes "type" late in the line (duration_api_ms first), so every
+                # object line naming it is parsed; one that does not parse falls back to
+                # substring tests, so an odd record cannot switch both checks off.
+                if ($line.TrimStart().StartsWith('{') -and $line.Contains('"type":"result"')) {
+                    try {
+                        # A hashtable: plain ConvertFrom-Json throws on keys differing only by
+                        # case or an empty key, which a tool_input in permission_denials can carry.
+                        $rec = $line | ConvertFrom-Json -AsHashtable
+                        if ($rec['type'] -eq 'result') { $subtype = "$($rec['subtype'])"; $text = "$($rec['result'])" }
+                    } catch {
+                        $subtype = if ($line.Contains('"subtype":"error_max_turns"')) { 'error_max_turns' }
+                        $text = if ($line.Contains('Autocompact is thrashing')) { 'Autocompact is thrashing' }
+                    }
+                }
+            }
+        }
+        $rc = $LASTEXITCODE
+    } finally {
+        [Console]::OutputEncoding = $enc
+        $err.Flush()
+    }
+    $thrash = [bool]@(@($text) + @($tail) | Where-Object { $_ -match 'Autocompact is thrashing' }).Count
+    return $rc, $thrash, $subtype
+}
 $baseUrl = 'http://127.0.0.1:8080'
 $apiKey = Get-LisApiKey (Join-Path $PSScriptRoot '..\logs\api-key')
 
@@ -252,7 +380,10 @@ $set = [ordered]@{
 }
 # ANTHROPIC_API_KEY is unset too: it would take precedence over the bearer token and
 # send a real key to the local server.
-$unset = 'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE', 'ANTHROPIC_API_KEY'
+# LIS_RELAUNCH and LIS_RELAUNCH_RC belong to this wrapper's supervisor: a first session
+# never inherits them (facts-inject.py injects at startup only when LIS_RELAUNCH is set).
+$unset = 'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE', 'ANTHROPIC_API_KEY',
+    'LIS_RELAUNCH', 'LIS_RELAUNCH_RC'
 $settingsSrc = Join-Path $PSScriptRoot '..\config\claude-settings.json'
 $settings = Join-Path $env:TEMP "lis-settings-$PID.json"
 $mcpConfig = Join-Path $env:TEMP "lis-mcp-$PID.json"
@@ -325,6 +456,12 @@ function Write-LisBanner {
     if ($LisTask -eq 'longrun') { $denied = @($denied) + 'Edit/Write of lis-facts-inject-*' }
     $e.WriteLine('claude-local: rules added: ' + $(if ($denied) { 'deny ' + ($denied -join ', ') } else { 'none' }))
     if ($LisTask -eq 'longrun') { $e.WriteLine("claude-local: facts inject log: $injectLog") }
+    if ($LisTask -eq 'longrun') {
+        $e.WriteLine('claude-local: relaunch: ' + $(if ($relaunchOn) {
+                    "max $LisRelaunchMax (a fresh -p session after an exit with rc != 0)" }
+                elseif ($LisRelaunchMax) { 'off (no -p <prompt> to relaunch)' }
+                else { 'off (-LisRelaunchMax 0)' }))
+    }
     $e.WriteLine('claude-local: verifier, run from this directory when the session ends (fill in <...>):')
     foreach ($c in $checks) { $e.WriteLine("  $c") }
 }
@@ -402,9 +539,13 @@ try {
         # refuses -LisNoGuard); no onFailure = 'block': it always exits 0.
         $factsHook = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'hooks\facts-inject.py')).Path.Replace('\', '/')
         if (-not $cfg.hooks) { $cfg.hooks = [ordered]@{} }
-        $cfg.hooks['SessionStart'] = @($cfg.hooks['SessionStart'] | Where-Object { $_ }) + @([ordered]@{
-                matcher = 'compact'
-                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$factsHook`""; timeout = 10 })
+        # Also at startup: it injects there only in a relaunched session (LIS_RELAUNCH set).
+        $cfg.hooks['SessionStart'] = @($cfg.hooks['SessionStart'] | Where-Object { $_ }) + @(
+            foreach ($m in 'compact', 'startup') {
+                [ordered]@{
+                    matcher = $m
+                    hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$factsHook`""; timeout = 10 })
+                }
             })
     }
     $json = $cfg | ConvertTo-Json -Depth 10
@@ -417,15 +558,48 @@ try {
         $json
         $code = 0
     } else {
-        Test-LisServer $baseUrl $apiKey $LisStrictSlot
+        if ($claudeExe -eq 'claude') { Test-LisServer $baseUrl $apiKey $LisStrictSlot }
+        else { [Console]::Error.WriteLine("claude-local: LIS_CLAUDE_EXE $claudeExe (tests only): server preflight skipped") }
         Set-Content -LiteralPath $settings -Value $json -Encoding utf8NoBOM
         if (-not $LisFull) { Set-Content -LiteralPath $mcpConfig -Value '{"mcpServers":{}}' -Encoding utf8NoBOM }
         # An empty log at launch: after a compaction, no line means the hook did not inject.
         if ($LisTask -eq 'longrun') { [IO.File]::WriteAllText($injectLog, '') }
         foreach ($k in $set.Keys) { Set-Item "env:$k" $set[$k] }
         foreach ($k in $unset) { Remove-Item "env:$k" -ErrorAction Ignore }
-        & claude --settings $settings @leanArgs @claudeArgs
-        $code = $LASTEXITCODE
+        # The supervisor (docstring): a fresh -p session after rc != 0, at most
+        # -LisRelaunchMax times; never after rc 0, a kill (rc -1) or the turn limit.
+        $runArgs = [object[]]@($claudeArgs)
+        $relaunches = 0
+        while ($true) {
+            if ($relaunchOn) {
+                $code, $thrash, $subtype = Invoke-LisSession $claudeExe (@('--settings', $settings) + $leanArgs + $runArgs)
+            } else {
+                & $claudeExe --settings $settings @leanArgs @runArgs
+                $code = $LASTEXITCODE
+            }
+            if (-not $relaunchOn -or $code -in @(0, -1) -or $relaunches -ge $LisRelaunchMax) { break }
+            if ($subtype -eq 'error_max_turns') {
+                [Console]::Error.WriteLine("claude-local: relaunch skipped rc=$code reason=max_turns")
+                break
+            }
+            $relaunches++
+            $why = if ($thrash) { 'thrash' } else { 'exit' }
+            [Console]::Error.WriteLine("claude-local: relaunch n=$relaunches rc=$code reason=$why")
+            $env:LIS_RELAUNCH = "$relaunches"
+            $env:LIS_RELAUNCH_RC = "$code"
+            $runArgs[$promptAt] = ("Relaunch $relaunches after the previous session exited (rc $code). " +
+                "The facts file $factsFile in the working directory holds the progress so far: run " +
+                'the test command first and append a CHECK line before any edit, then continue ' +
+                "from its last NEXT line.`n" + $claudeArgs[$promptAt])
+            # Each session its own debug log: <path minus extension>.<session><extension>.
+            for ($k = 0; $k + 1 -lt $claudeArgs.Count; $k++) {
+                if ("$($claudeArgs[$k])" -ceq '--debug-file' -and $k + 1 -ne $promptAt) {
+                    $d = "$($claudeArgs[$k + 1])"
+                    $x = [IO.Path]::GetExtension($d)
+                    $runArgs[$k + 1] = $d.Substring(0, $d.Length - $x.Length) + ".$($relaunches + 1)$x"
+                }
+            }
+        }
         if ($LisTask) { Write-LisBanner }
     }
 } finally {

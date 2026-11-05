@@ -163,7 +163,11 @@ What `run.ps1` does:
    to `<base>.facts.md` (meta `facts_copy`), and `grade.py` grades that copy; without
    one it grades the file in the kept work tree (`facts_source`). The facts-inject log
    the banner names (in `%TEMP%`) is copied to `<base>.inject.log` (meta `inject_log`,
-   null when not found).
+   null when not found). After a relaunch (below) the stream holds two sessions: the
+   second init record's session id names the second transcript, copied to
+   `<base>.transcript.2.jsonl` (meta `transcript_2`, null without one). The relaunch
+   writes its own debug log, `<base>.debug.2.log` (meta `debug_log_2`, null without one);
+   the grader reads the first session's `<base>.debug.log`.
 6. `python -I bench/ladder/grade.py <base>` writes `<base>.json` and one summary line.
    Any other call (no argument, more than one, or one starting with `-` such as
    `--help`) prints the usage and exits 2 without writing; `--help` wrote
@@ -320,6 +324,26 @@ that is what `facts_read_after_boundary_any` counts. The bar is unchanged. Claud
 adds the context after a `-p` compaction: the 2026-11-04 proof rep's transcript has it
 after 5 of 5 boundaries, four of them without the built-in file restore
 ([proof](../../docs/audits/2026-11-04-batch-e-reps.md)).
+
+Relaunch (ledger R-W2, T-5; a session decision of 2026-11-04 that the operator can
+overturn, not a ruling): under longrun the wrapper relaunches one fresh `-p` session
+when claude exits with rc != 0, never `--continue` or `--resume` (`-LisRelaunchMax`,
+docs/SETUP.md step 8). rc -1 (a claude killed by .NET Process.Kill) never relaunches; a
+kill that sets another code (taskkill /F gives 1, UNVERIFIED) does; the run's timeout
+kills the wrapper's whole tree. A session whose last result record has subtype
+`error_max_turns` is not relaunched (it would double the turn budget; `relaunch skipped
+rc=RC reason=max_turns`). The relaunch gets the same prompt behind one line that names
+the facts file and asks for the test command and a CHECK line before any edit, and the
+facts-inject hook adds the facts file at its start (source `startup`, which `longrun.py`
+skips when it maps log lines to boundaries). `run.ps1` logs each `relaunch n=N rc=RC
+reason=thrash|exit` line and keeps them in the meta (`relaunches`, `relaunch_rcs`); the
+`.jsonl` holds both sessions, and `grade.py` sums the counters of their result records
+(Result fields). `longrun.py` reads every system init after the first as a relaunch:
+`relaunches` counts them, and `relaunch_test_first` is true when the first tool call
+after each one is a Bash run of the test command. Compaction and restore checks span
+both transcripts. Both fields are report-only; the bar is unchanged. The live case is
+`ladder-long-fix-20261104-200016`: the session exited rc 1 on an autocompact thrash with
+42 of 48 fixed, and nothing relaunched it.
 
 Two counted reps must share `rep_key`, a SHA-256 over the inputs listed in
 `rep_key_inputs`, nine of them: the fixture's `fixture_sha256`, the generator
@@ -1808,6 +1832,7 @@ session and no server: `python -I bench/ladder/tests/grade_test.py`.
 | `grade_profile` | the meta's `profile`; `longrun` selects `longrun.py` |
 | `grader` | the meta's `grader`, else `longrun` for that profile; selects the grader |
 | `wrapper_banner` | the wrapper's `claude-local: profile:` stderr line |
+| `stderr_unrecognized_model`, `stderr_other` | count of the exact benign `[claude-code:unrecognized_model] {"model":"local","query_source":"sdk"}` stderr line (resilience audit R3); the other stderr lines (first 20) without the wrapper banner and its indented lines, that line and the claude.ai connectors notice, as `bench/loop` |
 | `claude_version`, `node_version` | `--version` output |
 | `server` | `/props` fields and the :8080 listener command line |
 | `exit_code`, `timed_out`, `wall_s` | launcher process; wall = start to exit |
@@ -1834,8 +1859,10 @@ session and no server: `python -I bench/ladder/tests/grade_test.py`.
 | `permission_denials` | tool names in the envelope's `permission_denials` |
 | `tool_use` | tool_use blocks per tool name |
 | `rubric_seen` | an input names `bench/ladder`, `gen_longfix`, `longrun.py`, `stalefig` |
-| `is_error`, `subtype`, `num_turns`, `duration_ms` | from the result envelope |
-| `tokens_in_total`, `output_tokens` | envelope `usage`; in = the input fields summed |
+| `is_error`, `subtype` | from the result envelope (the last result record) |
+| `num_turns`, `duration_ms` | summed over every result record (one per session; a relaunch adds one); one record: the envelope's |
+| `tokens_in_total`, `output_tokens` | result records' `usage`, summed over every record; in = the input fields summed |
+| `result_records` | result records in the stream: 1 per session that ended with one |
 | `stream_lines`, `stream_bad_lines` | stdout JSON lines parsed; lines that failed |
 | `verify_doc` | verify-doc on `.claim.txt`: exit, FAIL lines, output |
 | `verify_claims` | always "not run" (see Limits) |
@@ -1887,6 +1914,8 @@ before `|`, `||`, `&&` or `;` and less a trailing `2>&1`, is the test command) a
 | `compaction_mid_edit`, `axis_exercised` | a boundary with src edits before and after |
 | `compaction_failed` | empty-summary, prompt-too-long or thrashing message (below) |
 | `compaction_failed_source` | where it was seen (below); null when not seen |
+| `relaunches` | system init records after the first: sessions the wrapper relaunched (report-only) |
+| `relaunch_test_first` | the first tool call after each relaunch is Bash running the test command; null without a relaunch (report-only) |
 | `claim_after_last_boundary` | the final answer comes after the last boundary |
 | `redo_after_compaction` | src edits after a boundary to files already FIXED before it |
 | `claim_before`, `claim_before_agrees` | the `Before:` line; equal to TAP before |
@@ -1987,8 +2016,10 @@ lists the ones that matched (`claim`, `stderr`, `envelope`, `assistant_text`,
 `debug_log`).
 
 Every `<base>.meta.json` carries `profile`, `manifest` (path), `transcript` (path),
-`facts_copy` (path), `inject_log` (path; from batch E), `before_output_chars`,
-`before_output_chars_tap` and `allow_reasoning_on`. For fix-one and fix-all the paths
+`facts_copy` (path), `inject_log` (path; from batch E), `transcript_2` and `debug_log_2`
+(paths), `relaunches` and `relaunch_rcs` (from R-W2; the paths null, 0 and empty
+without a relaunch), `before_output_chars`, `before_output_chars_tap` and
+`allow_reasoning_on`. For fix-one and fix-all the paths
 and sizes are null; in long-fix they are non-null, except `transcript`, `facts_copy` or
 `inject_log` when that file was not found
 (through series 3 also `before_output_chars_tap` when both nodes had the same version,

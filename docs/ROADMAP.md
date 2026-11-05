@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (15 LANDED, 2 BUILT, 32 OPEN of 49 on 2026-11-04) in
+owner, fix and proof is in one table (19 LANDED, 6 BUILT, 24 OPEN of 49 on 2026-11-04) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -232,6 +232,10 @@ owner, fix and proof is in one table (15 LANDED, 2 BUILT, 32 OPEN of 49 on 2026-
   test-gated ones read at STATUS and After.
 - Security: FAIL for enabling web fetch now (blockers B1-B7).
 - Web access prep: DISARMED until the security blockers close.
+- Counts on disk (T-8): at the audit `bench/results/` held 10 rung-2 (long-fix) sets and
+  23 ladder `.jsonl` streams, not the 13 sets and ~35 sessions of the audit brief. On
+  2026-11-04 it holds 21 long-fix sets (10 of 2026-10-26, 11 of 2026-11-04) and 40
+  streams (21 long-fix, 9 stale-figure, 2 fix-one, 2 fix-all, 3 blocked, 3 bait).
 
 Batches (IDs in the ledger):
 
@@ -254,6 +258,26 @@ Batches (IDs in the ledger):
   absent (T-9; docs/audits/2026-11-04-batch-e-reps.md).
 - F, operator apply lines (user scope, firewall, task history, restart).
 - G, a multi-hour supervised run after A to E.
+- Six small rows, 2026-11-04: R-W4 BUILT (serve.ps1 logs free VRAM before each start;
+  the live line waits on the next start), R-R1 BUILT (`--metrics`; 200 with the key and
+  401 without UNVERIFIED until the next start), R-R2 LANDED (README logoff line), R-R3
+  LANDED (grade.py `stderr_other` without the benign `unrecognized_model` line), T-8
+  LANDED (on-disk counts above), W-1 LANDED (WebFetch wording in ROADMAP, SETUP and the
+  landscape doc; the deny stays).
+- Session supervisor (R-W2, T-5): BUILT 2026-11-04. Under `-LisTask longrun`,
+  scripts/claude-local.ps1 relaunches one fresh `-p` session (never `--continue`) when
+  claude exits with rc != 0, except after the turn limit (`error_max_turns`); rc -1 (a
+  claude killed by .NET Process.Kill) never relaunches, a kill that sets another code
+  (taskkill /F gives 1, UNVERIFIED) does; the prompt gains one line that names the facts
+  file and asks for the test command and a CHECK line first, and the facts-inject hook
+  adds the facts file at the relaunch start. `-LisRelaunchMax N` (0 to 3, default 1
+  under longrun). run.ps1 keeps both sessions, the second transcript and debug log;
+  grade.py sums the counters over both result records; longrun.py reports `relaunches`
+  and `relaunch_test_first` (report-only). Proof: stub rc 1 relaunched once, logged,
+  exit 0 (resilience_test 2026-11-04); the armed wrapper ran one live long-fix rep
+  (205530 at 65536: exit 0, 72 of 72, 115 turns, 6 compactions, the stream graded
+  through the tee, no relaunch); live proof = the first long-fix rep whose session
+  exits rc != 0. A session decision the operator can overturn, not a ruling.
 - Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
   cost of the user-scope load (the orientation hook re-injected at every compaction and
   the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the
@@ -2541,7 +2565,13 @@ of experts on CPU); 579 MiB of VRAM stays free at peak.
 ### Overlay: deny WebSearch and WebFetch
 
 `config/claude-settings.json` gains `"permissions": {"deny": ["WebSearch", "WebFetch"]}`
-(those tools run on Anthropic's side and cannot work against the local server).
+(the reason given then, that both tools run on Anthropic's side, holds for WebSearch
+only: it is an Anthropic server-side tool that cannot work against the local server.
+WebFetch fetches and converts the page in Claude Code, then runs the prompt over it in
+a separate model call; only the hostname goes to api.anthropic.com (the domain
+preflight). That the extraction call goes to the configured local endpoint is
+UNVERIFIED: the docs do not say. It stays denied until the web-access blockers close.
+Corrected 2026-11-04, ledger W-1).
 VERIFIED from the `system/init` event of `--output-format stream-json --verbose`,
 run through `scripts/claude-local.ps1` from a throwaway git repo:
 

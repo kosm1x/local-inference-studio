@@ -29,7 +29,7 @@ LINES = ['BEFORE pass 1 fail 2', 'CHECK pass 2 fail 1', 'FIXED m01 a | longfix/s
          'NEXT m02']
 LOG_RE = re.compile(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00 source=(\S+) facts=(\S+) '
                     r'injected=(?:yes lines=(\d+) bytes=(\d+) truncated=(yes|no)'
-                    r'|no reason=(input|unset|missing|empty|oversize|error))$')
+                    r'|no reason=(input|not-relaunch|unset|missing|empty|oversize|error))$')
 SMILE = '\U0001F600'  # outside the BMP: 1 character, 2 UTF-16 units
 
 
@@ -53,11 +53,15 @@ class FactsInject(unittest.TestCase):
         with open(os.path.join(d or self.work, NAME), 'w', encoding='utf-8', newline='\n') as f:
             f.write(body)
 
-    def run_hook(self, stdin=None, name=NAME, log=True, cwd=None):
-        """Run the hook; stdin None sends a compact SessionStart event naming self.work."""
+    def run_hook(self, stdin=None, name=NAME, log=True, cwd=None, relaunch=None):
+        """Run the hook; stdin None sends a compact SessionStart event naming self.work.
+        relaunch: the LIS_RELAUNCH value (unset when None)."""
         env = dict(os.environ)  # a copy for the child (lis-guard: not an environment dump)
         env.pop('LIS_FACTS_FILE', None)
         env.pop('LIS_FACTS_INJECT_LOG', None)
+        env.pop('LIS_RELAUNCH', None)
+        if relaunch is not None:
+            env['LIS_RELAUNCH'] = relaunch
         if name is not None:
             env['LIS_FACTS_FILE'] = name
         if log:
@@ -201,6 +205,42 @@ class FactsInject(unittest.TestCase):
         m = self.logged()
         self.assertEqual([(x.group(1), x.group(2), x.group(6)) for x in m],
                          [('unknown', '-', 'input')] * len(bad))
+
+    def startup(self):
+        return json.dumps({'session_id': 'abc', 'hook_event_name': 'SessionStart',
+                           'source': 'startup', 'cwd': self.work})
+
+    def test_startup_without_relaunch_gives_nothing(self):
+        # A first session (LIS_RELAUNCH unset or empty): no output, reason not-relaunch.
+        self.facts('\n'.join(LINES) + '\n')
+        self.assertEqual(self.run_hook(stdin=self.startup()), '')
+        self.assertEqual(self.run_hook(stdin=self.startup(), relaunch=''), '')
+        self.assertEqual(self.run_hook(stdin=self.startup(), name=None), '')
+        m = self.logged()
+        self.assertEqual([(x.group(1), x.group(2), x.group(6)) for x in m],
+                         [('startup', NAME, 'not-relaunch')] * 2
+                         + [('startup', '-', 'not-relaunch')])
+
+    def test_startup_in_a_relaunched_session_injects(self):
+        # R-W2 / T-5: LIS_RELAUNCH set, startup: the facts file as on compact, same header.
+        body = '\n'.join(LINES) + '\n'
+        self.facts(body)
+        c = self.ctx(self.run_hook(stdin=self.startup(), relaunch='1'))
+        head, rest = c.split('\n', 1)
+        self.assertTrue(head.startswith(fi.HEADER.format(NAME)), head)
+        self.assertIn(f'(4 lines, {len(body)} bytes), as the previous session left it.', head)
+        self.assertEqual(rest, body)
+        # A compaction inside the relaunched session is still a compaction.
+        c = self.ctx(self.run_hook(relaunch='1'))
+        self.assertIn('as written before this compaction.', c.split('\n', 1)[0])
+        m = self.logged()
+        self.assertEqual([x.groups()[:5] for x in m],
+                         [('startup', NAME, '4', str(len(body)), 'no'),
+                          ('compact', NAME, '4', str(len(body)), 'no')])
+        # No facts file yet: the usual reason, not not-relaunch.
+        os.remove(os.path.join(self.work, NAME))
+        self.assertEqual(self.run_hook(stdin=self.startup(), relaunch='1'), '')
+        self.assertEqual(self.logged()[-1].group(6), 'missing')
 
     def test_bad_log_path_still_injects(self):
         self.facts('BEFORE pass 1 fail 2\n')

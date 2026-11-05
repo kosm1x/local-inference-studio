@@ -10,10 +10,14 @@ stub compiled from STUB_CS with the .NET Framework csc.exe (those cases are skip
 is missing). The stub never binds 8080 and ends on its own (exit plan or exit file); no
 case stops a process. HTTP endpoints are a Python stub on a free loopback port. The live
 server, the scheduled tasks and claude are never touched. Exit 0 = all pass.
+The session supervisor of claude-local.ps1 runs against a stub claude compiled from
+STUB_CLAUDE_CS (LIS_CLAUDE_EXE; skipped without csc.exe). Optional argument: a wrapper
+file to test instead of scripts/claude-local.ps1 (for wrapper mutants).
 """
 import http.server
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -294,6 +298,51 @@ def test_restart_window():
               '$restarts = @(Get-RecentRestarts $restarts $now $RestartWindowMin)' in f.read())
 
 
+VRAM_VALUE = r'\d+ MiB(, \d+ MiB)*|unavailable'
+
+
+def test_vram_free():
+    """Get-VramFree, taken from serve.ps1 by AST, against fake nvidia-smi.cmd files on PATH,
+    an empty PATH, and the real nvidia-smi query on this host."""
+    serve = os.path.join(REPO, 'scripts', 'serve.ps1')
+    load = ("$ast = [Management.Automation.Language.Parser]::ParseFile('"
+            + serve.replace("'", "''") + "', [ref]$null, [ref]$null); "
+            "$ast.FindAll({ $args[0] -is "
+            "[Management.Automation.Language.FunctionDefinitionAst] -and "
+            "$args[0].Name -eq 'Get-VramFree' }, $false) | "
+            "ForEach-Object { . ([scriptblock]::Create($_.Extent.Text)) }; ")
+    with open(serve, encoding='utf-8') as f:
+        text = f.read()
+    check('serve: the loop logs Get-VramFree before each start',
+          'while ($true) {\n        Write-ServeLog "serve.ps1: vram free: $(Get-VramFree)"' in text)
+    slow = '@%SystemRoot%\\System32\\ping.exe -n 3 127.0.0.1 >nul\r\n@echo 1\r\n'  # about 2 s
+    fakes = [('two', '@echo 1234\r\n@echo  567 \r\n', 10000, '1234 MiB, 567 MiB'),
+             ('fail', '@echo 1234\r\n@exit /b 9\r\n', 10000, 'unavailable'),
+             ('text', '@echo No devices were found\r\n', 10000, 'unavailable'),
+             ('slow-in-time', slow, 10000, '1 MiB'),
+             ('slow-past-timeout', slow, 500, 'unavailable')]
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, body, timeout, want in fakes:
+            d = os.path.join(tmp, name)
+            os.makedirs(d)
+            with open(os.path.join(d, 'nvidia-smi.cmd'), 'w', newline='') as f:
+                f.write(body)
+            _, out, err = pwsh(load + f"$env:PATH = '{d};' + $env:SystemRoot; "
+                               f"'V=' + (Get-VramFree {timeout})")
+            check(f'serve: Get-VramFree with a fake nvidia-smi ({name}, {timeout} ms) -> {want}',
+                  f'V={want}' in out.splitlines(), out + err)
+    _, out, err = pwsh(load + "$env:PATH = ''; 'V=' + (Get-VramFree)")
+    check('serve: Get-VramFree with no nvidia-smi on PATH -> unavailable',
+          'V=unavailable' in out.splitlines(), out + err)
+    _, out, err = pwsh(load + "'V=' + (Get-VramFree)")
+    value = next((ln[2:] for ln in out.splitlines() if ln.startswith('V=')), '')
+    print(f'info  this host: vram free: {value}')
+    host_ok = (re.fullmatch(r'\d+ MiB(, \d+ MiB)*', value) if shutil.which('nvidia-smi')
+               else value == 'unavailable')
+    check('serve: Get-VramFree on this host -> MiB values (unavailable without nvidia-smi)',
+          bool(host_ok), out + err)
+
+
 def run_serve(root, port, extra=(), timeout=60, env=None):
     serve = os.path.join(root, 'scripts', 'serve.ps1')
     log = os.path.join(root, 'logs', 'llama-server.log')
@@ -327,6 +376,13 @@ def test_serve_loop(stub_exe):
         check('serve: launch line has --api-key-file and --no-webui, not the key',
               f'--api-key-file {key_path}' in log and '--no-webui' in log and key not in log and '--api-key local' not in log,
               log[:800])
+        vram = re.findall(r'serve\.ps1: vram free: (.*)', log)
+        check('serve: one "vram free: <N> MiB" or "unavailable" line before each of the 6 starts',
+              len(vram) == starts and all(re.fullmatch(VRAM_VALUE, v.strip()) for v in vram),
+              log[:800])
+        launches = [ln for ln in log.splitlines() if 'llama-server.exe -m ' in ln]
+        check('serve: every launch line has --metrics',
+              len(launches) == starts and all(' --metrics ' in ln for ln in launches), log[:800])
         rc, out, _ = pwsh(f"$a = Get-Acl -LiteralPath '{key_path}'; "
                           "\"$($a.AreAccessRulesProtected) $(@($a.Access).Count) $(@($a.Access)[0].IdentityReference) "
                           "$([Security.Principal.WindowsIdentity]::GetCurrent().Name)\"")
@@ -570,6 +626,234 @@ def test_watchdog(port):
         Stub.health_status = 200
 
 
+# The session supervisor of scripts/claude-local.ps1 (ledger R-W2, T-5) against a stub
+# claude: LIS_CLAUDE_EXE names it (the wrapper refuses a path outside %TEMP%). The stub
+# counts its calls in calls.txt, records each call's arguments and LIS_* env, prints a
+# stream-json init line and exits as plan.txt says for that call: 'exit:RC', 'thrash:RC'
+# (the thrash message in a stdout result record, as the live run of 2026-11-04 printed it),
+# 'thrash-err:RC' (the message on stderr), 'quote:RC' (the message only in a tool result
+# line on stdout), 'maxturns:RC' (a result record with subtype error_max_turns) or
+# 'badmax:RC' (that record cut short, so it does not parse) or 'casekeys:RC' (subtype
+# success, permission_denials holding a tool_input with keys Path and path and a nested
+# "subtype":"error_max_turns": only a parse reads success). The result record keeps
+# Claude Code's key order, "type" near the end. It talks to no server. An optional argument
+# is a wrapper file to test instead (used to prove that wrapper mutants go red).
+WRAPPER = os.path.abspath(sys.argv.pop(1)) if len(sys.argv) > 1 \
+    else os.path.join(REPO, 'scripts', 'claude-local.ps1')
+THRASH = ('Autocompact is thrashing: the context refilled to the limit within 3 turns of the '
+          'previous compact, 3 times in a row. Try reading in smaller chunks, or use /clear to '
+          'start fresh.')
+STUB_CLAUDE_CS = r'''
+using System; using System.IO; using System.Text;
+class Claude {
+  static int Main(string[] a) {
+    string dir = AppDomain.CurrentDomain.BaseDirectory, cf = Path.Combine(dir, "calls.txt");
+    int n = File.Exists(cf) ? int.Parse(File.ReadAllText(cf).Trim()) + 1 : 1;
+    File.WriteAllText(cf, n.ToString());
+    File.WriteAllText(Path.Combine(dir, "args-" + n + ".txt"), string.Join("\0", a),
+                      new UTF8Encoding(false));
+    string env = "";
+    foreach (string k in new[] { "LIS_RELAUNCH", "LIS_RELAUNCH_RC", "LIS_FACTS_FILE" })
+      env += k + "=" + Environment.GetEnvironmentVariable(k) + "\n";
+    File.WriteAllText(Path.Combine(dir, "env-" + n + ".txt"), env);
+    string[] plan = File.ReadAllLines(Path.Combine(dir, "plan.txt"));
+    string mode = plan[Math.Min(n, plan.Length) - 1].Trim();
+    int rc = int.Parse(mode.Substring(mode.IndexOf(':') + 1));
+    var o = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false));
+    var e = new StreamWriter(Console.OpenStandardError(), new UTF8Encoding(false));
+    o.NewLine = e.NewLine = "\n"; o.AutoFlush = e.AutoFlush = true;
+    o.WriteLine("{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"stub-" + n
+                + "\",\"note\":\"\u26a0 caf\u00e9\"}");
+    string msg = File.ReadAllText(Path.Combine(dir, "thrash.txt")).Trim();
+    if (mode.StartsWith("thrash-err:")) e.WriteLine(msg);
+    if (mode.StartsWith("quote:"))
+      o.WriteLine("{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\","
+                  + "\"content\":\"grep hit: " + msg + "\"}]}}");
+    // The result record in Claude Code's key order (live 2026-11-04: duration_api_ms first,
+    // type near the end), values shortened. badmax: the same record cut short (no closing
+    // brace), so it does not parse.
+    bool max = mode.StartsWith("maxturns:") || mode.StartsWith("badmax:");
+    // casekeys: valid JSON a plain ConvertFrom-Json refuses (keys differing only by case); the
+    // nested subtype key makes the substring fallback answer differently from a parse.
+    string casekeys = "[{\"tool_name\":\"Bash\",\"tool_input\":{\"Path\":\"a\",\"path\":\"b\","
+      + "\"subtype\":\"error_max_turns\"}}]";
+    string res = "{\"duration_api_ms\":1,\"stop_reason\":\"stop_sequence\",\"session_id\":\"stub-"
+      + n + "-r\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},"
+      + "\"permission_denials\":" + (mode.StartsWith("casekeys:") ? casekeys : "[]")
+      + ",\"terminal_reason\":\"completed\",\"is_error\":false,"
+      + "\"num_turns\":1,\"subtype\":\"" + (max ? "error_max_turns" : "success")
+      + "\",\"api_error\":null,\"result\":\"" + (mode.StartsWith("thrash:") ? msg : "stub " + n)
+      + "\",\"type\":\"result\",\"duration_ms\":1";
+    o.WriteLine(mode.StartsWith("badmax:") ? res : res + "}");
+    e.WriteLine("stub stderr " + n + " \u26a0");
+    return rc;
+  }
+}
+'''
+PROMPT = 'Fix the failing tests; the facts file is your record.'
+
+
+def relaunch_prefix(n, rc, facts):
+    return (f'Relaunch {n} after the previous session exited (rc {rc}). The facts file {facts} '
+            'in the working directory holds the progress so far: run the test command first and '
+            'append a CHECK line before any edit, then continue from its last NEXT line.\n')
+
+
+def run_supervised(stub_dir, args, plan, exe=None):
+    """The wrapper with LIS_CLAUDE_EXE set, from a scratch working directory. Returns rc,
+    stdout bytes, stderr text, the calls made and per call its arguments and env lines."""
+    for f in os.listdir(stub_dir):
+        if f.startswith(('calls', 'args-', 'env-')):
+            os.remove(os.path.join(stub_dir, f))
+    with open(os.path.join(stub_dir, 'plan.txt'), 'w') as f:
+        f.write('\n'.join(plan) + '\n')
+    work = os.path.join(stub_dir, 'work')
+    os.makedirs(work, exist_ok=True)
+    env = dict(os.environ)  # a copy for the child
+    env['LIS_CLAUDE_EXE'] = exe or os.path.join(stub_dir, 'claude-stub.exe')
+    for k in ('LIS_RELAUNCH', 'LIS_RELAUNCH_RC'):
+        env.pop(k, None)
+    r = subprocess.run([PWSH, '-NoProfile', '-File', WRAPPER] + args, cwd=work, env=env,
+                       capture_output=True, timeout=120)
+    err = r.stderr.decode('utf-8', errors='replace')
+    # The longrun banner names the facts-inject log the wrapper made in %TEMP%: remove it.
+    for p in set(re.findall(r'facts inject log: (\S+\.log)', err)):
+        if os.path.isfile(p) and os.path.dirname(p) == os.path.normpath(os.environ['TEMP']):
+            os.remove(p)
+    calls = []
+    for n in range(1, 10):
+        a = os.path.join(stub_dir, f'args-{n}.txt')
+        if not os.path.exists(a):
+            break
+        with open(a, encoding='utf-8') as f:
+            argv = f.read().split('\0')
+        with open(os.path.join(stub_dir, f'env-{n}.txt')) as f:
+            envs = dict(x.split('=', 1) for x in f.read().splitlines())
+        calls.append((argv, envs))
+    return r.returncode, r.stdout, err, calls
+
+
+def test_relaunch():
+    if not os.path.exists(CSC):
+        print(f'skip  supervisor cases: {CSC} not found')
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, 'claude-stub.cs')
+        with open(src, 'w') as f:
+            f.write(STUB_CLAUDE_CS)
+        subprocess.run([CSC, '-nologo', '-out:' + os.path.join(tmp, 'claude-stub.exe'), src],
+                       check=True, capture_output=True, cwd=tmp)
+        with open(os.path.join(tmp, 'thrash.txt'), 'w') as f:
+            f.write(THRASH)
+        longrun = ['-LisTask', 'longrun', '-p', PROMPT, '--output-format', 'stream-json']
+
+        def lines(err):
+            return re.findall(r'(?m)^claude-local: relaunch n=.*$', err.replace('\r', ''))
+
+        dbg = ['--debug-file', 'run.debug.log']
+        rc, out, err, calls = run_supervised(tmp, longrun + dbg, ['thrash:1', 'exit:0'])
+        facts = (re.findall(r'lis-facts-\d{8}-\d{6}\.md', err) or ['?'])[0]
+        check('supervisor: thrash rc 1 -> one relaunch, logged with reason=thrash, exit 0',
+              rc == 0 and len(calls) == 2
+              and lines(err) == ['claude-local: relaunch n=1 rc=1 reason=thrash'], err)
+        check('supervisor: the stub ran instead of claude, no server preflight',
+              'server preflight skipped' in err and 'claude-local: relaunch: max 1' in err, err)
+        if len(calls) == 2:
+            (a1, e1), (a2, e2) = calls
+            i = a1.index(PROMPT) if PROMPT in a1 else -1
+            check('supervisor: LIS_RELAUNCH unset in session 1, 1 and rc 1 in the relaunch',
+                  e1['LIS_RELAUNCH'] == '' and e1['LIS_RELAUNCH_RC'] == ''
+                  and e2['LIS_RELAUNCH'] == '1' and e2['LIS_RELAUNCH_RC'] == '1'
+                  and e1['LIS_FACTS_FILE'] == e2['LIS_FACTS_FILE'] == facts, f'{e1} {e2}')
+            check('supervisor: the relaunch prompt is the prefix line plus the same prompt',
+                  i >= 0 and a2[i] == relaunch_prefix(1, 1, facts) + PROMPT, repr(a2[i:i + 1]))
+            d = a1.index('--debug-file') + 1 if '--debug-file' in a1 else -1
+            check('supervisor: the relaunch gets its own debug file, base.debug.2.log',
+                  d > 0 and a1[d] == 'run.debug.log' and a2[d] == 'run.debug.2.log',
+                  f'{a1}\n{a2}')
+            keep = [k for k in range(len(a1)) if k not in (i, d)]
+            check('supervisor: the relaunch keeps every other argument; no --continue/--resume',
+                  i >= 0 and len(a1) == len(a2) and [a1[k] for k in keep] == [a2[k] for k in keep]
+                  and not {'--continue', '--resume', '-c', '-r'} & set(a2), f'{a1}\n{a2}')
+        inits = re.findall(rb'"session_id":"(stub-\d)"', out)
+        check('supervisor: stdout keeps both sessions in order, UTF-8 intact, LF ends',
+              inits == [b'stub-1', b'stub-2'] and out.count('\u26a0 caf\u00e9'.encode()) == 2
+              and b'\r\n' not in out and THRASH.encode() in out, repr(out[:400]))
+        check('supervisor: stderr of both sessions passes through, UTF-8 intact',
+              'stub stderr 1 \u26a0' in err and 'stub stderr 2 \u26a0' in err, err)
+
+        rc, _, err, calls = run_supervised(tmp, longrun, ['exit:1', 'exit:3'])
+        check('supervisor: rc 1 without the thrash message -> reason=exit; max 1 holds; '
+              'exit = the last rc', rc == 3 and len(calls) == 2
+              and lines(err) == ['claude-local: relaunch n=1 rc=1 reason=exit'], err)
+        rc, _, err, calls = run_supervised(tmp, ['-LisRelaunchMax', '2'] + longrun,
+                                           ['exit:1', 'thrash-err:2', 'exit:0'])
+        check('supervisor: -LisRelaunchMax 2 -> two relaunches; thrash on stderr is a thrash',
+              rc == 0 and len(calls) == 3 and lines(err) == [
+                  'claude-local: relaunch n=1 rc=1 reason=exit',
+                  'claude-local: relaunch n=2 rc=2 reason=thrash'], err)
+        if len(calls) == 3:
+            name = calls[2][1]['LIS_FACTS_FILE']  # each run has its own facts file stamp
+            check('supervisor: the second relaunch prefixes the original prompt once',
+                  relaunch_prefix(2, 2, name) + PROMPT in calls[2][0]
+                  and calls[2][1]['LIS_RELAUNCH'] == '2', repr(calls[2][0][-3:]))
+        rc, _, err, calls = run_supervised(tmp, longrun, ['quote:1', 'exit:0'])
+        check('supervisor: the message only in a tool result on stdout -> reason=exit',
+              rc == 0 and len(calls) == 2
+              and lines(err) == ['claude-local: relaunch n=1 rc=1 reason=exit'], err)
+        rc, _, err, calls = run_supervised(tmp, longrun, ['maxturns:1', 'exit:0'])
+        check('supervisor: result subtype error_max_turns -> no relaunch, logged, rc 1',
+              rc == 1 and len(calls) == 1 and not lines(err)
+              and 'claude-local: relaunch skipped rc=1 reason=max_turns' in err, err)
+        rc, _, err, calls = run_supervised(tmp, longrun, ['casekeys:1', 'exit:0'])
+        check('supervisor: a record with keys differing by case parses (subtype success, '
+              'not the fallback) -> relaunch reason=exit',
+              rc == 0 and len(calls) == 2 and 'reason=max_turns' not in err
+              and lines(err) == ['claude-local: relaunch n=1 rc=1 reason=exit'], err)
+        rc, _, err, calls = run_supervised(tmp, longrun, ['badmax:1', 'exit:0'])
+        check('supervisor: an unparsable error_max_turns record -> no relaunch, logged',
+              rc == 1 and len(calls) == 1 and not lines(err)
+              and 'claude-local: relaunch skipped rc=1 reason=max_turns' in err, err)
+        rc, _, err, calls = run_supervised(tmp, ['-LisRelaunchMax', '0'] + longrun, ['thrash:1'])
+        check('supervisor: -LisRelaunchMax 0 -> no relaunch, rc 1',
+              rc == 1 and len(calls) == 1 and not lines(err)
+              and 'relaunch: off (-LisRelaunchMax 0)' in err, err)
+        # A timeout kill: run.ps1 kills the wrapper's whole tree (Kill($true)), so the wrapper
+        # cannot relaunch; a claude killed alone exits -1 (TerminateProcess), simulated here.
+        rc, _, err, calls = run_supervised(tmp, longrun, ['exit:-1', 'exit:0'])
+        check('supervisor: a killed claude (rc -1) -> no relaunch',
+              rc in (-1, 0xFFFFFFFF) and len(calls) == 1 and not lines(err), f'{rc} {err}')
+        rc, _, err, calls = run_supervised(tmp, longrun, ['exit:0', 'exit:0'])
+        check('supervisor: rc 0 -> no relaunch',
+              rc == 0 and len(calls) == 1 and not lines(err), err)
+        rc, _, err, calls = run_supervised(tmp, ['-p', PROMPT], ['exit:1', 'exit:0'])
+        check('supervisor: no -LisTask -> off, no relaunch, rc 1',
+              rc == 1 and len(calls) == 1 and not lines(err) and 'profile: none' in err, err)
+        rc, _, err, calls = run_supervised(tmp, ['-LisTask', 'longrun'], ['exit:1', 'exit:0'])
+        check('supervisor: longrun without -p <prompt> -> off, no relaunch',
+              rc == 1 and len(calls) == 1 and not lines(err)
+              and 'relaunch: off (no -p <prompt> to relaunch)' in err, err)
+        rc, _, err, calls = run_supervised(tmp, ['-LisRelaunchMax', '1', '-p', PROMPT], ['exit:1'])
+        check('supervisor: -LisRelaunchMax 1 without longrun -> refused, nothing launched',
+              rc != 0 and not calls and 'needs -LisTask longrun' in err, err)
+        rc, _, err, calls = run_supervised(tmp, longrun, ['exit:1'],
+                                           exe=os.path.join(REPO, 'README.md'))
+        check('supervisor: LIS_CLAUDE_EXE outside %TEMP% -> refused, nothing launched',
+              rc != 0 and not calls and 'is not a file under %TEMP%' in err, err)
+        rc, out, err, calls = run_supervised(tmp, longrun + ['-LisPrintArgs'], ['exit:1'])
+        hooks = []
+        try:
+            text = out.decode('utf-8')
+            marker = 'settings JSON (the --settings file):'
+            hooks = json.loads(text[text.index(marker) + len(marker):])['hooks']['SessionStart']
+        except (ValueError, KeyError) as e:
+            err += f' {e}'
+        check('supervisor: -LisPrintArgs launches nothing; facts-inject at compact and startup',
+              rc == 0 and not calls and 'claude-local: relaunch: max 1' in err
+              and [(h['matcher'], 'facts-inject.py' in h['hooks'][0]['command']) for h in hooks]
+              == [('compact', True), ('startup', True)], f'{hooks} {err}')
+
+
 def main():
     if not PWSH:
         print('FAIL  pwsh not found')
@@ -583,8 +867,10 @@ def main():
         test_key_resolvers()
         test_fixed_flags()
         test_restart_window()
+        test_vram_free()
         test_stop_marker()
         test_watchdog(port)
+        test_relaunch()
         if os.path.exists(CSC):
             with tempfile.TemporaryDirectory() as tmp:
                 src = os.path.join(tmp, 'stub.cs')

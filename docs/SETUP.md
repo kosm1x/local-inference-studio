@@ -293,6 +293,16 @@ machine). The log is appended, renamed to `.1` past 50 MB, and each run ends wit
 `register-task.ps1` after moving the repo. Remove the task with
 `pwsh scripts\unregister-task.ps1` (a running server is left alone).
 
+Free VRAM: before each start and each restart serve.ps1 logs `serve.ps1: vram free: <N>
+MiB` (nvidia-smi `memory.free`, one value per GPU), or `serve.ps1: vram free:
+unavailable` when nvidia-smi is missing, fails or hangs past 10 s; the start goes on
+either way. The default model fills nearly the whole card (858 MiB of 16,376 free with
+it loaded in the resilience audit of 2026-10-30; about 1 GB free with the server idle on
+2026-11-04, 688 MiB while a rep ran), so close other GPU apps (games, video tools,
+browsers with GPU acceleration) before a start: a reload after a crash can fail when
+another app took the memory meanwhile. A low figure on the line before a failed start
+points there.
+
 ### 7a. Register the watchdog (operator)
 
 `scripts\register-watchdog.ps1` registers `LocalInferenceStudio-watchdog` for the
@@ -323,6 +333,26 @@ $h = if ((Invoke-WebRequest "$u/" -SkipHttpErrorCheck).Content -match '<html') {
     'HTML' } else { 'nonHTML' }
 "$(& $s $k) $(& $s 'local') $h"
 ```
+
+During a long run, poll the slot and the metrics from a second window, from the repo
+root. serve.ps1 passes `--metrics` (Prometheus text format; the b11868 `--help` says
+"enable prometheus compatible metrics endpoint (default: disabled)"), and both endpoints
+need the per-start key. Expect `200` and `401` for the two status codes. Both are
+UNVERIFIED until the first start with `--metrics`, as are the metric names (llama.cpp
+prefixes them `llamacpp:`, for example `llamacpp:requests_processing` and
+`llamacpp:requests_deferred` for queue depth):
+
+```powershell
+$k = (Get-Content logs\api-key -TotalCount 1).Trim(); $u = 'http://127.0.0.1:8080'
+$a = @{Authorization="Bearer $k"}
+Invoke-RestMethod "$u/slots" -Headers $a | ConvertTo-Json -Depth 4
+$m = (Invoke-WebRequest "$u/metrics" -Headers $a).Content
+$m -split "`n" | Select-String '^llamacpp:'
+"$((Invoke-WebRequest "$u/metrics" -Headers $a -SkipHttpErrorCheck).StatusCode) " +
+    "$((Invoke-WebRequest "$u/metrics" -SkipHttpErrorCheck).StatusCode)"
+```
+
+Repeat it every few minutes while the run goes.
 
 ## 8. Run Claude Code against it (`scripts\claude-local.ps1`)
 
@@ -379,7 +409,13 @@ What a lean session cannot do (`-LisFull` restores these tools and MCP, nothing 
 - task tracking (TodoWrite / Task* tools), NotebookEdit, LSP, Monitor, reading the output
   of a background Bash command, AskUserQuestion, ToolSearch;
 - plan mode (EnterPlanMode / ExitPlanMode; interactive behaviour UNVERIFIED);
-- WebFetch and WebSearch (denied by the settings file in every local session).
+- WebFetch and WebSearch (denied by the settings file in every local session). WebSearch
+  is an Anthropic server-side tool that llama-server cannot serve. WebFetch fetches
+  and converts the page in Claude Code, then runs the prompt over it in a separate
+  model call; only the hostname goes to api.anthropic.com (the domain preflight).
+  Where that extraction call goes (the configured local endpoint) is UNVERIFIED: the
+  docs do not say. The deny keeps it off until the web-access blockers close
+  ([web-access.md](web-access.md)).
 
 Agent and Workflow are denied in EVERY local session, `-LisFull` included, so skills that
 delegate to subagents (`/ship-it`, multi-round-audit, code-review, the `/diagnose` ->
@@ -921,15 +957,18 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   capture: `python -I scripts/hooks/tests/loop-guard_replay.py` (prints SKIP when the
   gitignored capture is absent, as in a fresh clone).
 - SessionStart hook `scripts/hooks/facts-inject.py` (Python 3, stdlib, `python -I`;
-  matcher `compact`, added for `-LisTask longrun` only; ledger T-9). After each
-  compaction it prints the facts file the profile names (`LIS_FACTS_FILE`, looked up in
-  the stdin `cwd`, then in the hook's cwd) as `additionalContext`: a header line, then
+  matchers `compact` and `startup`, added for `-LisTask longrun` only; ledger T-9 and
+  R-W2). After each compaction, and at the start of a session the wrapper relaunched
+  (`LIS_RELAUNCH` set; any other startup gets no output), it prints the facts file the
+  profile names (`LIS_FACTS_FILE`, looked up in the stdin `cwd`, then in the hook's
+  cwd) as `additionalContext`: a header line, then
   the content; over 9,000 UTF-16 units only its last whole lines, said in the header
   (Claude Code moves a string over 10,000 characters to a file and shows a 2,000
   character preview). Every run appends one line to `LIS_FACTS_INJECT_LOG`
   (`%TEMP%\lis-facts-inject-<stamp>.log`, created empty at launch, path in the banner):
   `injected=yes` with the file's lines and bytes, or `injected=no` with a reason (input,
-  unset, missing, empty, oversize or error) and no output. It always exits 0.
+  not-relaunch, unset, missing, empty, oversize or error) and no output. It always
+  exits 0.
   lis-guard denies a Bash command that names the log literally (`lis-facts-inject` or
   `LIS_FACTS_INJECT_LOG`, a read included) and the per-run settings deny Edit and Write
   of `lis-facts-inject-*`; a globbed or computed name still reaches it, so the grader's
@@ -1036,9 +1075,9 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
 All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The
 wrapper options are `-LisContextTokens N` (default 131072, minimum 1024; set it to the
 server's `-Ctx` when that is smaller), `-LisFull`, `-LisNoGuard`, `-LisNoLoopGuard`,
-`-LisTask NAME` and `-LisPrintArgs`. Success: Claude Code answers and the server log
-shows the requests. A `[claude-code:unrecognized_model] {"model":"local"}` line is
-harmless.
+`-LisTask NAME`, `-LisRelaunchMax N` (longrun, below) and `-LisPrintArgs`. Success:
+Claude Code answers and the server log shows the requests. A
+`[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
 
 Task profiles (trust ladder): `-LisTask review|edit|longrun`. You pick the profile when
 you launch; nothing in the session can change it, and every test record states it.
@@ -1057,6 +1096,41 @@ session ends:
   that the model appends verified figures to, so a compaction cannot lose them. It also
   registers the facts-inject hook (step 8) and denies Edit and Write of
   `lis-facts-inject-*`.
+  Session supervisor (ledger R-W2, T-5; a session decision of 2026-11-04 that the
+  operator can overturn, not a ruling): with `-p <prompt>`, a claude exit with rc != 0
+  relaunches one fresh `-p` session, never `--continue` or `--resume` (an autocompact
+  thrash is what killed the first one, and Claude Code says to start fresh).
+  `-LisRelaunchMax N` (0 to 3) bounds it: default 1 under longrun, 0 otherwise, and N >
+  0 needs longrun. The relaunch keeps the arguments, settings and env, sets
+  `LIS_RELAUNCH=<n>` and `LIS_RELAUNCH_RC=<rc>`, and puts one line before the prompt
+  ("Relaunch <n> after the previous session exited (rc <rc>). The facts file <name> in
+  the working directory holds the progress so far: run the test command first and append
+  a CHECK line before any edit, then continue from its last NEXT line."). stderr gets
+  `claude-local: relaunch n=<n> rc=<rc> reason=thrash|exit` (thrash when the `result`
+  field of the dead session's last stream-json result record on stdout, or its last 50
+  stderr lines, hold "Autocompact is thrashing"; another stdout line quoting it, such as
+  a tool result, does not count), and the wrapper exits with the last session's rc. A
+  result record is a stdout line that starts with `{`, contains `"type":"result"` and
+  parses with type `result` (Claude Code writes that key late in the line, after
+  `duration_api_ms` and the rest); a line that does not parse is checked by substring
+  for the subtype and the message instead. A session whose last result record has
+  subtype `error_max_turns` is not relaunched (a relaunch would double the turn budget);
+  stderr gets `claude-local: relaunch skipped rc=<rc> reason=max_turns`. A `--debug-file
+  <path>` argument becomes `<path minus extension>.<session><extension>` for the
+  relaunch (`<base>.debug.log` -> `<base>.debug.2.log`); the `--debug-file=<path>` form
+  is not rewritten, and both sessions then write that one file. rc 0 never relaunches,
+  and rc -1 (a claude killed by .NET Process.Kill) never relaunches; a kill that sets
+  another code (taskkill /F gives 1, UNVERIFIED) does; the wrapper has no timeout of its
+  own, and `bench/ladder/run.ps1`'s timeout kills the wrapper's whole tree. While the
+  supervisor is armed, claude's stdout and stderr pass through the wrapper line by line
+  as UTF-8 with LF line ends; otherwise they go straight to the console. The banner says
+  `relaunch: max N` or why it is off. The relaunch exists only under `-LisTask longrun`
+  with a `-p` prompt (it resumes from the longrun facts file); an interactive session
+  or another profile gets none, so launch an unattended task that way.
+  `LIS_CLAUDE_EXE` is a test-only override
+  (`scripts/tests/resilience_test.py`): an executable under `%TEMP%` that runs instead
+  of claude, with no server preflight; any other path is refused, and
+  `bench/ladder/run.ps1` strips the variable from a rep.
 
 Without `-LisTask` no profile applies; stderr shows `profile: none`. `-LisTask` refuses
 `-LisFull`, `-LisNoGuard`, `--tools`, `--settings`, system-prompt options, permission

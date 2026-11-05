@@ -9,8 +9,14 @@
   --chat-template-file config/chat-templates/qwen3.8-27b.jinja and no MTP,
   plus -fa on, -np 1,
   Qwen sampling, --host/--port, --reasoning-format auto, --reasoning off, --api-key-file
-  logs/api-key, --no-webui and --no-mmproj (the vision projector is skipped unless
-  -WithMmproj).
+  logs/api-key, --no-webui, --metrics and --no-mmproj (the vision projector is skipped
+  unless -WithMmproj).
+  --metrics serves the Prometheus /metrics endpoint (KV fill, queue depth); like /slots it
+  needs the per-start key (UNVERIFIED until the next start). Before each start of
+  llama-server (the first and every restart) the script logs "serve.ps1: vram free: <N>
+  MiB" from nvidia-smi --query-gpu=memory.free (one value per GPU, comma-separated), or
+  "serve.ps1: vram free: unavailable" when nvidia-smi is missing, fails, prints no number
+  or takes over 10 s; the start goes on either way.
   API key: each start of this script writes a new random key (32 random bytes as 64 hex
   characters) to logs/api-key under the repo root (gitignored; the file is recreated with
   an ACL that grants only the current user) and passes the file with --api-key-file, so
@@ -195,6 +201,7 @@ try {
         '--reasoning', $Reasoning.ToLowerInvariant(),
         '--api-key-file', $keyFile,
         '--no-webui',
+        '--metrics',
         '--host', '127.0.0.1', '--port', "$Port"
     )
     if (-not $WithMmproj) { $cmdArgs += '--no-mmproj' }
@@ -230,6 +237,23 @@ try {
     function Write-ServeLog([string]$Line) {
         if ($LogFile) { Add-Content -Path $LogFile -Value "[$(Get-Date -Format o)] $Line" } else { Write-Host $Line }
     }
+    # Free VRAM per GPU before each start (resilience audit W4: 858 MiB free once, so a
+    # reload after a crash can fail). A hung nvidia-smi is left behind after the timeout.
+    function Get-VramFree([int]$TimeoutMs = 10000) {
+        try {
+            $smi = Get-Command nvidia-smi -CommandType Application -ErrorAction Stop | Select-Object -First 1
+            $si = [Diagnostics.ProcessStartInfo]::new($smi.Source, '--query-gpu=memory.free --format=csv,noheader,nounits')
+            $si.UseShellExecute = $false
+            $si.RedirectStandardOutput = $true
+            $p = [Diagnostics.Process]::Start($si)
+            if (-not $p.WaitForExit($TimeoutMs) -or $p.ExitCode -ne 0) { return 'unavailable' }
+            $mib = @($p.StandardOutput.ReadToEnd() -split '\r?\n' | ForEach-Object Trim | Where-Object { $_ })
+            if ($mib.Count -and -not @($mib | Where-Object { $_ -notmatch '^\d+$' }).Count) {
+                return (@($mib | ForEach-Object { "$_ MiB" }) -join ', ')
+            }
+        } catch { }
+        'unavailable'
+    }
     # llama-server reads these variables as flags: they would get round the refusal above.
     $envOverrides = @('LLAMA_ARG_AGENT', 'LLAMA_ARG_TOOLS', 'LLAMA_ARG_CONNECT', 'LLAMA_ARG_CONNECT_CODE',
         'LLAMA_ARG_MCP_SERVERS_CONFIG', 'LLAMA_ARG_MCP_SERVERS_JSON', 'LLAMA_ARG_UI_MCP_PROXY', 'LLAMA_ARG_STATIC_PATH',
@@ -239,6 +263,7 @@ try {
     if ($cleared) { Write-ServeLog "serve.ps1: cleared $($cleared.Count) llama-server env overrides ($($cleared -join ', '))" }
     $restarts = @()
     while ($true) {
+        Write-ServeLog "serve.ps1: vram free: $(Get-VramFree)"
         if ($LogFile) {
             Add-Content -Path $LogFile -Value "[$(Get-Date -Format o)] $cmdLine"
             & $exe @cmdArgs *>> $LogFile

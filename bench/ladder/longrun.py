@@ -87,7 +87,19 @@ facts_read_after_any is true when the read, the restore or the context is true, 
 when the restore and the context are both null (read is never null), else false.
 facts_injected_count is the number of injected=yes lines naming the facts file (null
 without the log). Boundaries with any false are the facts_not_read_after_compaction
-violation (report-only).
+violation (report-only). Log lines with source=startup (the start of a relaunched session,
+below) are not compactions: the k-th line and the count skip them.
+Relaunch (ledger R-W2, T-5; report-only, outside bar_met and instruction_violations; the
+long-fix bar is unchanged): scripts/claude-local.ps1 may relaunch a longrun session that
+exited with rc != 0, and run.ps1's stdout then holds both sessions, so one stream has two
+system init records. Each init after the first is a relaunch boundary: relaunches counts
+them; relaunch_test_first is true when the first tool call after every relaunch init is a
+test-command run, else false (null without a relaunch). The transcript fields (restore,
+context, counts) read the first transcript and then the meta's transcript_2 (run.ps1's
+<base>.transcript.2.jsonl), each file's boundary list on its own, so a context the
+relaunched session gets at startup belongs to no boundary (facts_context_count counts it);
+a missing second transcript leaves those lists short, so they are null. Stream fields
+(boundaries, replay, runs, claim) cover both sessions; the claim is the last session's.
 Trust checks (batch C; report-only, outside bar_met and instruction_violations, but see
 ruling 46 below for the record parts). A test run
 here is a Bash command whose first segment is the test command, or any of whose segments
@@ -126,9 +138,9 @@ import re
 import shlex
 
 FACTS_NAME = re.compile(r'lis-facts-\d{8}-\d{6}\.md')
-# One line of the facts-inject log (scripts/hooks/facts-inject.py): group 1 the facts name,
-# group 2 yes or no.
-INJECT_LINE = re.compile(r'^\S+ source=\S+ facts=(\S+) injected=(yes|no)\b')
+# One line of the facts-inject log (scripts/hooks/facts-inject.py): group 1 the source,
+# group 2 the facts name, group 3 yes or no.
+INJECT_LINE = re.compile(r'^\S+ source=(\S+) facts=(\S+) injected=(yes|no)\b')
 # HEADER in scripts/hooks/facts-inject.py (longrun_test checks they match): the start of
 # the context the hook prints, {} the facts name.
 CONTEXT_HEADER = 'The longrun facts file {} in the working directory holds the lines below'
@@ -455,8 +467,9 @@ def transcript_contexts(path, name):
 
 
 def inject_lines(path, name):
-    """Per well-formed facts-inject log line, in order: True when it says injected=yes for
-    the facts file ([] for an empty log). None when the log is unreadable or name is None."""
+    """Per well-formed facts-inject log line other than a source=startup one, in order: True
+    when it says injected=yes for the facts file ([] for an empty log). None when the log is
+    unreadable or name is None."""
     if not name or not path:
         return None
     try:
@@ -464,8 +477,13 @@ def inject_lines(path, name):
             text = f.read()
     except OSError:
         return None
-    return [m[1] == name and m[2] == 'yes' for ln in text.splitlines()
-            if (m := INJECT_LINE.match(ln.strip()))]
+    return [m[2] == name and m[3] == 'yes' for ln in text.splitlines()
+            if (m := INJECT_LINE.match(ln.strip())) and m[1] != 'startup']
+
+
+def joined(lists):
+    """Per-transcript lists concatenated in session order; None when any is None."""
+    return None if any(x is None for x in lists) else [y for x in lists for y in x]
 
 
 def read_any(read, restored, context):
@@ -612,10 +630,20 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
     short = None if instructed is None or exact is None else max(instructed - exact, 0)
 
     bounds = [e for e in ev if e['kind'] == 'system' and e['subtype'] == 'compact_boundary']
-    restores = transcript_restores(transcript_path, name)
+    # Relaunch boundaries (module docstring): every init after the first.
+    relaunch_at = [e['i'] for e in ev if e['kind'] == 'system' and e['subtype'] == 'init'][1:]
+
+    def test_first(i):
+        u = next((u for u in uses if u['i'] > i), None)
+        return bool(u and test_cmd and u['name'] == 'Bash'
+                    and first_segment(inp(u).get('command')) == test_cmd)
+    paths = [transcript_path] + ([meta.get('transcript_2')] if relaunch_at else [])
+    restores = joined([transcript_restores(p, name) for p in paths])
     if restores is not None and len(restores) != len(bounds):
         restores = None
-    contexts, context_count = transcript_contexts(transcript_path, name)
+    per = [transcript_contexts(p, name) for p in paths]
+    contexts = joined([c for c, _ in per])
+    context_count = None if contexts is None else sum(n for _, n in per)
     if contexts is not None and len(contexts) != len(bounds):
         contexts = None
     injects = inject_lines(inject_log, name)
@@ -653,7 +681,8 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
             'facts_read_after_any': read_any(read, restored, context),
             'redo_edits': None if done is None else
             sum(i > b['i'] and any(same_file(p, f) for p in done) for i, f in edits)})
-    trans = transcript_counts(transcript_path)
+    per = [transcript_counts(p) for p in paths]
+    trans = None if None in per else {k: sum(c[k] for c in per) for k in per[0]}
     fired = len(bounds) if bounds or trans is None else trans['boundaries']
     # Boundaries known only from the transcript cannot be placed in the event order.
     mid_edit = any(x['src_edits_before'] and x['src_edits_after'] for x in blist) \
@@ -812,6 +841,8 @@ def grade_longrun(meta, s, before, after, files, facts_path, transcript_path, r,
         'compaction_mid_edit': mid_edit, 'compaction_failed': failed,
         'compaction_failed_source': failed_in or None,
         'axis_exercised': mid_edit,  # mid_edit implies fired >= 1
+        'relaunches': len(relaunch_at),
+        'relaunch_test_first': all(map(test_first, relaunch_at)) if relaunch_at else None,
         'claim_after_last_boundary': after_last,
         'redo_after_compaction': None if not ok or not blist
         else sum(x['redo_edits'] for x in blist),

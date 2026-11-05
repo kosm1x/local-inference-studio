@@ -1,5 +1,6 @@
-"""facts-inject: SessionStart hook (matcher compact) that puts the longrun facts file back
-into context after each compaction (audit ledger T-9).
+"""facts-inject: SessionStart hook (matchers compact and startup) that puts the longrun facts
+file back into context after each compaction (audit ledger T-9) and at the start of a session
+the wrapper relaunched (ledger R-W2, T-5).
 
 scripts/claude-local.ps1 -LisTask longrun sets LIS_FACTS_FILE (the facts file name) and
 LIS_FACTS_INJECT_LOG (a log path) and registers this hook. The name is resolved against
@@ -10,6 +11,10 @@ where <text> is a header line naming the file and then its content. Otherwise th
 no output: stdin that is not a JSON object (reason input), LIS_FACTS_FILE unset (unset),
 no such file (missing), an empty one (empty), or a last line that alone exceeds the cap
 (oversize).
+Startup (stdin source "startup"): only a session scripts/claude-local.ps1 relaunched
+(LIS_RELAUNCH set, non-empty) gets the facts file, the same way as after a compaction (same
+header start, "as the previous session left it" in place of "as written before this
+compaction"); any other startup gets no output and the log reason not-relaunch.
 
 Cap: the hooks reference says "If a value exceeds 10,000 characters, Claude Code writes
 the text to a file in the session directory and passes Claude the file path with a
@@ -22,8 +27,9 @@ Every run appends one line to LIS_FACTS_INJECT_LOG when it is set (after the out
   <UTC ISO time> source=<source or trigger> facts=<name or -> injected=yes lines=<n>
       bytes=<n> truncated=yes|no                                      (one line)
   <UTC ISO time> source=<source or trigger> facts=<name or -> injected=no reason=<reason>
-lines and bytes are those of the whole file; reason is input, unset, missing, empty,
-oversize or error. bench/ladder/longrun.py reads the k-th line as the k-th compaction.
+lines and bytes are those of the whole file; reason is input, not-relaunch, unset, missing,
+empty, oversize or error. bench/ladder/longrun.py reads the k-th line other than a
+source=startup one as the k-th compaction.
 Any error gives exit 0 (a hook failure must not block the session). Stdlib only, run with
 `python -I`. ASCII only.
 """
@@ -77,6 +83,9 @@ def inject(raw_in):
     if not isinstance(data, dict):
         return {}, None, 'no reason=input', None
     name = os.environ.get('LIS_FACTS_FILE')
+    startup = data.get('source') == 'startup'
+    if startup and not os.environ.get('LIS_RELAUNCH'):
+        return data, os.path.basename(name) if name else None, 'no reason=not-relaunch', None
     if not name:
         return data, None, 'no reason=unset', None
     base = os.path.basename(name)
@@ -92,8 +101,8 @@ def inject(raw_in):
     if not kept:
         return data, base, 'no reason=oversize', None
     n = len(text.splitlines())
-    head = (HEADER.format(base)
-            + f' ({n} lines, {len(raw)} bytes), as written before this compaction.')
+    when = 'as the previous session left it' if startup else 'as written before this compaction'
+    head = HEADER.format(base) + f' ({n} lines, {len(raw)} bytes), {when}.'
     if cut:
         head += (f' Only its last {len(kept.splitlines())} lines fit here; the first lines '
                  'are in the file.')

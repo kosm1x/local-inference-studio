@@ -35,6 +35,9 @@ COUNT['pass'].append(re.compile(r'(?i)\b(\d+)\s*/\s*\d+\s+(?:tests?\s+)?pass'))
 RUBRIC = re.compile(r'(?i)bench[\\/]+ladder|gen_longfix|longrun\.py|stalefig')
 HOOKS = (('loop_guard', 'loop guard:'), ('lis_guard', 'lis-guard:'))
 PERMISSION = re.compile(r'(?i)permission|denied|not allowed|requires approval')
+# The benign notice on stderr of every local session (resilience audit R3), exact text.
+UNRECOGNIZED_MODEL = '[claude-code:unrecognized_model] {"model":"local","query_source":"sdk"}'
+CONNECTORS = 'claude.ai connectors are disabled'
 
 
 def read(path, default=None):
@@ -43,6 +46,24 @@ def read(path, default=None):
             return f.read()
     except OSError:
         return default
+
+
+def stderr_lines(text):
+    """(count of the exact UNRECOGNIZED_MODEL line, the other stderr lines). Left out: blank
+    lines, the wrapper banner (`claude-local: ` lines and the indented lines under them)
+    and the claude.ai connectors notice, as bench/loop/run.ps1's stderr_other."""
+    unrecognized, other, banner = 0, [], False
+    for ln in (text or '').splitlines():
+        s = ln.strip()
+        if ln.startswith('claude-local: ') or (banner and s and ln.startswith('  ')):
+            banner = True
+            continue
+        banner = False
+        if s == UNRECOGNIZED_MODEL:
+            unrecognized += 1
+        elif s and CONNECTORS not in s:
+            other.append(s)
+    return unrecognized, other
 
 
 def tap(text):
@@ -88,9 +109,11 @@ def clip(text, limit=20000):
 
 def stream(text):
     """Events of the stream-json stdout: tool uses, tool results, final envelope. 'events'
-    keeps them in stream order (tool_use, tool_result, system, assistant_text, result)."""
+    keeps them in stream order (tool_use, tool_result, system, assistant_text, result).
+    'envelope' is the last result record, 'results' every one (a relaunched session adds
+    one per session)."""
     out = {'envelope': None, 'last_text': None, 'tool_use': {}, 'tool_names': {}, 'commands': {},
-           'inputs': [], 'errors': [], 'lines': 0, 'bad_lines': 0, 'events': []}
+           'inputs': [], 'errors': [], 'lines': 0, 'bad_lines': 0, 'events': [], 'results': []}
 
     def event(kind, **kw):
         out['events'].append(dict({'i': len(out['events']), 'kind': kind, 'name': None,
@@ -110,6 +133,7 @@ def stream(text):
             continue
         if e.get('type') == 'result':
             out['envelope'] = e
+            out['results'].append(e)
             event('result', subtype=e.get('subtype'),
                   text=e.get('result') if isinstance(e.get('result'), str) else None)
             continue
@@ -265,11 +289,18 @@ def grade(base):
     # longrun: a test run is any command whose first segment is the test command.
     errors = [(t, x, lr.first_segment(c)) for t, x, c in s['errors']] if lr else s['errors']
     deny, samples = denials(errors, test_cmd)
-    u = env.get('usage') or {}
-    tin = [u[k] for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')
+    # Counters sum over every result record (one per session; a relaunch adds one); is_error,
+    # subtype and permission_denials stay the last record's. One record: the same values.
+    def summed(vals):
+        nums = [v for v in vals if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        return sum(nums) if nums else None
+    usages = [r.get('usage') if isinstance(r.get('usage'), dict) else {} for r in s['results']]
+    tin = [u[k] for u in usages
+           for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')
            if isinstance(u.get(k), int)]
     banner = next((ln.strip() for ln in stderr.splitlines()
                    if ln.startswith('claude-local: profile:')), None)
+    unrecognized, stderr_other = stderr_lines(stderr)
     argv = meta.get('argv') or []
     r = {
         'kind': 'ladder', 'case': meta.get('case'), 'stamp': meta.get('stamp'),
@@ -277,6 +308,7 @@ def grade(base):
         'profile': argv[argv.index('-LisTask') + 1] if '-LisTask' in argv[:-1] else None,
         'loop_guard': '-LisNoLoopGuard' not in argv and '-LisNoGuard' not in argv,
         'wrapper_banner': banner,
+        'stderr_unrecognized_model': unrecognized, 'stderr_other': stderr_other[:20],
         'claude_version': meta.get('claude_version'), 'node_version': meta.get('node_version'),
         'server': meta.get('server'), 'prompt': meta.get('prompt'), 'argv': argv,
         'max_turns': meta.get('max_turns'), 'exit_code': meta.get('exit_code'),
@@ -306,9 +338,11 @@ def grade(base):
         'tool_use': s['tool_use'],
         'rubric_seen': any(RUBRIC.search(i) for i in s['inputs']),
         'is_error': env.get('is_error'), 'subtype': env.get('subtype'),
-        'num_turns': env.get('num_turns'), 'duration_ms': env.get('duration_ms'),
+        'num_turns': summed(r.get('num_turns') for r in s['results']),
+        'duration_ms': summed(r.get('duration_ms') for r in s['results']),
         'tokens_in_total': sum(tin) if tin else None,
-        'output_tokens': u.get('output_tokens'),
+        'output_tokens': summed(u.get('output_tokens') for u in usages),
+        'result_records': len(s['results']),
         'stream_lines': s['lines'], 'stream_bad_lines': s['bad_lines'],
         'verify_doc': verify_doc(claim_path, meta.get('work_dir')) if claim is not None
         else {'exit': None, 'fail': None, 'lines': ['not run: no claim text']},

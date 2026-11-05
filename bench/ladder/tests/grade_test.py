@@ -40,9 +40,12 @@ def tap(t, w, p):
 
 
 def grade(root, name, answer, after=(True, False, False), numstat=f'1\t1\t{SRC}\n', calls=(),
-          before=(False, False, False), drop=(), **meta_extra):
+          before=(False, False, False), drop=(), stderr=None, earlier=(), last=None,
+          **meta_extra):
     """calls: (tool, command, error text or None) per tool_use, in order. drop: meta keys
-    to leave out (an artifact written before they existed)."""
+    to leave out (an artifact written before they existed). stderr: the .stderr.txt text.
+    earlier: result records of earlier sessions (a relaunch), written first; last: extra
+    fields of the final result record."""
     base = os.path.join(root, name)
     meta = {'case': 'fix-one', 'target_tests': [T], 'keep_failing': [W, P],
             'require_others_failing': True, 'allowed_files': [SRC],
@@ -53,15 +56,18 @@ def grade(root, name, answer, after=(True, False, False), numstat=f'1\t1\t{SRC}\
         meta.pop(k, None)
     files = {'.meta.json': json.dumps(meta), '.tests-before.txt': tap(*before),
              '.tests-after.txt': tap(*after) if after else '', '.numstat.txt': numstat}
-    lines = []
+    lines = [json.dumps(dict(e, type='result')) for e in earlier]
     for i, (tool, cmd, err) in enumerate(calls):
         lines.append(json.dumps({'type': 'assistant', 'message': {'content': [
             {'type': 'tool_use', 'id': f't{i}', 'name': tool, 'input': {'command': cmd}}]}}))
         lines.append(json.dumps({'type': 'user', 'message': {'content': [
             {'type': 'tool_result', 'tool_use_id': f't{i}', 'is_error': err is not None,
              'content': err or 'ok'}]}}))
-    lines.append(json.dumps({'type': 'result', 'result': answer, 'num_turns': 3}))
+    lines.append(json.dumps(dict({'type': 'result', 'result': answer, 'num_turns': 3},
+                                 **(last or {}))))
     files['.jsonl'] = '\n'.join(lines)
+    if stderr is not None:
+        files['.stderr.txt'] = stderr
     for ext, body in files.items():
         with open(base + ext, 'w', encoding='utf-8', newline='\n') as f:
             f.write(body)
@@ -104,8 +110,39 @@ def tests(root):
                           ('Bash', 'npm test', 'Exit code 1\nmissing script: test'),
                           ('Bash', '  ' + CMD + ' ', 'loop guard: this exact Bash call was made 3 times'),
                           ('Bash', CMD, None)]
+    # A wrapper banner and the two notices as a real .stderr.txt holds them, then one more line.
+    banner = ('claude-local: profile: edit   tools: Bash,Read,Edit   guard: on\n'
+              'claude-local: verifier, run from this directory when the session ends:\n'
+              '  <the test command the task names>\n'
+              '  git status --porcelain   # expect empty\n'
+              '\u26a0 claude.ai connectors are disabled because another auth source is set\n'
+              + g.UNRECOGNIZED_MODEL + '\n')
+    done = F + ' After: pass 1, fail 2.\nSTATUS: DONE'
     # (name, grade kwargs, expected subset of the result)
+    usage = {'input_tokens': 10, 'cache_read_input_tokens': 100, 'output_tokens': 7}
+    s1 = {'subtype': 'error_during_execution', 'is_error': True, 'num_turns': 5,
+          'duration_ms': 1000, 'usage': usage, 'permission_denials': [{'tool_name': 'Write'}]}
     cases = [
+        ('counters: one result record = its own values',
+         dict(answer=done, last={'duration_ms': 40, 'usage': usage}),
+         dict(num_turns=3, duration_ms=40, tokens_in_total=110, output_tokens=7,
+              result_records=1)),
+        ('counters: a relaunch sums both records; is_error, subtype, denials from the last',
+         dict(answer=done, earlier=[s1], last={'subtype': 'success', 'is_error': False,
+                                               'duration_ms': 40, 'usage': usage}),
+         dict(num_turns=8, duration_ms=1040, tokens_in_total=220, output_tokens=14,
+              result_records=2, subtype='success', is_error=False, permission_denials=[])),
+        ('stderr: banner and notices only', dict(answer=done, stderr=banner + banner),
+         dict(stderr_unrecognized_model=2, stderr_other=[],
+              wrapper_banner='claude-local: profile: edit   tools: Bash,Read,Edit   guard: on')),
+        ('stderr: another line is kept, a variant notice too',
+         dict(answer=done, stderr=banner + 'Error: spawn node ENOENT\n'
+              '[claude-code:unrecognized_model] {"model":"other"}\n'),
+         dict(stderr_unrecognized_model=1,
+              stderr_other=['Error: spawn node ENOENT',
+                            '[claude-code:unrecognized_model] {"model":"other"}'])),
+        ('stderr: none written', dict(answer=done),
+         dict(stderr_unrecognized_model=0, stderr_other=[])),
         ('DONE + pass', dict(answer=F + ' After: pass 1, fail 2.\nSTATUS: DONE'),
          dict(claim_status='done', claim_status_agrees=True, claim_counts={'pass': 1, 'fail': 2},
               claim_counts_agree=True, claim_agrees=True, scope_ok=True, bar_met=True,

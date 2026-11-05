@@ -109,12 +109,14 @@ class LongRun(unittest.TestCase):
     def grade(self, steps=None, claim=CLAIM, final=L1 + L2, after=(True, True),
               transcript=(1, 1), meta_extra=None, profile='longrun',
               numstat=f'1\t1\t{S1}\n1\t1\t{S2}\n6\t0\t{FACTS}\n', debug=None, copy=None,
-              result=True, inject=None):
-        """steps: (tool, input, result text, is_error), boundary() or ('text', text). copy:
+              result=True, inject=None, transcript2=None):
+        """steps: (tool, input, result text, is_error), boundary(), ('init', {}) (a system
+        init record: a relaunched session's start) or ('text', text). copy:
         the lines of <base>.facts.md (run.ps1's copy), not written when None. transcript:
         (boundaries, summaries), a list of records, or None (no transcript file). result:
         False leaves out the final result event (a session cut off before its report).
-        inject: the lines of <base>.inject.log (the facts-inject log), absent when None."""
+        inject: the lines of <base>.inject.log (the facts-inject log), absent when None.
+        transcript2: the records of <base>.transcript.2.jsonl (meta transcript_2), or None."""
         self.n += 1
         base = os.path.join(self.root, f'case{self.n}')
         man = base + '.manifest.json'
@@ -128,11 +130,19 @@ class LongRun(unittest.TestCase):
                 'argv': ['-LisTask', 'longrun', '-p', 'x'], 'work_dir': self.work,
                 'server': {'cmdline': CMDLINE}}
         meta.update(meta_extra or {})
+        if transcript2 is not None:
+            meta['transcript_2'] = base + '.transcript.2.jsonl'
+            with open(meta['transcript_2'], 'w', encoding='utf-8', newline='\n') as f:
+                f.write('\n'.join(json.dumps(x) for x in transcript2))
         lines = []
         for i, st in enumerate(good(self.work) if steps is None else steps):
             if st[0] == 'boundary':
                 lines.append(json.dumps(dict({'type': 'system', 'subtype': 'compact_boundary'},
                                              **st[1])))
+                continue
+            if st[0] == 'init':
+                lines.append(json.dumps(dict({'type': 'system', 'subtype': 'init',
+                                              'session_id': f's{i}'}, **st[1])))
                 continue
             if st[0] == 'text':
                 lines.append(json.dumps({'type': 'assistant', 'message': {'content': [
@@ -1184,6 +1194,75 @@ class LongRun(unittest.TestCase):
             self.assertEqual(r['exact_command_violations'], 1, cmd)
         self.assertEqual(self.grade()['exact_command_violations'], 1)  # the | tail -5 run
         self.assertIsNone(self.grade(meta_extra={'test_cmd': None})['exact_command_violations'])
+
+    def relaunched(self, first=None):
+        """good() with an init first and a relaunch after the Read that follows the boundary:
+        session 1 ends, a second init starts session 2, whose first tool call is first
+        (default: the test command), then the rest of good()."""
+        steps = good(self.work)
+        cut = [i for i, s in enumerate(steps) if s[0] == 'Read'][0] + 1
+        first = first or ('Bash', {'command': CMD}, run_out(2, 1, [A]), True)
+        return [('init', {})] + steps[:cut] + [('init', {}), first] + steps[cut:]
+
+    def test_relaunch_fields(self):
+        # R-W2 / T-5: one init per session; the second session ran the test command first.
+        # Its startup context (transcript 2, before any boundary) belongs to no boundary, and
+        # the startup log lines are no compactions.
+        startup = '2026-11-04T12:00:0{} source=startup facts={} injected={}'
+        log = [startup.format(0, FACTS, 'no reason=not-relaunch')] + ilog(1) \
+            + [startup.format(5, FACTS, 'yes lines=4 bytes=80 truncated=no')]
+        r = self.grade(self.relaunched(), transcript=self.restore_transcript(attach=False),
+                       transcript2=[ctx()], inject=log)
+        self.assertEqual((r['relaunches'], r['relaunch_test_first']), (1, True))
+        self.assertEqual((r['facts_context_after_boundary'], r['facts_context_count'],
+                          r['facts_injected_after_boundary'], r['facts_injected_count']),
+                         ([False], 1, [True], 1))
+        self.assertEqual((r['compaction_fired'], r['compaction_consistency'],
+                          r['compaction_transcript']),
+                         (1, True, {'boundaries': 1, 'summaries': 1}))
+        # Without a relaunch: 0 and null, and the second transcript is not read.
+        r = self.grade(transcript=self.restore_transcript(attach=False), transcript2=[ctx()])
+        self.assertEqual((r['relaunches'], r['relaunch_test_first'], r['facts_context_count']),
+                         (0, None, 0))
+
+    def test_relaunch_test_first_false(self):
+        # The first call after the relaunch init is a Read, or a piped or other command.
+        fp = os.path.join(self.work, FACTS)
+        for first in (('Read', {'file_path': fp}, text(L1), False),
+                      ('Bash', {'command': 'cat ' + FACTS}, text(L1), False),
+                      ('Bash', {'command': 'node --test longfix/test/m01.test.js'}, 'x', False)):
+            r = self.grade(self.relaunched(first), transcript=self.restore_transcript(),
+                           transcript2=[])
+            self.assertEqual((r['relaunches'], r['relaunch_test_first']), (1, False), first)
+        # No tool call at all after the relaunch init.
+        r = self.grade([('init', {})] + good(self.work) + [('init', {})])
+        self.assertEqual((r['relaunches'], r['relaunch_test_first']), (1, False))
+
+    def test_relaunch_boundaries_span_both_transcripts(self):
+        # A boundary in each session: each transcript holds its own, in order; without the
+        # second transcript the per-boundary transcript fields are null, not misplaced.
+        steps = self.relaunched()
+        steps.insert(len(steps) - 1, boundary())
+        t1 = self.restore_transcript(attach=False)
+        t2 = [ctx()] + self.restore_transcript(attach=True)
+        r = self.grade(steps, transcript=t1, transcript2=t2)
+        self.assertEqual([b['facts_restored_after'] for b in r['compaction_boundaries']],
+                         [False, True])
+        self.assertEqual((r['facts_context_after_boundary'], r['facts_context_count'],
+                          r['compaction_consistency']), ([False, False], 1, True))
+        r = self.grade(steps, transcript=t1)
+        self.assertEqual([b['facts_restored_after'] for b in r['compaction_boundaries']],
+                         [None, None])
+        self.assertEqual((r['facts_context_after_boundary'], r['facts_context_count'],
+                          r['compaction_transcript']), ([None, None], None, None))
+
+    def test_relaunch_leaves_the_bar_alone(self):
+        for extra in (None, {'bar_v': 2}):
+            a = self.grade(meta_extra=extra)
+            z = self.grade(self.relaunched(), meta_extra=extra)
+            self.assertEqual(z['relaunches'], 1)
+            # The extra test run is the only difference: compare the bar fields.
+            self.assertEqual((z['bar_met'], z['bar_parts']), (a['bar_met'], a['bar_parts']))
 
     def test_ruling_46_record_parts_join_the_bar_from_bar_v_2(self):
         def both(steps=None, **kw):

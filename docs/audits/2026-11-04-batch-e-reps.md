@@ -16,14 +16,18 @@
 |---|---|---|---|---|---|---|---|---|---|
 | 192930 | 96 | 1223.0 | 0 | 72 of 72 | 5 | 5 of 5 (scratch regrade) | true at 5 of 5 | void, see below | `false: record_intact` |
 | 200016 | 77 | 1193.4 | 1 (thrash) | 66 of 72 | 5 | 5 of 5 | true at 1 of 5 (the last) | yes at 5 of 5 | `false: claim_agrees, compaction_ok, record_intact` |
+| 205530 | 115 | 1498.0 | 0 | 72 of 72 | 6 | 6 of 6 | true at 3 of 6 (the last three) | yes at 6 of 6 | `false: record_intact` |
 
-Fields per boundary, in order, for rep 200016: `facts_restored_after` false, false,
-false, false, true; `facts_context_after` true at all five; `facts_injected_after` true
-at all five; `facts_read_after` (a Read of the file) false at all five (the strict Read
-was true at 4 of the 80 boundaries in the 15 older sets). The hook's context is the
-only thing that brought the facts file back at the first four boundaries of that rep,
-which is the case T-9 was opened for (the facts file read first after compaction in
-0 of 50 boundaries). `facts_read_after_boundary_any` is true at all five on both reps.
+Rep 205530 (run after the landing, through the relaunch-capable wrapper, no relaunch)
+adds a third set: the hook's context after all six compactions, the built-in restore
+absent at the first three. Fields per boundary, in order, for rep 200016:
+`facts_restored_after` false, false, false, false, true; `facts_context_after` true at
+all five; `facts_injected_after` true at all five; `facts_read_after` (a Read of the
+file) false at all five (the strict Read was true at 4 of the 80 boundaries in the 15
+older sets). The hook's context is the only thing that brought the facts file back at the
+first four boundaries of that rep, which is the case T-9 was opened for (the facts file
+read first after compaction in 0 of 50 boundaries). `facts_read_after_boundary_any` is
+true at all five on both reps.
 
 Rep 192930 ran while the hook was being changed (the log format gained `injected=`
 mid-rep), so its on-disk `facts_injected_*` fields are void: three log lines are in the
@@ -54,6 +58,11 @@ compaction took 57 % of the wall on 192930, 66 % on 200016 and 50 to 72 % over t
 - The log is report-only: lis-guard denies a Bash command that names it literally and
   the per-run settings deny Edit and Write of it, but a globbed or computed name still
   reaches it. The transcript check does not read the log.
+- Nothing here shows the hook helping a run finish: of the three 65536 reps, 192930 and
+  205530 finished 72 of 72 and 200016 thrash-exited, all with the hook on, and the
+  default 131072 budget compacts 0 times on this fixture. Whether the hook changes
+  outcomes is for the relaunch supervisor (R-W2, T-5) and the supervised multi-hour run
+  (batch G).
 - `facts_context_after` proves the attachment is in the transcript, not that the model
   used it; whether the facts file is honoured after compaction stays measured by
-  `facts_survived` and `redo_after_compaction` (0 on both reps).
+  `facts_survived` and `redo_after_compaction` (0 on all three reps).

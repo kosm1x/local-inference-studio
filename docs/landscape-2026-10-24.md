@@ -36,6 +36,11 @@ Sources: code.claude.com/docs/en/env-vars, /llm-gateway-protocol,
   - Fast mode and the WebFetch domain safety check call api.anthropic.com
     directly.
   - WebSearch is server-side and will not work (UNVERIFIED).
+  - WebFetch fetches and converts the page in Claude Code, then runs the prompt
+    over it in a separate model call; only the hostname goes to api.anthropic.com
+    (the domain check). That the extraction call goes to the configured server is
+    UNVERIFIED: the docs do not say (corrected 2026-11-04 from the web-access prep
+    audit of 2026-10-30; the repo still denies WebFetch, docs/web-access.md).
 - `--bare` skips hooks / skills / MCP / CLAUDE.md;
   `--exclude-dynamic-system-prompt-sections` improves cache reuse. System
   prompt size ~15-25K tokens (UNVERIFIED).

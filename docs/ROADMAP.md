@@ -224,13 +224,16 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (23 LANDED, 8 BUILT, 18 OPEN of 49 on 2026-11-05) in
+owner, fix and proof is in one table (25 LANDED, 8 BUILT, 16 OPEN of 49 on 2026-11-05) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
 - Trustworthiness: FAIL for unsupervised long tasks; PASS WITH WARNINGS for short
   test-gated ones read at STATUS and After.
 - Security: FAIL for enabling web fetch now (blockers B1-B7).
+  S-O3 drops the user `autoMode` rules: without `--permission-mode auto` a lean `-p`
+  session denies what no rule or hook allows; a caller's `--permission-mode auto` is
+  still accepted and the classifier still runs, so the S-B2 ruling stays open.
 - Web access prep: DISARMED until the security blockers close.
 - Counts on disk (T-8): at the audit `bench/results/` held 10 rung-2 (long-fix) sets and
   23 ladder `.jsonl` streams, not the 13 sets and ~35 sessions of the audit brief. On
@@ -297,6 +300,36 @@ Batches (IDs in the ledger):
   day: an unreadable pin table refuses, a check that throws refuses through the log,
   a stop request during the checks stops the start, and the dry runs leave the port
   mutex, the stop request and `-LogFile` alone.
+- User scope (S-O3), 2026-11-05: LANDED. scripts/claude-local.ps1 passes
+  `--setting-sources project,local` in every mode except `-LisFull`; `-LisUserScope`
+  opts user scope back in for one run, and the banner prints `user scope: off (S-O3)`
+  or `user scope: on (<switch>)`. A session decision the operator can overturn, not a
+  ruling: the user-scope allow rules (97 in every ladder debug log, `Bash(rm:*)`,
+  `Bash(kill:*)`, `Bash(sed:*)` among them), deny rules (all four also per-run), hooks,
+  env, model, plugins, `defaultMode` auto and `autoMode` rules no longer apply in a
+  local session: without `--permission-mode auto` a lean `-p` session denies what no
+  launcher rule or hook allows (an interactive session prompts; S-B2 ruling open),
+  `-LisNoGuard` sessions lose the user hooks' kill protection, and the inputs of
+  `bench/perm`, `bench/loop` and `bench/compact` change against earlier runs. Every
+  mode denies Edit and Write of `**/.claude/settings*.json` (audit W4). Ladder reps pass
+  `-LisUserScope` (run.ps1, ruling (19)), so their inputs and `rep_key` stay as before.
+  Also new:
+  `LIS_SESSION_START` (the run's start, ISO UTC) in claude's env and the per-run
+  settings env, for the hooks (S-B4). Proof: `-LisPrintArgs`, resilience_test,
+  gen_blocked_test, 4 mutants red; live proof 2026-11-05 (lean `-p` session from a
+  scratch directory, `bench/results/so3-proof-20261105/`, gitignored): 0
+  `destination 'userSettings'` lines (2 before), 3 `flagSettings`, `python --version`
+  ran with no permission denial, 2 turns, 13.0 s.
+- Inline code and write-then-run (S-B4), 2026-11-05: LANDED. lis-guard denies inline
+  code even when its scan finds nothing (`python -c`, `node -e`, `php -r`, code on
+  stdin, a multi-statement `bash -c` or `pwsh -Command`, ..., also inside groups,
+  if/while bodies and backticks) and a run of a file written in the session: birthtime
+  or mtime after `LIS_SESSION_START` (unset = rule off, never a guess), written earlier
+  in the same command, or not on disk yet; session code runs only through the task's
+  test command. The qa-auditor FAIL (C1, C2, W2, the cap) is folded. Proof:
+  lis-guard_test (fixture commands undecided, the repo-script table unchanged),
+  property test (viii) and the (ix) positive oracle, 27 mutants red; design and the
+  residual class (a text classifier is one layer) in docs/SETUP.md.
 - Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
   cost of the user-scope load (the orientation hook re-injected at every compaction and
   the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the
@@ -312,7 +345,11 @@ Batches (IDs in the ledger):
   Candidate fix: `CLAUDE_CONFIG_DIR` pointed at a repo-owned config directory for the
   launched session (UNVERIFIED that auth and the user-scope deny rules still resolve);
   `--setting-sources project,local` would also drop the user deny rules and hooks. The
-  operator rules.
+  operator rules. S-O3 (2026-11-05) now passes that flag in every mode except
+  `-LisFull`. Verified 2026-11-05: the flag leaves the global CLAUDE.md and rules load
+  in place (the global CLAUDE.md heading appears in 2 records, 3 occurrences, of the
+  S-O3 proof transcript), so the candidate stays `CLAUDE_CONFIG_DIR`
+  (UNVERIFIED); the ruling is still the operator's.
 - Known divergence: the policy text says 131,072 tokens and `Bearer local`; the wrapper
   now gives Claude Code 114,688 and a per-start key; changing the text re-keys the
   stale-figure dry run (ruling needed). The survey's `wsl -d Ubuntu -- ssh` check is now

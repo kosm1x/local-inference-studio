@@ -97,7 +97,8 @@ pwsh bench/loop/run.ps1 -Label gsq-rco-mtp-c65k -LisContextTokens 65536
 
 Parameters: `-Label` (required), `-Reps 3`, `-MaxTurns 40`, `-LisContextTokens`
 (passed to `claude-local.ps1` when given; use the server's `-Ctx` when the server's
-`-Ctx` differs from the wrapper default of 131072), `-TimeoutMin 30` per repetition (the process tree is killed),
+`-Ctx` differs from the bench default of 131072; the wrapper's own default is
+114688), `-TimeoutMin 30` per repetition (the process tree is killed),
 `-WorkRoot %LOCALAPPDATA%\lis-loop`, `-OutDir bench/results`, `-Launcher` (only for a
 dry run with a stub script).
 

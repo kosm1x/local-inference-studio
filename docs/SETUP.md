@@ -442,7 +442,7 @@ absent), and `ANTHROPIC_MODEL` plus the Opus, Sonnet and Haiku
 default aliases to `local`. It unsets `ANTHROPIC_API_KEY` (a real key would be sent to
 the local server) and the `CLAUDE_CODE_SUBAGENT_MODEL*` variables, and passes
 `--settings config\claude-settings.json` (model and subagent model `local`,
-auto-compact at 131072, WebSearch, WebFetch, Agent, Workflow, the PowerShell tool and
+auto-compact at 114688, WebSearch, WebFetch, Agent, Workflow, the PowerShell tool and
 three Playwright MCP tools denied; the wrapper passes a per-run copy in `%TEMP%` with
 the auto-compact value rewritten to `-LisContextTokens`). Why: a global
 `~\.claude\settings.json` that pins cloud models or
@@ -578,8 +578,9 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   admit; in `-p` they are denials (LIVE-UNVERIFIED, V14-class).
   Curl has no allow rule: a read-only curl to the local server runs on the hook's allow
   alone, and with `-LisNoGuard` every curl that no rule decides goes to the classifier.
-  A user-level allow such as `Bash(curl:*)` in `~/.claude/settings.json` still applies,
-  because the wrapper loads user settings: on a machine that has one, any curl that no
+  A user-level allow such as `Bash(curl:*)` in `~/.claude/settings.json` still applies
+  when user settings load (`-LisFull` or `-LisUserScope`; off by default since ledger
+  S-O3, below): on a machine that has one, any curl that no
   ask rule matches runs with or without the hook (VERIFIED 2026-10-25: with the hook on,
   `curl -sS .../health -so out.txt` ran through that rule). Curl file-writing and config
   flags ask: `Bash(curl * -o*)`, `* -O*`, `*--output*`, `*--remote-name*`, `* -D*`,
@@ -805,17 +806,85 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `subprocess`, `exec` or `eval`, and an argv list (`subprocess.run(['git', 'push'])`)
   judged as the shell command it spells. Residuals (no decision, so the rules or the
   classifier decide): code or a command word reached through a variable (`p = home;
-  rmtree(p)`, `c=git; $c push`), code piped to an interpreter on stdin, a second file in
-  `node --test a b`, a string built at run time by means other than literal `+`
-  splicing, `chr`/base64 and globs (`''.join(...)`, `format`, `replace`, arithmetic), and
+  rmtree(p)`, `c=git; $c push`), a second file in `node --test a b`, a string built at
+  run time by means other than literal `+` splicing, `chr`/base64 and globs
+  (`''.join(...)`, `format`, `replace`, arithmetic), and
   a `git apply`/`patch` diff file the hook cannot read (missing, or over the read cap).
+  Inline code and write-then-run (ledger S-B4, 2026-11-05) are judged after the scans
+  above, so a scan hit keeps its own reason. (1) Inline code is denied even when the
+  scan finds nothing: `python|py -c`, `node -e|--eval|-p|--print`, `deno eval`, `bun
+  -e`, `perl|ruby -e`, `pwsh -EncodedCommand`, code on stdin (`python - <<EOF`,
+  `python <<< ...`, `echo ... | python`, `| bash`, `| pwsh -Command -`, `python
+  /dev/stdin`, `bash <(...)`), and a `bash|sh -c` or `pwsh -Command` payload that the
+  read-only grammar does not allow and that is more than one command line (`;`, `&&`,
+  `||` or a newline between statements, a heredoc, `$( )` or a backtick, a PowerShell
+  `{ }` block or `@( )`). A one-line payload (`bash -c 'npm test'`, `pwsh -Command "&
+  git status"`, a pipeline) is judged as its commands. The reason asks for the code in
+  a file under the working directory for review, or the task's existing test command.
+  (2) A run of a file written in this session is denied, naming the file: the file of a
+  script run (`python x.py`, `node x.js`, `bash|sh|zsh|dash|ksh x.sh`, `source x.sh`,
+  `pwsh -File`, `./x.ps1` in a payload), an interpreter's `<` file, a `node -r`,
+  `--import`, `--loader` or `--test-reporter` module, the file of `perl`, `ruby`,
+  `deno run`, `bun`, `tsx`, `php`, `Rscript` or `lua`, and a command word that is a
+  path (`./x.sh`, `.\x.ps1`); a relative path is read under the cwd as `cd`, `pushd`
+  and `Set-Location` move it (a `cd` inside `( )`, `$( )`, backticks or a `-c` or
+  `-Command` payload applies inside it only; one in `{ }`, an `if` body or at the top
+  applies to the later segments, as the shell runs them). "Written in this session" is
+  any of: its `st_birthtime` (`st_ctime` where there is none) or its `st_mtime` is
+  later than env
+  `LIS_SESSION_START`; an earlier segment of the same command writes it, whatever its
+  times (the destination of `cp`, `mv`, `ln`, `install`, `copy`, `move`, `Copy-Item` or
+  `Move-Item`, a `>` or `>>` redirect such as `cat > f.py <<EOF`, or the file of `tee`,
+  `Tee-Object`, `Out-File`, `Set-Content` or `Add-Content`); or it does not exist when
+  the command is judged (a path with a separator or an extension: the same command
+  would have to create it). A command that runs more than 64 files is denied with a
+  reason naming RUN_TARGET_CAP. `LIS_SESSION_START` is an ISO 8601 UTC time that
+  scripts/claude-local.ps1 sets for claude and its hooks (`2026-11-05T03:12:45Z`; up to
+  9 fraction digits, `Z` or `+00:00`). Unset or malformed, rule (2) is off: it never
+  decides on a guess, and a call nothing else decides gets a stderr note that it was
+  not judged. A file created, edited or modified (mtime) after the start counts:
+  Claude Code's Edit tool rewrites a file through a temp file and a rename, which gives
+  it a new birthtime (verified 2026-11-05 on NTFS and ReFS); an in-place write moves
+  the mtime; NTFS tunneling (a name deleted or renamed away and reused within 15 s
+  keeps the old birthtime, seen on this machine's temp volume) still moves the mtime.
+  By design, code the session writes or edits runs only through the task's existing
+  test command. Both rules read groups and compound commands (`( )`, `{ }`, `if`,
+  `while`, `until` and `for` bodies, `!`, backticks) the way they read `$( )`, and
+  `bash -c -- '...'` takes the word after `--`. The fixtures bench/ladder/run.ps1
+  generates before the launch are older than the start: their four test commands and
+  `node --test bench/loop/fixture/test/text.test.js` get no decision (lis-guard_test.py
+  generates the fixtures and checks). Residuals of S-B4 (no decision): a module that a
+  pre-existing file imports (`python -m x`, a session-written module under an old
+  test), `node --test` of a directory or with no file, wrappers the hook does not
+  unwrap (`uv run`, `npx`, `xargs`, `env -S`), npm scripts, a multi-command `cmd /c`
+  payload, `pwsh -wd`, and a `cd` it cannot follow (`$VAR`, `cd -`); a `git checkout`
+  or `pull` that rewrites a file during the session gives it new times (denied), and
+  so does a copied tree (`cp -r fixture work && node --test work/...`: the copies are
+  session-written). A `node x` target is judged as the file node loads (`x.js`,
+  `x.mjs`, `x.cjs`, `x.json`, `x/index.js`).
+  The residual class of S-B4 (audit 2026-11-05, W1), documented as a class rather than
+  chased one shape at a time: a run the text does not name as a file path (a glob,
+  brace, `$PWD` or `$(pwd)` path, an NTFS stream such as `python new.py::$DATA`, a `0<`
+  or other fd redirect, an extension-less target such as `cmd /c new` or `python
+  tdir`, a Git Bash root path such as `/tmp/x.py`), code injected through the
+  environment (`NODE_OPTIONS=--require=...`, `PYTHONPATH=. python -m x`), `exec -a`,
+  `builtin`, `node --import=data:...`, awk
+  `system()` or sed `e`, `find -exec`, `git -c core.pager=...`, a writer outside the
+  list above rewriting an existing file in the same command (`sed -i`, `curl -o`), and
+  file times set back (`touch -d`). The governing fact: lis-guard is a text classifier
+  and one layer. Since S-O3 a lean `-p` session treats a call that no hook or rule
+  decides as a deny (the user `autoMode` rules no longer load; an interactive session
+  prompts, and a caller's `--permission-mode auto` still runs the classifier), so these
+  shapes are refused there; a `-LisUserScope` rep loads the user's allow rules, which
+  can run them.
   Residuals the hook allows or leaves open: a recursive search of the repo or another
   non-home directory (`grep -rn KEY .`), `git grep`, `git config --list`, `git remote
   -v` (a token embedded in a remote URL shows), `/proc/self/cmdline`, using an alias
   that already exists (`git p`), `git remote add`, `git bundle create`, `deno run -A`,
   a plain `curl https://host` that sends no data, a path fed through `xargs` or a `while
-  read` loop, a script fed on stdin or through process substitution (`bash < x.sh`,
-  `bash <(curl ...)`), `./up` without its extension in a PowerShell payload,
+  read` loop, a pre-existing script fed on stdin (`bash < x.sh`, not content-scanned;
+  process substitution is denied, S-B4), `./up` without its extension in a PowerShell
+  payload,
   `~/.wslconfig`, and `git config --get remote.origin.url`.
   Credential files outside the named list get no decision or a read-only allow
   (`~/.m2/settings.xml`, `~/.gitconfig`, `~/.config/hub`, `~/.yarnrc.yml`, editor state
@@ -1203,9 +1272,9 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   tool's output or a script's content.
 
 All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The
-wrapper options are `-LisContextTokens N` (default 131072, minimum 1024; set it to the
+wrapper options are `-LisContextTokens N` (default 114688, minimum 1024; set it to the
 server's `-Ctx` when that is smaller), `-LisFull` (refused with web access, above),
-`-LisNoGuard`, `-LisNoLoopGuard`,
+`-LisNoGuard`, `-LisNoLoopGuard`, `-LisUserScope` (user scope on, below),
 `-LisTask NAME`, `-LisRelaunchMax N` (longrun, below) and `-LisPrintArgs`. Success:
 Claude Code answers and the server log shows the requests. A
 `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
@@ -1273,6 +1342,58 @@ In every profile, with or without `-LisTask`, the wrapper refuses `--settings`,
 `--settings '{"disableAllHooks":true}'` reached claude before. A prompt is not checked.
 `-LisPrintArgs` prints the claude arguments and settings JSON and exits without
 starting claude.
+
+User scope (ledger S-O3; a session decision of 2026-11-05 that the operator can
+overturn, not a ruling): every mode except `-LisFull` passes `--setting-sources
+project,local`, so `~\.claude\settings.json` does not load in a local session. Its allow
+rules ran commands that no launcher rule allows: the debug log of every ladder run up to
+2026-11-04 shows 97 rules loaded to `userSettings`, `Bash(rm:*)`, `Bash(mv:*)`,
+`Bash(kill:*)`, `Bash(pkill:*)`, `Bash(sed:*)` and `Bash(find:*)` among them. Its four
+deny rules (`.env`, `~/.ssh`, `~/.aws` reads) are also in the per-run settings. Gone
+with them: the operator's global hooks, env, model, enabled plugins,
+`permissions.defaultMode` (auto) and `autoMode` rules. The working directory's project
+and local settings and the per-run `--settings` file still load. Consequences:
+
+- The user `autoMode` rules no longer load. Without `--permission-mode auto` a lean `-p`
+  session denies what no launcher rule or hook allows (an interactive session prompts).
+  A caller's `--permission-mode auto` is still accepted (`bench/perm` and
+  `bench/compact` pass it) and the classifier still runs then: the S-B2 ruling is open.
+- `-LisNoGuard` sessions lose the user hooks' kill protection (the operator's
+  kill-guard; lis-guard denies the same kill shapes, but `-LisNoGuard` turns it off).
+- Bench inputs change against earlier runs where the bench does not pass
+  `-LisUserScope` (left so: the lean default is the point): `bench/perm` (its 48 runs of
+  2026-10-25 loaded 98 user allow rules and the user `autoMode` rules),
+  `bench/loop/run.ps1` (`-LisNoLoopGuard`, no `-LisTask`) and `bench/compact/run.ps1`
+  (`--permission-mode auto`).
+- Every mode's per-run settings deny Edit and Write of `**/.claude/settings*.json`
+  (S-O3 audit W4): whether a mid-session change to a work-tree settings file reloads is
+  UNVERIFIED, and the deny is cheap.
+
+S-O3 relies on the installed Claude Code build: its changelog, as the S-O3 audit read
+it, says "Fixed a settings file excluded with --setting-sources still supplying some
+settings, such as auto mode rules".
+
+Flag grammar, CLI reference (read 2026-11-05): "Comma-separated list of setting sources
+to load (`user`, `project`, `local`)". The user-scope `CLAUDE.md` and `rules\` files
+still load under the flag (verified 2026-11-05: the global CLAUDE.md heading appears in
+2 records, 3 occurrences, of the live-proof transcript; ROADMAP, Finding 2026-11-04).
+`-LisFull` keeps user scope;
+`-LisUserScope` (also `:true`/`:false`) opts it back in for one run, with or without
+`-LisTask`. The banner prints `user scope: off (S-O3)`, `user scope: on (-LisUserScope)`
+or `user scope: on (-LisFull)`. Ladder reps pass `-LisUserScope`
+(`bench/ladder/run.ps1`, ruling (19)), so a rep loads the user scope as every earlier rep
+did under the same `rep_key` inputs; `-DryRun` shows it in the session line and the
+banner. Live proof (ran 2026-11-05, a lean `-p` session from a scratch directory,
+artefacts in `bench/results/so3-proof-20261105/`, gitignored): on its debug log
+`grep -c "destination 'userSettings'" <base>.debug.log` prints 0 (2 before: the allow
+and the deny line) and `grep -c "destination 'flagSettings'" <base>.debug.log` prints 3.
+
+`LIS_SESSION_START` is the wrapper run's start in ISO 8601 UTC, round-trip format with
+7 fraction digits (`2026-11-05T07:37:44.1234567Z`; not truncated to the second, so a file
+born in the launch second before the start does not count as session-written), set in
+every mode in claude's environment (so the hooks inherit
+it) and in the per-run settings `env` (`-LisPrintArgs` shows it); a relaunch keeps the
+first value. It is for the hooks (ledger S-B4).
 
 fnm note: if your shell profile runs `fnm env --use-on-cd`, a Bash tool command like
 `cd X && node ...` fails inside Claude Code when `X` has a `package.json` ("We can't

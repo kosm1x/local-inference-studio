@@ -54,10 +54,12 @@
      Claude Code, hiding result lines). It refuses to start, -DryRun included, unless that
      whole output is visible: at most $shownTotal (9,500) chars, with the '# pass N' and
      '# fail N' lines; also when Git Bash finds no node.
-  4. From the work tree: pwsh -NoProfile -File scripts\claude-local.ps1 -LisTask edit -p
-     <prompt> --output-format stream-json --verbose --max-turns N --permission-mode
-     acceptEdits (acceptEdits keeps the operator's default mode, which may call a
-     classifier model, out of the run). stdout -> <base>.jsonl, stderr -> .stderr.txt.
+  4. From the work tree: pwsh -NoProfile -File scripts\claude-local.ps1 -LisTask edit
+     -LisUserScope -p <prompt> --output-format stream-json --verbose --max-turns N
+     --permission-mode acceptEdits (acceptEdits keeps the operator's default mode, which
+     may call a classifier model, out of the run; -LisUserScope keeps the user-scope
+     settings every earlier rep loaded, ruling (19), as the wrapper drops them by default
+     since ledger S-O3). stdout -> <base>.jsonl, stderr -> .stderr.txt.
      It always passes -LisContextTokens (meta context_tokens): -ContextTokens N, or 131072
      when unbound (the value every earlier rep without -ContextTokens ran at, so their
      keys hold; the wrapper's own default is 114688 since 2026-10-30).
@@ -320,7 +322,9 @@ $stripEnv = '^(CLAUDECODE|CLAUDE_PID|LIS_CLAUDE_EXE|CLAUDE_CODE_(SESSION_ID|SESS
 
 # Loop guard ON: no -LisNoLoopGuard, no -LisNoGuard (the edit and longrun profiles refuse
 # -LisNoGuard). --debug-file is not in the wrapper's -LisTask override list.
-$sessionArgv = @('-NoProfile', '-File', $wrapper, '-LisTask', $c.profile) +
+# -LisUserScope: ruling (19) keeps the user-scope settings in reps, which the wrapper drops
+# by default since ledger S-O3; with it a rep's inputs match its rep_key's earlier reps.
+$sessionArgv = @('-NoProfile', '-File', $wrapper, '-LisTask', $c.profile, '-LisUserScope') +
     @('-LisContextTokens', "$ctxTokens", '-p', $c.prompt,
     '--output-format', 'stream-json', '--verbose', '--max-turns', "$MaxTurns",
     '--permission-mode', 'acceptEdits') + $(if ($isLong) { @('--debug-file', "$base.debug.log") } else { @() })

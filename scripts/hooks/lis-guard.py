@@ -10,8 +10,36 @@ Decision order for one Bash command:
       read-only -> allow (shell and PowerShell only; python/node files are never
       allowed); unreadable, over the read cap, or a line that is neither
       -> no decision
+  (b1) inline code, clean or not (ledger S-B4): python|py -c, node -e|--eval|-p|--print,
+      deno eval, bun -e, perl|ruby -e, php -r, lua -e, Rscript -e,
+      pwsh -EncodedCommand, code on stdin (a heredoc,
+      a here-string, a pipe, `-`, /dev/stdin, <( )), and a bash|sh -c or pwsh -Command
+      payload that the read-only grammar does not allow and that is not one command
+      line (several statements, a heredoc, a substitution, a group or a script block);
+      a one-line payload is judged as its commands; ( ), { }, if/while/until/for
+      bodies, ! and backtick substitutions are read like $( )        -> deny
+  (b2) a run of a file written in this session (ledger S-B4): the file of a
+      script run (bash, sh, zsh, dash, ksh),
+      an interpreter's `<` file, a node -r|--import|--test-reporter module, the file of
+      perl, ruby, deno run, bun, tsx, php, Rscript or lua, or a path command word (./x.sh,
+      .\\x.ps1), when its st_birthtime (st_ctime where there is none) or its st_mtime
+      is later than env LIS_SESSION_START (ISO 8601 UTC, set by the launcher), when an
+      earlier segment of the same command writes it (cp, mv, ln, install, copy, move,
+      Copy-Item, Move-Item, a > or >> redirect, tee, Tee-Object, Out-File, Set-Content,
+      Add-Content), when it does not exist (a path with a separator or an extension),
+      or when the command runs more than RUN_TARGET_CAP files     -> deny
+      With LIS_SESSION_START unset or malformed the rule is off: no decision from it,
+      and a note on stderr when nothing else decided. A file created, edited or
+      modified (mtime) after the start counts: Claude Code's Edit tool rewrites a file
+      (temp file plus rename: a new birthtime, verified 2026-11-05 on NTFS and ReFS),
+      an in-place write moves the mtime, and NTFS tunneling (a name deleted or renamed
+      away and reused within 15 s keeps the old birthtime) still moves the mtime. By
+      design session-written code runs only through the task's existing test command.
+      This is a text classifier and one layer; the shapes it does not read are listed
+      as a residual class in docs/SETUP.md (S-B4).
   (c) every segment passes the read-only grammar                   -> allow
   (d) anything else: no output, exit 0 -> no decision.
+(a) and (b) run first, so a scan hit keeps its own reason over (b1) and (b2).
 
 "No decision" is NOT "goes to the classifier": it hands the call back to Claude Code's
 own permission rules (deny > ask > allow), and only a call no rule decides reaches the
@@ -28,6 +56,7 @@ run with `python -I`. Over-matching is deliberate: a critical verb inside a quot
 string (a commit message saying "rm -rf") is denied too.
 """
 import base64
+import datetime
 import fnmatch
 import functools
 import glob
@@ -497,6 +526,7 @@ PS_RO_PATH_CMDLETS = {'get-childitem', 'get-item', 'test-path'}   # only with th
 PS_RO_EXACT = {'$psversiontable', '$psversiontable.psversion', '$psversiontable.psversion.tostring()'}
 _RO_CWD = [None]                        # decide()'s cwd (False after a cd), for repo paths
 _UNDECIDED = [False]                    # set when a cd rewrite was too large (A10 W2)
+_NOTE = [None]                          # a no-decision note main() writes to stderr (S-B4)
 _PS_LIT = r'''(?:'[^'$`]*'|"[^"$`]*"|\d+)'''
 # { $_.X -eq 'y' } in Where-Object; @{n='X';e={[math]::Round($_.Y/1GB,1)}} in Select-Object;
 # each becomes a placeholder word that keeps the property name (\x01F<X>, \x01C<Y>)
@@ -1005,6 +1035,54 @@ def subst(seg):
         i = j
 
 
+def backticks(seg):
+    """Inner text of every `...` substitution in seg outside single quotes (S-B4 C2)."""
+    out, q, start, i = [], None, None, 0
+    while i < len(seg):
+        c = seg[i]
+        if c == '\\' and q != "'" and i + 1 < len(seg):
+            i += 2
+            continue
+        if q == "'":
+            q = None if c == "'" else q
+        elif c == '`':
+            if start is None:
+                start = i + 1
+            else:
+                out.append(seg[start:i])
+                start = None
+        elif start is None and (c == '"' or (c == "'" and q is None)):
+            q = None if q == c else c
+        i += 1
+    return out
+
+
+GROUP_LEAD = re.compile(r'(?:[({]\s*|(?:!|if|then|else|elif|do|while|until)\s+)+')
+
+
+def ungroup(seg):
+    """seg without the grouping and compound words that lead it and the closers that end it:
+    `(python -c 1)`, `{ node -e 1`, `then python x.py`, `! x` give the command (S-B4 C2)."""
+    m = GROUP_LEAD.match(seg)
+    body = seg[m.end():] if m else seg
+    while body[-1:] in (')', '}') and body.count(body[-1]) > body.count('({'[body[-1] == '}']):
+        body = body[:-1].rstrip()
+    return body
+
+
+def sh_payload(a):
+    """Index in a (a shell's arguments) of its -c command string, or None: the first word
+    after -c and any further options and a `--` (bash -c -- 'x', bash -c -e 'x')."""
+    k = next((i for i, t in enumerate(a) if re.fullmatch(r'-[A-Za-z]*c[A-Za-z]*', t)), None)
+    if k is None:
+        return None
+    k += 1
+    while k < len(a) and re.fullmatch(r'[-+][A-Za-z]+', a[k]):
+        k += 2 if a[k][-1] in 'oO' else 1
+    k += k < len(a) and a[k] == '--'
+    return k if k < len(a) else None
+
+
 def ps_opt(t):
     """(lowercased name, colon value or None) when t is a pwsh option, else None. pwsh 7
     takes -x, --x and /x alike, and Git Bash turns //x into /x (audit A9 C1); the dash may
@@ -1172,10 +1250,19 @@ def git_sub(a):
     return None
 
 
-def walk(cmd, ctx='local', depth=0):
-    """Yield (ctx, segment) for every segment at every nesting level."""
+def walk(cmd, ctx='local', depth=0, scopes=False):
+    """Yield (ctx, segment) for every segment at every nesting level. With scopes, also
+    ('(', n) and (')', n) around what runs in a subshell or a child process (( ), $( ),
+    backticks, a -c or -Command payload), so a cd there is undone after it (S-B4)."""
     if depth > MAX_DEPTH:
         return
+
+    def sub(text, c, opens=1, closes=1):
+        if scopes and opens:
+            yield '(', opens
+        yield from walk(text, c, depth + 1, scopes)
+        if scopes and closes:
+            yield ')', closes
     if ctx in ('py', 'js'):
         # interpreter code: judged whole by code_critical(); each string literal may be a
         # shell command (os.system, subprocess, execSync), so it is walked as one, in
@@ -1186,11 +1273,19 @@ def walk(cmd, ctx='local', depth=0):
         for m in list(_ARGV_LIST.finditer(cmd))[:50]:   # subprocess.run(['git', 'push'])
             yield from walk(shlex.join(code_strings(m.group(1))), 'lit', depth + 1)
         return
+    for inner in backticks(cmd) if ctx != 'ps' else ():
+        yield from sub(inner, ctx)          # `...` may span segments: `a; b` (S-B4 C2)
     for seg in split_segments(cmd, bs_escape=(ctx != 'ps')):
         yield ctx, seg
         for inner in subst(seg):
-            yield from walk(inner, ctx, depth + 1)
+            yield from sub(inner, ctx)
         if ctx == 'ps':
+            continue
+        if (body := ungroup(seg)) != seg:   # ( x ), { x; }, then x, do x, ! x (S-B4 C2)
+            m = GROUP_LEAD.match(seg)       # only ( ) is a subshell: { } and if run here
+            rest = seg[m.end():] if m else seg
+            yield from sub(body, ctx, (m.group(0) if m else '').count('('),
+                           rest[len(body):].count(')'))
             continue
         toks = tokens(seg)
         toks = strip_env(toks, False) if toks else toks
@@ -1199,27 +1294,27 @@ def walk(cmd, ctx='local', depth=0):
         v = exe(toks[0])
         code = inline_code(v, toks[1:])
         if code is not None:
-            yield from walk(code[1], code[0], depth + 1)
+            yield from sub(code[1], code[0])
         elif v in SH_EXES:
-            k = next((i for i, t in enumerate(toks[1:], 1) if re.fullmatch(r'-[A-Za-z]*c[A-Za-z]*', t)), None)
-            if k is not None and k + 1 < len(toks):
-                yield from walk(toks[k + 1], ctx, depth + 1)
+            k = sh_payload(toks[1:])
+            if k is not None:
+                yield from sub(toks[1 + k], ctx)
         elif v == 'cmd':
             k = next((i for i, t in enumerate(toks[1:], 1) if t.lower() in ('/c', '/k', '/r')), None)
             if k is not None and k + 1 < len(toks):
-                yield from walk(' '.join(toks[k + 1:]), ctx, depth + 1)
+                yield from sub(' '.join(toks[k + 1:]), ctx)
         elif v in PS_EXES:
             payload, _ = ps_payload(toks)
             if payload:
-                yield from walk(payload, 'ps', depth + 1)
+                yield from sub(payload, 'ps')
         elif v == 'wsl':
             rest = wsl_payload(toks)
             if rest:
-                yield from walk(shlex.join(rest), 'remote' if ctx == 'remote' else 'wsl', depth + 1)
+                yield from sub(shlex.join(rest), 'remote' if ctx == 'remote' else 'wsl')
         elif v == 'ssh':
             remote = ssh_remote(toks)
             if remote:
-                yield from walk(remote, 'remote', depth + 1)
+                yield from sub(remote, 'remote')
 
 
 def remote_write(seg):
@@ -2039,7 +2134,7 @@ def script_target(toks):
     v, a = exe(toks[0]), toks[1:]
     if v in ('source', '.') and a and not a[0].startswith('-'):
         return a[0], 'sh'
-    if v in ('bash', 'sh'):
+    if v in SH_EXES:
         i = 0
         while i < len(a):                   # skip shell options (-e, -x, +x, -o pipefail, --)
             x = a[i]
@@ -2362,6 +2457,408 @@ def cwd_moves(cmd, cwd):
     return False
 
 
+# Ledger S-B4 (2026-11-05): two rules judged after the deny scan, so a scan hit keeps its
+# own reason. (1) Inline code is denied: no reviewer reads it (the classifier sees the
+# text, never what it does). (2) A run of a file created or modified after the session
+# start (env LIS_SESSION_START, ISO 8601 UTC, set by the launcher), written earlier in the
+# same command, or not on disk yet is denied; with the variable unset or malformed the
+# rule gives no decision, never a deny on a guess.
+SESSION_START_ENV = 'LIS_SESSION_START'
+INLINE_REASON = ('lis-guard: {}: inline code is not run in this session; write it to a file under '
+                 'the working directory for review, or use the task\'s existing test command.')
+WRITE_RUN_REASON = ('lis-guard: {} was created or modified in this session (its birth or '
+                    'modification time is after ' + SESSION_START_ENV
+                    + '); a file written in this session is not run here, since no reviewer '
+                    'read it; not retryable; report it to the operator instead.')
+STDIN_FILE = re.compile(r'-|/dev/(?:stdin|fd/\d+)|/proc/self/fd/\d+|<\(.*', re.S)
+OTHER_INTERP = {'perl', 'ruby', 'deno', 'bun', 'tsx', 'ts-node', 'php', 'rscript', 'lua'}
+NODE_MODULE_OPTS = {'-r', '--require', '--import', '--loader', '--experimental-loader',
+                    '--test-reporter'}
+INLINE_FLAG = {                         # interpreter: (code option, valued options, shown)
+    'perl': (r'-[A-Za-z]*[eE].*', {'-I'}, '-e'), 'ruby': (r'-[A-Za-z]*[eE].*', {'-I', '-r'}, '-e'),
+    'php': (r'-[rBRE].*', {'-c', '-d', '-z', '-t'}, '-r'), 'lua': (r'-e.*', {'-l'}, '-e'),
+    'rscript': (r'-e.*', set(), '-e')}
+NODE_RESOLVE = ('.js', '.mjs', '.cjs', '.json', '/index.js')    # node x: what it loads
+RUN_TARGET_CAP = 64                     # files judged per command (each one is a stat)
+CAP_REASON = (f'lis-guard: the command runs more than {RUN_TARGET_CAP} files (RUN_TARGET_CAP); '
+              'split it into smaller commands.')
+WRITTEN_REASON = ('lis-guard: {} is written earlier in this same command (cp, mv, a > '
+                  'redirect, tee, Out-File, Set-Content) and then run; a file written in this '
+                  'session is not run here; report it to the operator instead.')
+REDIRECT = re.compile(r'(?<![<>])>>?\|?(?!&)\s*(["\']?)([^\s\'"<>|&;()]+)\1')
+COPY_EXES = {'cp', 'mv', 'ln', 'install', 'copy', 'move', 'copy-item', 'move-item', 'cpi', 'mi'}
+FILE_WRITERS = {'tee', 'tee-object', 'out-file', 'set-content', 'add-content', 'sc', 'ac'}
+PS_WRITE_PARAMS = ('destination', 'filepath', 'literalpath', 'path')
+MISSING_REASON = ('lis-guard: {} does not exist when the command is judged, so this same '
+                  'command would write it before it runs; a run target must already exist.')
+HEREDOC = re.compile(r'(?<!<)<<(?!<)-?\s*([\'"]?)([A-Za-z_]\w*)\1[^\n]*\n(.*?)'
+                     r'(?:\n[ \t]*\2[ \t]*(?=\n|$)|$)', re.S)
+
+
+def unwrap(toks):
+    """toks without leading env, command, exec, nohup, time, nice and timeout words, their
+    options, env's NAME=VALUE and timeout's duration: `timeout 60 python x.py` runs
+    `python x.py`. `command -v x` looks x up and runs nothing: []."""
+    for _ in range(MAX_DEPTH):
+        v = exe(toks[0]) if toks else ''
+        if v not in ('env', 'command', 'exec', 'nohup', 'time', 'nice', 'timeout'):
+            break
+        if v == 'command' and any(t in ('-v', '-V') for t in toks[1:2]):
+            return []
+        k = 1
+        while k < len(toks) and (toks[k].startswith('-') or (v == 'env' and '=' in toks[k])):
+            k += 2 if toks[k] in ('-n', '-u', '-C', '-s', '-k', '--signal', '--kill-after') else 1
+        toks = toks[k + (v == 'timeout'):]
+    return toks
+
+
+def keep_ro(fn, *a):
+    """fn(*a) with _RO_CWD restored after: the read-only grammar marks a cd it reads."""
+    saved = _RO_CWD[0]
+    try:
+        return fn(*a)
+    finally:
+        _RO_CWD[0] = saved
+
+
+def payload_form(form, pl, ctx, depth):
+    """Inline form of a bash|sh -c (ctx 'local') or pwsh -Command (ctx 'ps') payload: None
+    when the read-only grammar allows it or it is one command line (a pipeline of commands,
+    each judged as that command); else a script: several statements (; && || newline), a
+    heredoc, a $( ) or backtick substitution, or a PowerShell script block or @( )."""
+    if pl.strip() == '-':
+        return f'{form} - (code on stdin)'
+    if not pl.strip() or keep_ro(ps_readonly if ctx == 'ps' else readonly, pl):
+        return None
+    parts, pos = split_segments(pl, bs_escape=(ctx != 'ps')), 0
+    for k, part in enumerate(parts):        # only single pipes between the parts
+        i = pl.find(part, pos)
+        if i < 0 or (k and pl[pos:i].strip() != '|'):
+            return f'{form} script'
+        pos = i + len(part)
+    if '<<' in pl or re.search(r'(?<!\$)\{|[$@]\(' if ctx == 'ps' else r'\$\(|`', pl):
+        return f'{form} script'
+    for k, part in enumerate(parts):
+        if ctx != 'ps' and ungroup(part) != part:
+            return f'{form} script'          # ( x ), { x; }, then x (S-B4 C2)
+        text = re.sub(r'^\s*[&.]\s+', '', part) if ctx == 'ps' else part
+        toks = strip_env(tokens(text) or [], False)
+        if hit := inline_form(toks, depth + 1):
+            return hit
+        if k and stdin_code(toks):
+            return f'{exe(unwrap(toks)[0])} fed code on a pipe'
+    return None
+
+
+def inline_form(toks, depth=0):
+    """The inline-code form toks runs, or None: python|py -c, node -e|--eval|-p, deno eval,
+    bun -e, perl|ruby -e, pwsh -EncodedCommand, a payload payload_form() calls a script,
+    and a program path read from stdin (python /dev/stdin, bash <(...))."""
+    toks = unwrap(toks or [])
+    if not toks or depth > MAX_DEPTH:
+        return None
+    v, a = exe(toks[0]), toks[1:]
+    if inline_code(v, a) is not None:
+        return f'{v} inline code'
+    if v in INLINE_FLAG:                    # perl|ruby -e, php -r, lua -e, Rscript -e
+        rx, valued, flag = INLINE_FLAG[v]
+        i = 0
+        while i < len(a) and a[i].startswith('-') and a[i] != '--':
+            if re.fullmatch(rx, a[i], re.S):
+                return f'{v} {flag}'
+            i += 2 if a[i] in valued and not (a[i + 1:i + 2] or ['-'])[0].startswith('-') else 1
+    if v in SH_EXES:
+        k = sh_payload(a)
+        if k is not None:
+            return payload_form(f'{v} -c', a[k], 'local', depth)
+    if v in PS_EXES:
+        for t in a:                         # the option ps_payload() takes, in its order
+            o = ps_opt(t)
+            if o is None:
+                continue
+            if 'command'.startswith(o[0]) or 'file'.startswith(o[0]) or o[0] == 'cwa' \
+                    or (len(o[0]) > 7 and 'commandwithargs'.startswith(o[0])):
+                break
+            if o[0] in ('e', 'ec') or (len(o[0]) > 1 and 'encodedcommand'.startswith(o[0])):
+                return f'{v} -EncodedCommand'
+        pl, _ = ps_payload(toks)
+        if pl is not None:
+            return payload_form(f'{v} -Command', pl, 'ps', depth)
+    st = script_target(toks)
+    if st and STDIN_FILE.fullmatch(st[0]):
+        return f'{v} {st[0]} (code on stdin)'
+    first = next((t for t in a if not t.startswith('-')), '')
+    if first.startswith('<(') and (PY_EXE.fullmatch(v) or v in SH_EXES | {'node', 'perl', 'ruby'}):
+        return f'{v} <( ) (code from a process substitution)'
+    return None
+
+
+def stdin_code(toks):
+    """True when toks is an interpreter or shell that takes its program from stdin: no file
+    (or `-`), no inline code, no -m module, no version or help option (python, node -,
+    bash -s, perl, pwsh with no -Command or -File or with -Command -, cmd without /c)."""
+    toks = unwrap(toks or [])
+    if not toks:
+        return False
+    v, a = exe(toks[0]), toks[1:]
+    if v == 'wsl':
+        return stdin_code(wsl_payload(toks))
+    if v in PS_EXES:
+        pl, f = ps_payload(toks)
+        if f is not None or any((o := ps_opt(t)) and o[0] in ('v', 'version', 'h', 'help')
+                                for t in a):
+            return False
+        return pl.strip() == '-' if pl is not None else all(ps_opt(t) for t in a)
+    if v == 'cmd':
+        return not any(t.lower() in ('/c', '/k', '/r', '/?') for t in a)
+    py = bool(PY_EXE.fullmatch(v))
+    helps = {'-V', '--version', '-h', '--help'} if py else {
+        'node': {'-v', '--version', '-h', '--help'}, 'perl': {'-v', '-h'},
+        'ruby': {'--version', '-h', '--help'}}.get(v, {'--version', '--help'})
+    if not (py or v in ('node', 'perl', 'ruby') or v in SH_EXES) or inline_form(toks):
+        return False
+    valued = PY_VALUED if py else NODE_VALUED if v == 'node' else set()
+    i = 0
+    while i < len(a):
+        t = a[i]
+        if t in helps or (py and re.fullmatch(r'-[A-Za-z]*m.*', t, re.S)) \
+                or (v == 'node' and t.startswith(('--test', '--check', '-c'))):
+            return False
+        if t in ('-', '--'):
+            return t == '-' or i + 1 == len(a)
+        if re.fullmatch(r'\d*>>?&?\S*|&>>?\S*', t):         # an output redirect: not a program
+            i += 2 if re.fullmatch(r'\d*>>?|&>>?', t) else 1
+            continue
+        if not t.startswith('-'):
+            return False                    # a file, or `<` (the file is the program)
+        i += 2 if t in valued else 1
+    return True
+
+
+def strip_heredocs(cmd):
+    """cmd with each heredoc body dropped: a body is text (a commit message, a file being
+    written); one fed to an interpreter is judged by stdin_code()."""
+    return HEREDOC.sub(lambda m: m.group(0)[:m.start(3) - m.start()], cmd)
+
+
+def inline_hit(cmd):
+    """The inline-code form anywhere in cmd: inline_form() at every level walk() reads, and
+    an interpreter fed its program by a heredoc, a here-string or a pipe; else None."""
+    for ctx, seg in walk(strip_heredocs(cmd)):
+        if ctx in ('local', 'wsl', 'ps'):
+            text = re.sub(r'^\s*[&.]\s+', '', seg) if ctx == 'ps' else seg
+            if form := inline_form(strip_env(tokens(text) or [], False)):
+                return form
+    for lead, _ in heredocs(cmd):           # the lead, and its text after a ( { $( or `
+        for text in dict.fromkeys((lead, re.split(r'[({`]', lead)[-1])):
+            segs = split_segments(text)
+            toks = strip_env(tokens(ungroup(segs[-1])) or [], False) if segs else []
+            if stdin_code(toks):
+                return f'{exe(unwrap(toks)[0])} fed code by a heredoc or here-string'
+    texts = [cmd]
+    for text in texts:                      # the command and each $( ) or backtick body
+        if len(texts) < 64:
+            texts += backticks(text) + [x for seg in split_segments(text) for x in subst(seg)]
+        pos = 0
+        for seg in split_segments(text):
+            i = text.find(seg, pos)
+            if i < 0:
+                break
+            pos, before = i + len(seg), text[:i].rstrip()
+            toks = strip_env(tokens(ungroup(seg)) or [], False)
+            if before.endswith('|') and not before.endswith('||') and stdin_code(toks):
+                return f'{exe(unwrap(toks)[0])} fed code on a pipe'
+    return None
+
+
+def session_start():
+    """Epoch seconds of env LIS_SESSION_START (ISO 8601 UTC: 2026-11-05T10:00:00Z, up to 9
+    fraction digits, or +00:00), or None when it is unset or not that form."""
+    m = re.fullmatch(r'(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:[.,](\d{1,9}))?'
+                     r'(?:Z|[+-]00:?00)', os.environ.get(SESSION_START_ENV, '').strip())
+    if not m:
+        return None
+    try:
+        t = datetime.datetime(*map(int, m.groups()[:6]), tzinfo=datetime.timezone.utc).timestamp()
+    except (ValueError, OverflowError):
+        return None
+    return t + float('0.' + (m.group(7) or '0'))
+
+
+def created_since(path, start):
+    """True when path is a regular file created or modified after start (epoch seconds): its
+    st_birthtime (Windows, Python 3.12+; else st_ctime) or its st_mtime is later. The mtime
+    catches NTFS tunneling: a file deleted or renamed away and then recreated or renamed
+    back under its name within 15 s keeps the old birthtime (S-B4 W2)."""
+    try:
+        st = os.stat(path)
+    except (OSError, ValueError):
+        return False
+    born = getattr(st, 'st_birthtime', None)
+    return stat.S_ISREG(st.st_mode) and \
+        max(born if born is not None else st.st_ctime, st.st_mtime) > start
+
+
+def present(full):
+    """True when a file or directory is at full, or full.exe|.cmd|.bat|.com (bin/tool)."""
+    try:
+        return os.path.lexists(full) or any(os.path.exists(full + e)
+                                            for e in ('.exe', '.cmd', '.bat', '.com'))
+    except (OSError, ValueError):
+        return True
+
+
+def write_targets(toks, seg):
+    """Paths the segment writes (S-B4 C1): a > or >> redirect, the destination of cp, mv,
+    ln, install, copy, move, Copy-Item and Move-Item (into a directory: each source's
+    name there too) and every file of tee, Tee-Object, Out-File, Set-Content, Add-Content."""
+    out = [m.group(2) for m in REDIRECT.finditer(seg)]
+    v = exe(toks[0]) if toks else ''
+    if v not in COPY_EXES | FILE_WRITERS:
+        return out
+    ps = '-' in v or v in ('cpi', 'mi', 'sc', 'ac')
+    pos, named, i = [], {}, 1
+    while i < len(toks):
+        t = toks[i]
+        o = ps_opt(t) if t.startswith('-') else None
+        if t.startswith('--target-directory='):
+            named['destination'] = t.split('=', 1)[1]
+        elif t in ('-t', '--target-directory') and not ps:
+            named['destination'] = toks[i + 1] if i + 1 < len(toks) else ''
+            i += 1
+        elif o and (name := next((w for w in PS_WRITE_PARAMS if w == o[0]
+                                  or (ps and w.startswith(o[0]))), None)):
+            named[name] = o[1] if o[1] is not None else (toks[i + 1] if i + 1 < len(toks) else '')
+            i += o[1] is None
+        elif not t.startswith('-'):
+            pos.append(t)
+        i += 1
+    if v in FILE_WRITERS:
+        return out + list(named.values()) + pos
+    dest = named.get('destination') or (pos[-1] if len(pos) > 1 else '.' if ps else None)
+    srcs = pos if 'destination' in named or len(pos) < 2 else pos[:-1]
+    srcs += [named[k] for k in ('path', 'literalpath') if k in named]
+    if not dest:
+        return out
+    return out + [dest] + [dest.rstrip('/\\') + '/' + re.split(r'[\\/]', s)[-1] for s in srcs]
+
+
+def follow_cd(cur, d):
+    """The cwd after `cd d` from cur, or None when it cannot be known ($VAR, cd -, popd,
+    a glob, a relative cd from an unknown cwd)."""
+    if d is None or d.strip('\'"') in ('', '-') or re.search(r'[$`%*?]', d) or is_unc(d) \
+            or '\x00' in d:
+        return None
+    d = d.strip('\'"')
+    if cur is None and not os.path.isabs(resolve(d, '\x00')):
+        return None
+    return resolve(d, cur)
+
+
+def file_args(toks):
+    """Paths the tokenised command toks runs as code (see run_targets)."""
+    v, a = exe(toks[0]), toks[1:]
+    st = script_target(toks)
+    found = [st[0]] if st else []
+    if not st and v in OTHER_INTERP:
+        rest = a[1:] if v in ('deno', 'bun') and a[:1] == ['run'] else a
+        found += [t for t in rest if not t.startswith('-')][:1]
+    elif not st and re.search(r'[\\/]', toks[0]):
+        found.append(toks[0])               # ./x.sh, .\x.ps1, bin/tool
+    if v == 'node':
+        for j, t in enumerate(a):
+            name, eq, val = t.partition('=')
+            if name in NODE_MODULE_OPTS:
+                val = val if eq else (a[j + 1] if j + 1 < len(a) else '')
+                if val.startswith('.') or re.search(r'[\\/]', val):
+                    found.append(val)
+    if not st and (PY_EXE.fullmatch(v) or v in SH_EXES | PS_EXES | {'node', 'perl', 'ruby', 'cmd'}):
+        found += [a[j + 1] for j, t in enumerate(a[:-1]) if t == '<']
+        found += [t[1:] for t in a if re.fullmatch(r'<[^<(&].*', t, re.S)]
+    return found
+
+
+def run_targets(cmd, cwd):
+    """(path as written, full path) of each file cmd runs, at every level walk() reads: a
+    script target (bash|sh|source|. x, pwsh -File or a positional .ps1, python|node x, cmd
+    /c x.bat, a PowerShell payload's ./x.ps1), the file on an interpreter's `<`, a node
+    -r|--import|--loader|--test-reporter module path, the file of perl, ruby, deno run, bun,
+    tsx, php, Rscript or lua, and a command word that is a path (./x.sh, .\\x.ps1). A
+    relative path is read under the cwd as the command's cd, pushd and Set-Location words
+    move it; after one it cannot follow ($VAR, cd -, popd) only absolute paths count.
+    A cd inside a subshell or child (( ), $( ), backticks, a -c or -Command payload)
+    applies inside it only; one in { }, an if body or at the top applies after it.
+    Each entry is (path as written, full path, how): how is 'written' when an earlier
+    segment writes that file (write_targets), 'missing' when no file is there and the path
+    names a file (a separator or an extension), else None. One entry past RUN_TARGET_CAP
+    is kept, so decide() can deny over the cap."""
+    cur = None if is_unc(cwd or '') else (cwd or os.getcwd())
+    out, wrote, saved = [], set(), []
+    for ctx, seg in walk(strip_heredocs(cmd), scopes=True):
+        if ctx == '(':                      # a subshell or child: its cd stays inside it
+            saved += [cur] * seg
+            continue
+        if ctx == ')':
+            for _ in range(min(seg, len(saved))):
+                cur = saved.pop()
+            continue
+        if ctx not in ('local', 'ps') or len(out) > RUN_TARGET_CAP:
+            continue
+        if ctx == 'ps':
+            m = PS_CD.match(seg.strip())
+            if m:
+                cur = follow_cd(cur, m.group(1))
+                continue
+            groups, node_seg = [(p,) for p, _ in ps_script_targets(seg)[0]], False
+            texts = [re.sub(r'^\s*[&.]\s+', '', seg).replace('\\', '/')]
+        else:
+            if ungroup(seg) != seg:
+                continue                    # walk() reads the grouped command itself
+            toks = unwrap(strip_env(tokens(seg) or [], False) or [])
+            if toks and exe(toks[0]) in ('cd', 'pushd', 'chdir', 'popd'):
+                d = next((x for x in toks[1:] if not x.startswith('-')), '~')
+                cur = follow_cd(cur, None if exe(toks[0]) == 'popd' else d)
+                continue
+            node_seg = bool(toks) and exe(toks[0]) == 'node'
+            texts = list(dict.fromkeys((seg, seg.replace('\\', '/'))))
+            found = [file_args(t) if t else [] for t in
+                     (unwrap(strip_env(tokens(x) or [], False) or []) for x in texts)]
+            groups = list(zip(*found)) if len(found) == 2 and len(found[0]) == len(found[1]) \
+                else [(p,) for f in found for p in f]
+        for group in groups:                # one target as each tokenization reads it
+            cands = []
+            for p in dict.fromkeys(x.strip('\'"') for x in group):
+                if not p or STDIN_FILE.fullmatch(p) or '\x00' in p or is_unc(p) \
+                        or re.search(r'[$`%*?[{]', p):
+                    continue
+                full = resolve(p, cur or '\x00')
+                if (cur is None and not os.path.isabs(full)) or is_unc(full):
+                    continue
+                if node_seg and (not present(full) or os.path.isdir(full)):
+                    full = next((c for c in (full + e for e in NODE_RESOLVE)
+                                 if os.path.isfile(c)), full)   # node x: x.js, x/index.js
+                cands.append((p, full))
+            missing = bool(cands) and not any(present(f) for _, f in cands) and all(
+                re.search(r'[\\/]|\.\w+$', p) and not re.match(r'/(?![A-Za-z]/)', p)
+                for p, _ in cands)
+            for p, full in cands:
+                out.append((p, full, 'written' if file_key(full) in wrote
+                            else 'missing' if missing else None))
+        for text in texts:                  # what this segment writes, for the later ones
+            toks = unwrap(strip_env(tokens(text) or [], False) or [])
+            for p in write_targets(toks, text):
+                p = p.strip('\'"')
+                if p and '\x00' not in p and not is_unc(p) and not re.search(r'[$`%]', p):
+                    full = resolve(p, cur or '\x00')
+                    if cur is not None or os.path.isabs(full):
+                        wrote.add(file_key(full))
+    return out[:RUN_TARGET_CAP + 1]
+
+
+def file_key(full):
+    return os.path.normcase(os.path.normpath(full))
+
+
 def in_repo(path):
     if is_unc(path) or '\x00' in path:
         return False                        # never resolved (A13 W2); a NUL path names no file
@@ -2377,6 +2874,7 @@ def decide(cmd, cwd=None):
     cmd = ps_dashes(cmd)
     _RO_CWD[0] = cwd
     _UNDECIDED[0] = False
+    _NOTE[0] = None
     hit = critical(cmd) or patch_hit(cmd, cwd)
     if hit:
         return 'deny', deny_reason(hit)
@@ -2395,6 +2893,8 @@ def decide(cmd, cwd=None):
             scripts_ok = False              # a profile may cd first; C:x.ps1 is drive-relative (A9)
         if st and unc_args(seg, toks):
             scripts_ok = False              # a UNC script or argument (A13 W1/W2)
+        if st and exe(toks[0]) in SH_EXES - {'bash', 'sh'}:
+            scripts_ok = False              # zsh glob qualifiers run code: scanned, never allowed
         if st and exe(toks[0]) in PS_EXES and '\\' in seg:     # pwsh .\up.ps1 (audit A5 W3)
             raw = strip_env(tokens(seg.replace('\\', '/')) or [], False)
             st2 = script_target(raw) if raw else None
@@ -2425,6 +2925,24 @@ def decide(cmd, cwd=None):
         if isinstance(r, tuple):
             return r
         scripts_ok = scripts_ok and r == 'allow'
+    # ledger S-B4, judged after every scan above, so a scan hit keeps its own reason
+    if form := inline_hit(cmd):             # (1) inline code
+        return 'deny', INLINE_REASON.format(form)
+    targets = run_targets(cmd, cwd)         # (2) a run of a file written in this session
+    if targets:
+        start = session_start()
+        if start is None:
+            _NOTE[0] = (f'lis-guard: {SESSION_START_ENV} unset or not ISO 8601 UTC; '
+                        'write-then-run not judged')
+        elif len(targets) > RUN_TARGET_CAP:
+            return 'deny', CAP_REASON
+        for shown, full, how in targets if start is not None else ():
+            if how == 'written':
+                return 'deny', WRITTEN_REASON.format(shown)
+            if how == 'missing':
+                return 'deny', MISSING_REASON.format(shown)
+            if created_since(full, start):
+                return 'deny', WRITE_RUN_REASON.format(shown)
     if is_unc(cwd or ''):
         return None                         # a UNC cwd: every relative path is a network path (A13 W2)
     if scripts_ok and ascii_ok and not allow_stop(cmd) and all(seg_readonly(s, 'local', 0) for s in others):
@@ -2453,6 +2971,8 @@ def main():
         return 0
     try:
         d = decide(cmd, cwd)
+        if d is None and _NOTE[0]:
+            sys.stderr.write(_NOTE[0] + '\n')
     except Exception:  # an analysis bug must not block the session; the rules still judge
         hit = critical_verb(cmd)
         d = ('deny', deny_reason(hit)) if hit else None

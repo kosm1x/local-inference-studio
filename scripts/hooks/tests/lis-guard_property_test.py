@@ -26,14 +26,23 @@ for any input. It may allow only through its grammar. Every generated case is ch
   (vii) a '*'-led glob over ordinary names (.test.js, -error.log, .spec.ts, -ledger.md) is
         never denied, and a write through a glob that fnmatch matches against a launcher
         per-run file (a hook copy, the settings or the MCP file), with 3 letters in a part,
-        is always denied (ledger S-B3, audit C1 round 3).
+        is always denied (ledger S-B3, audit C1 round 3);
+  (viii) converse of ledger S-B4: a command with no interpreter or shell in it, and a run
+        (python -I, node, bash, pwsh -File, ...) of one of the repo's own files with
+        LIS_SESSION_START after every repo file, is never denied as inline code or as a
+        file created in the session, and gets the decision it gets with the env unset;
+  (ix) ledger S-B4 rule 1, positive: inline code (python -c, node -e, perl|ruby -e, php -r,
+        lua -e, Rscript -e, code piped or heredoc-fed into an interpreter) with a clean
+        payload, inside 0-2 random wrappers (bash -c [--], ( ), { ; }, if/while bodies,
+        backticks, $( ), !, timeout, a leading command), is always denied as inline code.
 
 Generators: (a) random strings with non-ASCII, (b) mutations of every row in
 lis-guard_test.py, (c) PS_RO_SPEC-shaped payloads with one corruption, (d) cd / -wd /
 option-prefix / script-target combinations in a fake repo root with an outside dir and a
 junction into it, then UNC targets on random hosts and credential tokens behind a splice in
 allow-shaped commands and script bodies (their own rng, so the earlier streams are unchanged),
-then (vii)'s globs (a third rng).
+then (vii)'s globs (a third rng), then (viii)'s commands (a fourth rng), then (ix)'s
+inline forms (a fifth rng).
 (a)-(c) run with the repo root as cwd and (d) under a temp path named by seed and a fixed-width
 pid (parallel runs never share it; the pid feeds no generator), so a seed gives the same counts
 from any cwd.
@@ -47,6 +56,7 @@ import importlib.util
 import os
 import random
 import re
+import shlex
 import shutil
 import sys
 import tempfile
@@ -631,6 +641,85 @@ def letters(part):
     return sum(c.isalpha() for c in rest)
 
 
+PLAIN_VERBS = ('git', 'ls', 'cat', 'grep', 'npm', 'echo', 'cp', 'mv', 'curl', 'head', 'wc', 'find',
+               'mkdir', 'diff', 'sort', 'rg', 'touch', 'npx', 'gh', 'tail')
+PLAIN_ARGS = ('status', 'log', '-n', '5', 'docs', 'README.md', 'test', '--oneline', '-la', 'x.txt',
+              '"a b"', "'c d'", 'src', '-r', 'TODO', '.', 'run', 'build', '-s', '--', 'notes.md',
+              'http://127.0.0.1:8080/health', 'bench/ladder', '2>&1', '>', 'out.txt')
+RUN_LEADS = {'py': ('python -I ', 'python ', 'py -3 ', 'timeout 60 python -I '),
+             'js': ('node ', 'node --test '), 'mjs': ('node ',), 'sh': ('bash ', 'sh '),
+             'ps1': ('pwsh -NoProfile -File ', 'powershell -NoProfile -File ')}
+
+
+def gen_plain(rng):
+    """(viii) A command with no interpreter or shell in it: 1-3 verbs with random arguments."""
+    parts = [' '.join([rng.choice(PLAIN_VERBS)] + [rng.choice(PLAIN_ARGS)
+                                                   for _ in range(rng.randint(0, 4))])
+             for _ in range(rng.randint(1, 3))]
+    out = parts[0]
+    for p in parts[1:]:
+        out += rng.choice((' && ', ' | ', '; ', ' || ')) + p
+    return out
+
+
+def repo_runnables():
+    """Repo-relative runnable files (the extensions RUN_LEADS knows), walked like the unit
+    test's repo-script table."""
+    found = []
+    for dp, dns, fns in os.walk(REPO):
+        dns[:] = sorted(x for x in dns if x not in ('.git', 'node_modules', 'models', 'bin', 'logs',
+                                                     'results', '__pycache__', '.claude'))
+        found += [os.path.relpath(os.path.join(dp, fn), REPO).replace(os.sep, '/')
+                  for fn in sorted(fns) if fn.rsplit('.', 1)[-1] in RUN_LEADS]
+    return found
+
+
+def set_start(t):
+    """LIS_SESSION_START = epoch t (None: unset)."""
+    if t is None:
+        os.environ.pop(g.SESSION_START_ENV, None)
+    else:
+        os.environ[g.SESSION_START_ENV] = time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(t)) + \
+            f'.{int(t % 1 * 1e6):06d}Z'
+
+
+def sb4_reason(d):
+    return kind(d) == 'deny' and any(x in d[1] for x in (
+        'inline code is not run', 'modified in this session', 'does not exist when',
+        'written earlier in this same command', 'RUN_TARGET_CAP'))
+
+
+INLINE_FORMS = (                        # (ix): {q} is the quoted payload, {p} the raw one
+    ('py', 'python -c {q}'), ('py', 'python3 -I -c {q}'), ('py', 'py -3 -c {q}'),
+    ('js', 'node -e {q}'), ('js', 'node --eval {q}'), ('js', 'node -p {q}'),
+    ('pl', 'perl -e {q}'), ('rb', 'ruby -e {q}'), ('php', 'php -r {q}'), ('lua', 'lua -e {q}'),
+    ('r', 'Rscript -e {q}'), ('py', 'echo {q} | python'), ('js', 'echo {q} | node'),
+    ('py', 'echo {q} | python -'), ('pl', 'echo {q} | perl'),
+    ('py', "python <<'EOF'\n{p}\nEOF"), ('js', 'node - <<EOF\n{p}\nEOF'),
+    ('py', 'python3 <<< {q}'))
+INLINE_CODE = {'py': ('print({n})', 'x = {n}', 'import json'),
+               'js': ('console.log({n})', 'x = {n}'),
+               'pl': ('print {n}',), 'rb': ('puts {n}',), 'php': ('echo {n};',),
+               'lua': ('print({n})',), 'r': ('print({n})',)}
+INLINE_WRAPS = ('bash -c {s}', 'bash -c -- {s}', 'sh -c {s}', '({c})', '{{ {c}; }}',
+                'if true; then {c}; fi', 'while true; do {c}; done', 'echo `{c}`', 'x=$({c})',
+                '! {c}', 'timeout 5 {c}', 'ls && {c}', 'git status; {c}')
+
+
+def gen_inline(rng):
+    """(ix) An inline-code form with a clean payload inside 0-2 random wrappers."""
+    lang, form = rng.choice(INLINE_FORMS)
+    code = rng.choice(INLINE_CODE[lang]).format(n=rng.randint(0, 999))
+    cmd = form.format(q=shlex.quote(code), p=code)
+    for _ in range(0 if '\n' in cmd else rng.randint(0, 2)):
+        w = rng.choice(INLINE_WRAPS)
+        if ('`' in w and '`' in cmd) or (w.startswith('timeout') and (
+                not cmd[:1].isalpha() or cmd.startswith(('if ', 'while ', 'x=')))):
+            continue                    # nested backticks; timeout runs one program, not a group
+        cmd = w.format(c=cmd, s=shlex.quote(cmd))
+    return cmd
+
+
 def gen_run_glob(rng):
     """(command, dir glob, file glob, real parts) for a write through a glob of a per-run file."""
     d, f = rng.choice(RUN_FILES)
@@ -679,6 +768,7 @@ def tables_match(ck):
 
 
 def main():
+    set_start(None)                     # hermetic: only (viii) sets it (ledger S-B4)
     rng = random.Random(SEED)
     ck = Checker()
     t0 = time.perf_counter()
@@ -765,8 +855,41 @@ def main():
             ck.check(cmd, REPO, rng3)
             if kind(d := g.decide(cmd, REPO)) != 'deny':
                 ck.fail('no deny of a write through a glob of a per-run file', cmd, d)
+        # (viii) converse of ledger S-B4: commands with no interpreter, and runs of the repo's
+        # own files with LIS_SESSION_START after every one of them, get no S-B4 deny and the
+        # decision they get with the env unset (their own stream, so the rest is unchanged)
+        g.REPO_ROOT = old_root
+        rng4 = random.Random(SEED * 1000 + 41)
+        files = repo_runnables()
+        st = [os.stat(os.path.join(REPO, f)) for f in files]
+        after = max(max(getattr(s, 'st_birthtime', s.st_ctime), s.st_mtime) for s in st) + 1
+        for k in range(CASES // 40):
+            if k % 2:
+                f = rng4.choice(files)
+                cmd = rng4.choice(RUN_LEADS[f.rsplit('.', 1)[-1]]) + f
+            else:
+                cmd = gen_plain(rng4)
+            set_start(None)
+            d0 = g.decide(cmd, REPO)
+            set_start(after)
+            ck.check(cmd, REPO, rng4)
+            d1 = g.decide(cmd, REPO)
+            set_start(None)
+            if sb4_reason(d0) or sb4_reason(d1):
+                ck.fail('S-B4 deny of a plain command or a repo-file run', cmd, (d0, d1))
+            elif d0 != d1:
+                ck.fail('S-B4 env changed the decision of a repo-file run', cmd, (d0, d1))
+        # (ix) the positive oracle of S-B4 rule 1: every inline form denies as inline code
+        rng5 = random.Random(SEED * 1000 + 51)
+        for _ in range(500):
+            cmd = gen_inline(rng5)
+            ck.check(cmd, REPO, rng5)
+            d = g.decide(cmd, REPO)
+            if kind(d) != 'deny' or 'inline code is not run' not in d[1]:
+                ck.fail('S-B4 inline form not denied as inline code', cmd, d)
     finally:
         g.REPO_ROOT = old_root
+        set_start(None)
         clear(base)
     el = time.perf_counter() - t0
     print(f'seed {SEED}: {ck.n} cases ({len(rows)} corpus rows) in {el:.1f}s = {ck.n / el:.0f}/s; '

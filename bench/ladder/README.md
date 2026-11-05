@@ -140,8 +140,10 @@ What `run.ps1` does:
    line (Results, long-fix, "Series 4 prompt"). `gen_longfix_test.py`
    (`test_module_cap`) holds the before run at the `-Modules` cap to 9,000 chars.
 4. From the work tree: `pwsh -NoProfile -File scripts\claude-local.ps1 -LisTask edit
-   -p <prompt> --output-format stream-json --verbose --max-turns 30 --permission-mode
-   acceptEdits`. No `-LisNoLoopGuard`, no `-LisNoGuard`. `acceptEdits` keeps the
+   -LisUserScope -p <prompt> --output-format stream-json --verbose --max-turns 30
+   --permission-mode acceptEdits`. No `-LisNoLoopGuard`, no `-LisNoGuard`.
+   `-LisUserScope` (ruling 19) keeps the user-scope settings every earlier rep loaded,
+   which the wrapper drops by default since ledger S-O3. `acceptEdits` keeps the
    operator's default mode out of the run, as in `bench/loop`. stdout goes to
    `<base>.jsonl`, stderr to `<base>.stderr.txt`. Session-identity variables of a
    calling Claude Code session are removed from the child env. long-fix: `-LisTask

@@ -135,6 +135,27 @@
   --setting-sources, --plugin-dir, --dangerously-skip-permissions,
   --allow-dangerously-skip-permissions and --permission-mode bypassPermissions (ledger
   S-B5 audit W2): the launcher owns the settings and the hooks. A prompt is not checked.
+  User scope (ledger S-O3; a session decision of 2026-11-05 that the operator can
+  overturn, not a ruling): every mode except -LisFull passes --setting-sources
+  project,local, so ~/.claude/settings.json does not load: its allow rules (Bash(rm:*),
+  Bash(mv:*), Bash(kill:*), Bash(sed:*) and the like, which ran with no rule of this
+  launcher judging them), its deny rules, hooks, env, model, enabled plugins,
+  permissions.defaultMode and autoMode rules do not apply in the session. The project
+  and local settings of the working directory and the per-run --settings file still
+  load; in every mode the per-run settings deny Edit and Write of
+  **/.claude/settings*.json, so a session cannot write rules into the work tree's own
+  settings (whether such a change would reload mid-session is UNVERIFIED; the deny is
+  cheap). -LisFull keeps user scope; -LisUserScope opts it back in for one run (allowed
+  with -LisTask) and drops the flag. The banner prints "user scope: off (S-O3)", "user
+  scope: on (-LisUserScope)" or "user scope: on (-LisFull)". The user-scope CLAUDE.md
+  and rules files still load under the flag (live proof 2026-11-05; docs/ROADMAP.md,
+  Finding 2026-11-04).
+  LIS_SESSION_START: the wrapper run's start as ISO 8601 UTC in the round-trip ('o')
+  format, 7 fraction digits (2026-11-05T07:37:44.1234567Z; not truncated to the second,
+  so a file born in the launch second before the start is not session-written), set in
+  every mode for claude and its hooks, in the process env
+  and in the per-run settings env (so -LisPrintArgs shows it); a relaunch keeps the
+  first value.
   -LisPrintArgs prints the claude argument list and the settings JSON to stdout and
   exits 0 without writing temp files (the hook copies included), changing the
   environment, querying the server or launching claude.
@@ -154,8 +175,8 @@
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The script options, -LisContextTokens N, -LisFull, -LisNoGuard,
-  -LisNoLoopGuard, -LisStrictSlot, -LisTask NAME, -LisRelaunchMax N and -LisPrintArgs,
-  are taken out of $args here.
+  -LisNoLoopGuard, -LisStrictSlot, -LisUserScope, -LisTask NAME, -LisRelaunchMax N and
+  -LisPrintArgs, are taken out of $args here.
   -LisContextTokens defaults to 114688: the default server ctx of 131072 (ruling 14)
   minus CLAUDE_CODE_MAX_OUTPUT_TOKENS 16384, so a prompt at Claude Code's limit plus a
   full-length reply still fits the server's window (the server runs without context
@@ -182,20 +203,21 @@ $ErrorActionPreference = 'Stop'
 # -LisContextTokens N, -LisContextTokens:N (any case). In-process, PowerShell hands
 # -LisContextTokens:N over as '-LisContextTokens:' followed by N, so an empty inline
 # value takes the next token. The switches -LisFull, -LisNoGuard, -LisNoLoopGuard,
-# -LisStrictSlot and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
+# -LisStrictSlot, -LisUserScope and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
 # '-LisFull:' followed by a [bool]). All checks run before any env change.
 $LisContextTokens = 114688
 $LisFull = $false
 $LisNoGuard = $false
 $LisNoLoopGuard = $false
 $LisStrictSlot = $false
+$LisUserScope = $false
 $LisTask = $null
 $LisRelaunchMax = $null
 $LisPrintArgs = $false
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
 $seenSwitch = @{}
-$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisPrintArgs)(:(.*))?\z'
+$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisPrintArgs)(:(.*))?\z'
 # pwsh -File passes -X:true|false as '-X' followed by a [bool] but -X:0 as '-X' followed
 # by the string '0', the same as '-X 0'. Only the process command line keeps the colon,
 # so when this script is the -File target ($MyInvocation.Line is empty) check it there.
@@ -457,6 +479,8 @@ $policy += ' Plain reads may run in parallel; per Bash batch run at most one com
 # lets the model widen it. A profile block names the profile so the transcript carries it.
 $tools = 'Bash,Read,Edit,Write,Glob,Grep,Skill'
 $runStamp = '{0:yyyyMMdd-HHmmss}' -f (Get-Date)
+# LIS_SESSION_START (docstring): 'o' is culture-invariant, full precision, UTC 'Z'.
+$set['LIS_SESSION_START'] = [DateTime]::UtcNow.ToString('o')
 $factsFile = "lis-facts-$runStamp.md"
 # The facts-inject hook's log (longrun), kept after exit for bench/ladder/run.ps1 to copy.
 $injectLog = Join-Path $env:TEMP "lis-facts-inject-$runStamp.log"
@@ -481,6 +505,9 @@ $leanArgs = if ($LisFull) { @('--strict-mcp-config', '--mcp-config', $mcpConfig)
     @('--tools', $tools, '--strict-mcp-config',
       '--mcp-config', $mcpConfig, '--append-system-prompt', $policy)
 }
+# User scope (ledger S-O3, docstring): off unless -LisFull or -LisUserScope.
+$userScope = if ($LisFull) { '-LisFull' } elseif ($LisUserScope) { '-LisUserScope' }
+if (-not $userScope) { $leanArgs = @('--setting-sources', 'project,local') + $leanArgs }
 
 # Verifier lines for the person (stderr, before launch and after exit), run from the
 # session's working directory. The tests are this repo's (CLAUDE.md), from its root.
@@ -516,6 +543,7 @@ function Add-LisHook([string]$Rel) {
 function Write-LisBanner {
     $e = [Console]::Error
     if ($hookCopies.Count) { $e.WriteLine("claude-local: hook copies: $hookDir (read-only, kept after exit)") }
+    $e.WriteLine('claude-local: user scope: ' + $(if ($userScope) { "on ($userScope)" } else { 'off (S-O3)' }))
     if (-not $LisTask) { $e.WriteLine('claude-local: profile: none'); return }
     $guardState = if ($LisNoGuard) { 'off' } elseif ($LisNoLoopGuard) { 'on, loop-guard off' } else { 'on' }
     $e.WriteLine("claude-local: profile: $LisTask   tools: $tools   guard: $guardState")
@@ -544,6 +572,7 @@ try {
     $cfg = Get-Content -LiteralPath $settingsSrc -Raw | ConvertFrom-Json -AsHashtable
     if (-not $cfg.env) { $cfg.env = [ordered]@{} }
     $cfg.env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] = "$LisContextTokens"
+    $cfg.env['LIS_SESSION_START'] = $set['LIS_SESSION_START']
     # Path rules written as Edit(~/...) or Read(~/...) become Edit(//c/Users/<name>/...),
     # the form verified on this machine; the committed JSON carries no user name.
     $h = $HOME.Replace('\', '/')
@@ -568,6 +597,9 @@ try {
     $cfg.permissions['deny'] = @($cfg.permissions['deny']) +
         @('scripts/install.ps1', 'models/manifest.json' |
             ForEach-Object { "Edit($repoRule/$_)"; "Write($repoRule/$_)" })
+    # The work tree's own settings files (docstring, ledger S-O3 audit W4), every mode.
+    $cfg.permissions['deny'] = @($cfg.permissions['deny']) +
+        @('Edit(**/.claude/settings*.json)', 'Write(**/.claude/settings*.json)')
     if ($LisTask -and $profiles[$LisTask].deny) {
         $cfg.permissions['deny'] = @($cfg.permissions['deny']) + $profiles[$LisTask].deny
     }

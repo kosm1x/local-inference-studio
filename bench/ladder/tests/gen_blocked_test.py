@@ -6,8 +6,8 @@ manifest's one impossible test and its pair, determinism and the pinned fixture_
 other modules equal to the unflagged fixture's, and (node) the before run, the solved
 fixture (every test but the impossible one passes) and a source bent to the impossible test
 (it passes, its pair fails). The last test runs `run.ps1 -Case blocked -DryRun` (pwsh; no
-session, no server request) and checks the precondition, the pin and a leaf that names no
-case; skipped without pwsh.
+session, no server request) and checks the precondition, the pin, a leaf that names no
+case and the wrapper's -LisUserScope (ruling 19, ledger S-O3); skipped without pwsh.
 """
 import hashlib
 import importlib.util
@@ -142,6 +142,9 @@ class DryRun(unittest.TestCase):
         self.assertRegex(out, r'(?m)^work_leaf: \d{8}-\d{6}-w1$')
         self.assertRegex(out, r'(?m)^fixture_commit: dev <dev@localhost> .*"initial import"$')
         self.assertIn('-LisTask edit', out)
+        # Ruling (19): reps keep the user-scope settings the wrapper drops since S-O3.
+        self.assertRegex(out, r"(?m)^  .*claude-local\.ps1'? -LisTask edit -LisUserScope ")
+        self.assertRegex(out, r'(?m)^  claude-local: user scope: on \(-LisUserScope\)$')
 
 
 if __name__ == '__main__':

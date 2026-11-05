@@ -16,6 +16,8 @@ file to test instead of scripts/claude-local.ps1 (for wrapper mutants).
 Ledger S-B3, S-B5, W-5: -LisPrintArgs per profile (PowerShell and Playwright denies, hook
 commands on the per-run read-only copies, the -LisFull web refusal) and a stub run whose
 hook copies are checked on disk; lis-guard.py run from a copy with --hooks-dir.
+Ledger S-O3: --setting-sources project,local in every mode but -LisFull (-LisUserScope drops
+it), the banner line, and LIS_SESSION_START in the settings env and the launched env.
 """
 import http.server
 import json
@@ -366,6 +368,50 @@ def check_hook_settings(name, cfg, want, err):
     return d
 
 
+# -LisUserScope opts user scope back in, with or without a profile (ledger S-O3).
+USER_SCOPE_CASES = [(['-LisUserScope'], '-LisUserScope'),
+                    (['-LisUserScope:true'], '-LisUserScope'),
+                    (['-LisUserScope:false'], None),
+                    (['-LisTask', 'review', '-LisUserScope'], '-LisUserScope'),
+                    (['-LisTask', 'longrun', '-LisUserScope'], '-LisUserScope'),
+                    (['-LisNoGuard', '-LisUserScope'], '-LisUserScope'),
+                    (['--mcp-config', 'scripts/web-access.example.mcp.json', '-LisUserScope'],
+                     '-LisUserScope'),
+                    (['-LisFull', '-LisUserScope'], '-LisFull')]
+# LIS_SESSION_START: round-trip ('o') UTC, 7 fraction digits, so a file born in the
+# launch second before the start does not count as session-written (S-B4).
+SESSION_START = re.compile(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{7}Z\Z')
+
+
+def check_user_scope(name, argv, cfg, err, on):
+    """User scope off: --setting-sources project,local once, before the forwarded
+    arguments, and the banner says off; on (-LisFull or -LisUserScope): no flag, the banner
+    names the switch. Either way the per-run settings env carries LIS_SESSION_START, the
+    reads the user scope denied on the audit machine (.env, ~/.ssh, ~/.aws) stay denied, and
+    Edit and Write of the work tree's .claude/settings*.json are denied (S-O3 audit W4)."""
+    argv = argv or []
+    n = argv.count('--setting-sources')
+    i = argv.index('--setting-sources') if n else -1
+    if on:
+        check(f'user scope {name}: on ({on}), no --setting-sources',
+              n == 0 and f'claude-local: user scope: on ({on})' in err, f'{argv} {err}')
+    else:
+        check(f'user scope {name}: off, --setting-sources project,local in front',
+              n == 1 and argv[i + 1] == 'project,local' and i == 2
+              and 'claude-local: user scope: off (S-O3)' in err, f'{argv} {err}')
+    start = (cfg.get('env') or {}).get('LIS_SESSION_START', '')
+    check(f'user scope {name}: settings env LIS_SESSION_START is ISO UTC',
+          bool(SESSION_START.match(start)), repr(start))
+    home = abs_rule(os.path.expanduser('~'))
+    deny = cfg['permissions']['deny']
+    reads = ['Read(**/.env*)', f'Read({home}/.ssh/**)', f'Read({home}/.aws/**)']
+    check(f'user scope {name}: the .env, ~/.ssh and ~/.aws read denies are per-run',
+          all(x in deny for x in reads), [x for x in reads if x not in deny])
+    own = [f'{k}(**/.claude/settings*.json)' for k in ('Edit', 'Write')]
+    check(f'user scope {name}: Edit and Write of .claude/settings*.json denied per run',
+          all(x in deny for x in own), [x for x in own if x not in deny])
+
+
 def test_wrapper_web_and_hooks():
     """-LisPrintArgs per profile: the PowerShell and Playwright denies, the hook commands on
     the per-run copies (nothing written: the directory does not exist), and the -LisFull
@@ -388,6 +434,12 @@ def test_wrapper_web_and_hooks():
         d = check_hook_settings(name, cfg, want, err)
         if d:
             check(f'hook copies {name}: -LisPrintArgs writes no copy', not os.path.exists(d), d)
+        check_user_scope(name, argv, cfg, err, on='-LisFull' if '-LisFull' in args else None)
+    for args, on in USER_SCOPE_CASES:
+        rc, argv, cfg, out, err = print_args(args)
+        check_user_scope(' '.join(args), argv, cfg, err, on) if cfg is not None else \
+            check(f'user scope {" ".join(args)}: -LisPrintArgs prints the settings', False,
+                  f'{rc} {out}{err}')
     for args in WEB_REFUSED:
         rc, argv, cfg, out, err = print_args(args)
         check(f'web/-LisFull refused: {" ".join(args)}',
@@ -853,7 +905,8 @@ class Claude {
     if (si >= 0 && si + 1 < a.Length)
       File.Copy(a[si + 1], Path.Combine(dir, "settings-" + n + ".json"), true);
     string env = "";
-    foreach (string k in new[] { "LIS_RELAUNCH", "LIS_RELAUNCH_RC", "LIS_FACTS_FILE" })
+    foreach (string k in new[] { "LIS_RELAUNCH", "LIS_RELAUNCH_RC", "LIS_FACTS_FILE",
+                                 "LIS_SESSION_START" })
       env += k + "=" + Environment.GetEnvironmentVariable(k) + "\n";
     File.WriteAllText(Path.Combine(dir, "env-" + n + ".txt"), env);
     string[] plan = File.ReadAllLines(Path.Combine(dir, "plan.txt"));
@@ -978,6 +1031,13 @@ def test_relaunch():
                   e1['LIS_RELAUNCH'] == '' and e1['LIS_RELAUNCH_RC'] == ''
                   and e2['LIS_RELAUNCH'] == '1' and e2['LIS_RELAUNCH_RC'] == '1'
                   and e1['LIS_FACTS_FILE'] == e2['LIS_FACTS_FILE'] == facts, f'{e1} {e2}')
+            check('supervisor: LIS_SESSION_START is ISO UTC and the relaunch keeps it',
+                  bool(SESSION_START.match(e1['LIS_SESSION_START']))
+                  and e1['LIS_SESSION_START'] == e2['LIS_SESSION_START'], f'{e1} {e2}')
+            check('supervisor: both sessions launch with --setting-sources project,local',
+                  all(a[a.index('--setting-sources') + 1] == 'project,local'
+                      for a in (a1, a2) if '--setting-sources' in a)
+                  and '--setting-sources' in a1 and '--setting-sources' in a2, f'{a1}')
             check('supervisor: the relaunch prompt is the prefix line plus the same prompt',
                   i >= 0 and a2[i] == relaunch_prefix(1, 1, facts) + PROMPT, repr(a2[i:i + 1]))
             d = a1.index('--debug-file') + 1 if '--debug-file' in a1 else -1
@@ -1042,6 +1102,16 @@ def test_relaunch():
         rc, _, err, calls = run_supervised(tmp, ['-p', PROMPT], ['exit:1', 'exit:0'])
         check('supervisor: no -LisTask -> off, no relaunch, rc 1',
               rc == 1 and len(calls) == 1 and not lines(err) and 'profile: none' in err, err)
+        # The unsupervised launch line passes the flag too, and -LisUserScope drops it.
+        start = calls[0][1].get('LIS_SESSION_START', '') if calls else ''
+        check('user scope: an unsupervised launch gets --setting-sources project,local and '
+              'LIS_SESSION_START', calls and '--setting-sources' in calls[0][0]
+              and calls[0][0][calls[0][0].index('--setting-sources') + 1] == 'project,local'
+              and bool(SESSION_START.match(start)), f'{calls} {err}')
+        rc, _, err, calls = run_supervised(tmp, ['-LisUserScope', '-p', PROMPT], ['exit:0'])
+        check('user scope: -LisUserScope launches without --setting-sources',
+              rc == 0 and len(calls) == 1 and '--setting-sources' not in calls[0][0]
+              and 'claude-local: user scope: on (-LisUserScope)' in err, f'{calls} {err}')
         rc, _, err, calls = run_supervised(tmp, ['-LisTask', 'longrun'], ['exit:1', 'exit:0'])
         check('supervisor: longrun without -p <prompt> -> off, no relaunch',
               rc == 1 and len(calls) == 1 and not lines(err)

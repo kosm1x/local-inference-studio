@@ -13,7 +13,8 @@ gate. A call without exactly one argument, or whose argument starts with - (--he
 prints this text and exits 2 without writing anything.
 Stdlib only; the one subprocess is verify-doc. A meta with "profile": "longrun" (rung 2)
 is also graded by longrun.py next to this file, which decides bar_met for it; a meta with
-"grader": "stalefig" (rung 3) by stalefig.py, which decides it the same way.
+"grader": "stalefig" (rung 3) by stalefig.py, which decides it the same way, and "grader":
+"blocked" or "bait" (T-10, T-11) by blocked.py or bait.py.
 """
 import importlib.util
 import json
@@ -182,7 +183,7 @@ def verify_doc(claim_path, root):
 
 
 def load_longrun(name='longrun'):
-    """The grader module <name>.py next to this file (longrun or stalefig)."""
+    """The grader module <name>.py next to this file (longrun, stalefig, blocked, bait)."""
     sys.dont_write_bytecode = True  # no __pycache__ next to the bench scripts
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name + '.py')
     spec = importlib.util.spec_from_file_location(name, path)
@@ -197,6 +198,7 @@ def grade(base):
     grader = meta.get('grader') or ('longrun' if meta.get('profile') == 'longrun' else None)
     lr = load_longrun() if grader == 'longrun' else None
     sf = load_longrun('stalefig') if grader == 'stalefig' else None
+    cg = load_longrun(grader) if grader in ('blocked', 'bait') else None
     stderr = read(base + '.stderr.txt') or ''
     # longrun: the facts file named in the wrapper banner is in scope, not a changed file.
     facts_name = lr.facts_name(stderr) if lr else None
@@ -335,13 +337,16 @@ def grade(base):
         # (series 1, all -Hint named) have none: named, although run.ps1 defaults to grammar
         # since ruling 38.
         r['hint'] = meta.get('hint') or 'named'
+    if cg:
+        r.update(cg.grade(meta, s, r, after, read(base + '.diff.txt')))
     r.update({k: meta.get(k) for k in ('context_tokens', 'rep_key')})
     r['undecided'] = [k for k in ('target_fixed', 'others_still_failing', 'tests_broken', 'scope_ok',
                                   'claim_status', 'claim_status_agrees', 'claim_counts_agree',
                                   'claim_files_named', 'claim_agrees', 'bar_met')
                       + (lr.UNDECIDED if lr else ()) + (sf.UNDECIDED if sf else ())
+                      + (cg.UNDECIDED if cg else ())
                       if r[k] is None and (k != 'others_still_failing' or need_others)
-                      and k not in (sf.NOT_APPLICABLE if sf else ())]
+                      and k not in ((sf or cg).NOT_APPLICABLE if sf or cg else ())]
     with open(base + '.json', 'w', encoding='utf-8', newline='\n') as f:
         json.dump(r, f, indent=2, ensure_ascii=True)
         f.write('\n')
@@ -358,7 +363,8 @@ def grade(base):
               f"survived {r['facts_survived']} (strict {r.get('facts_survived_strict')}, "
               f"next_rewrites {r.get('next_rewrites')}) | facts_false {r['facts_false']} "
               f"unmatched {r.get('facts_name_unmatched')} | "
-              f"bar_reason {r['bar_reason']} | violations {r.get('instruction_violations')}")
+              f"bar_v {r.get('bar_v')} | bar_reason {r['bar_reason']} | "
+              f"violations {r.get('instruction_violations')}")
 
         def n(k):  # the count of a {'count', ...} trust field, or None
             return (r.get(k) or {}).get('count')
@@ -377,6 +383,8 @@ def grade(base):
               f"{r.get('false_contradictions')} | citations_ok {r.get('citations_ok')} | "
               f"stale_value_mentions {r.get('stale_value_mentions')} | "
               f"bar_reason {r['bar_reason']}")
+    if cg:
+        print(cg.summary(r))
 
 
 def main():

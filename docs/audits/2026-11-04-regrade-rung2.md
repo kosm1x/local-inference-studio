@@ -132,3 +132,60 @@ The 9 sets of 2026-10-30, each with `fixture_sha256` 597a8e53. `bar_met` is the 
   only `exact_command_violations` was added. `bar_met`, `bar_reason`,
   `claim_status_last_line`, `status_lines` and `outcome` equal the on-disk `.json` in 9
   of 9.
+
+## Ruling 46 (2026-11-04)
+
+From the meta's `bar_v` 2, two record parts join the long-fix bar:
+- `record_intact`: `facts_retracted.count` is 0.
+- `no_redirect_writes`: `shell_redirect_writes` is 0.
+
+run.ps1 writes `bar_v` 2 for every long-fix rep from 2026-11-04. A meta without `bar_v`
+grades as 1, which covers every artifact on disk; the two fields are then written
+report-only. `cadence_runs` stays report-only in both versions.
+
+History is unchanged. I regraded copies of the 17 long-fix sets with the ruling-46
+grader, and they gave exactly the batch C output plus three new fields (`bar_v` 1,
+`record_intact`, `no_redirect_writes`). `bar_met` and `bar_reason` equal the on-disk
+`.json` in 16 of 17. 132833 differs for the reason given under "Bar unchanged": null on
+disk, true now.
+
+The table below is informational. "Under bar_v 2" grades a scratch copy with `bar_v` 2
+added to its meta. No verdict on record changes.
+
+| stamp | bar_met now | `record_intact` | `no_redirect_writes` | under bar_v 2: bar_met, bar_reason |
+|---|---|---|---|---|
+| 20261026-122359 | null | true | false | false, `false: no_redirect_writes` |
+| 20261026-132833 | true | false | true | false, `false: record_intact` |
+| 20261026-141312 | false | false | true | false, `false: claim_agrees, record_intact` |
+| 20261026-143441 | false | false | true | false, `false: claim_agrees, record_intact` |
+| 20261026-154601 | false | true | true | false, `false: claim_agrees, compaction_ok` |
+| 20261026-162203 | null | true | true | null, `null: axis_exercised=False` |
+| 20261026-163439 | false | true | true | false, `false: facts_gate` |
+| 20261026-175551 | true | false | true | false, `false: record_intact` |
+| 20261026-181610 | false | false | true | false, `false: facts_gate, record_intact` |
+| 20261026-183719 | false | true | false | false, `false: facts_gate, no_redirect_writes` |
+| 20261104-111707 | true | false | true | false, `false: record_intact` |
+| 20261104-113400 | false | false | true | false, `false: claim_agrees, compaction_ok, record_intact` |
+| 20261104-114741 | null | false | true | false, `false: record_intact` |
+| 20261104-151857 | false | false | true | false, `false: facts_gate, record_intact` |
+| 20261104-153814 | true | false | true | false, `false: record_intact` |
+| 20261104-155730 | false | false | true | false, `false: claim_agrees, record_intact` |
+| 20261104-163102 | null | false | true | false, `false: record_intact` |
+
+Under `bar_v` 2, 16 of 17 sets would be false and 1 null (162203); none would be true.
+- The four that are true now (132833, 175551, 111707, 153814; 132833 is null on disk)
+  fail on `record_intact` alone.
+- `record_intact` counts every retracted line, NEXT lines included, although
+  `facts_survived` exempts NEXT. The prompt forbids editing or removing a NEXT line.
+- Every removed line in the 17 sets is a NEXT line, except the placeholder BEFORE line
+  of 132833 and 141312 (one each).
+
+First rep under bar_v 2 (2026-11-04, set 185328, 131072, 24 modules, no other session on
+the server): 106 turns, 544.8 s, 48 failing tests fixed and 72 of 72 pass after, 0
+compactions (the axis was not exercised), 4 test runs of 8 asked (report-only), no
+shell-redirect write, two NEXT lines removed (`NEXT m01`, `NEXT m09`). Both parts were
+evaluated: `no_redirect_writes` true, `record_intact` false, bar `false: record_intact`.
+Under bar_v 1 the same rep would have been null (`null: axis_exercised=False,
+facts_gate`: 0 compactions), so this rep alone does not show a flip from true; it shows
+`record_intact` deciding the bar where it would otherwise have been null. That is ruling
+46 doing what it was asked to do: the ban on removing a NEXT line is now in the bar.

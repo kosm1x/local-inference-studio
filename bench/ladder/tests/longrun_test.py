@@ -1061,6 +1061,49 @@ class LongRun(unittest.TestCase):
         self.assertEqual(self.grade()['exact_command_violations'], 1)  # the | tail -5 run
         self.assertIsNone(self.grade(meta_extra={'test_cmd': None})['exact_command_violations'])
 
+    def test_ruling_46_record_parts_join_the_bar_from_bar_v_2(self):
+        def both(steps=None, **kw):
+            """(bar_met, bar_reason) without bar_v, then with bar_v 2, and the v2 result."""
+            old = self.grade(steps, **kw)
+            new = self.grade(steps, meta_extra={'bar_v': 2}, **kw)
+            self.assertEqual((old['bar_v'], new['bar_v']), (1, 2))
+            return (old['bar_met'], old['bar_reason']), (new['bar_met'], new['bar_reason']), new
+        # A retracted line (placeholder BEFORE replaced, reps 132833 and 141312).
+        steps, ph = good(self.work), 'BEFORE pass 0 fail 0'
+        steps[1] = ('Write', dict(steps[1][1], content=ph + '\n'), 'ok', False)
+        steps[4] = ('Edit', dict(steps[4][1], old_string=ph + '\n'), 'ok', False)
+        old, new, r = both(steps)
+        self.assertEqual((old, new), ((True, None), (False, 'false: record_intact')))
+        self.assertEqual((r['record_intact'], r['no_redirect_writes']), (False, True))
+        self.assertIn('record_intact', r['bar_parts'])
+        # A shell-redirect write (cat >> appends, rep 183719).
+        steps = good(self.work)
+        steps[4] = ('Bash', {'command': f"cat >> {FACTS} << 'EOF'\n" + text(L1[1:]) + 'EOF'},
+                    '', False)
+        old, new, r = both(steps)
+        self.assertEqual((old, new), ((True, None), (False, 'false: no_redirect_writes')))
+        self.assertIn('bar_v 2 | bar_reason false: no_redirect_writes | ', self.out)
+        # Both clean: the bar is what the other parts give (true; false with a bad CHECK).
+        old, new, r = both()
+        self.assertEqual((old, new), ((True, None), (True, None)))
+        self.assertEqual((r['record_intact'], r['no_redirect_writes']), (True, True))
+        steps = good(self.work)
+        bad = [L1[0], 'CHECK pass 3 fail 0'] + L1[2:]
+        steps[4] = ('Edit', dict(steps[4][1], new_string=text(bad)), 'ok', False)
+        old, new, _ = both(steps, final=bad + L2)
+        self.assertEqual((old, new), ((False, 'false: facts_gate'), (False, 'false: facts_gate')))
+        # Replay null: record_intact null, so a v2 bar that was true is null.
+        steps = good(self.work)
+        steps.insert(5, ('Bash', {'command': f"sed -i 's/m02/m03/' {FACTS}"}, '', False))
+        old, new, r = both(steps)
+        self.assertIsNone(r['record_intact'])
+        self.assertEqual(new[0], None if old[0] is True else old[0])
+        self.assertIn('record_intact', new[1])
+        # Without bar_v the parts stay out of bar_parts (history keeps its verdicts).
+        self.assertNotIn('record_intact', self.grade()['bar_parts'])
+        # A bar_v that is not an int counts as 1.
+        self.assertEqual(self.grade(meta_extra={'bar_v': '2'})['bar_v'], 1)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)

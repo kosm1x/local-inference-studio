@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (11 LANDED, 3 BUILT, 35 OPEN of 49 on 2026-11-04) in
+owner, fix and proof is in one table (14 LANDED, 2 BUILT, 33 OPEN of 49 on 2026-11-04) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -240,9 +240,13 @@ Batches (IDs in the ledger):
 - B, resilience: serve.ps1 restart loop, per-boot key, `--no-webui`, `--host` lock,
   stop.ps1 marker, watchdog.ps1, wrapper health and busy check, key file, context margin.
 - C, trust graders: report-only checks and a regrade table. 2026-11-04: five
-  report-only checks; T-1, T-3, T-4, T-6 LANDED, T-2 BUILT (ruling); proof
+  report-only checks; T-1, T-2, T-3, T-4, T-6 LANDED (T-2 by ruling 46: the first
+  bar_v 2 rep graded `false: record_intact`, two NEXT lines removed); proof
   [docs/audits/2026-11-04-regrade-rung2.md](audits/2026-11-04-regrade-rung2.md).
-- D, new fixtures: honest BLOCKED, injection and secret bait.
+- D, new fixtures: honest BLOCKED, injection and secret bait. LANDED 2026-11-04: ladder
+  cases `blocked` (T-10) and `bait` (T-11) with graders, 3 reps each: blocked 2 of 3
+  (the third rewrote a contract comment to fit the impossible test), bait 3 of 3; proof
+  [docs/audits/2026-11-04-batch-d-reps.md](audits/2026-11-04-batch-d-reps.md).
 - E, compaction facts-read hook.
 - F, operator apply lines (user scope, firewall, task history, restart).
 - G, a multi-hour supervised run after A to E.

@@ -61,7 +61,6 @@
 
 ## 2026-10-24 — Ruling 13 lean set
 
-- **Mistake:** repeated the logged heredoc trap: a Python heredoc wrote `Z:\\repos` into a doc, the Bash tool collapsed it to `Z:\repos`, Python read `\r` as a carriage return, and `git ls-files --eol` flagged the file `w/-text`. → Doc text with backslashes goes through the Edit tool; after any scripted edit run `git ls-files --eol <files>` and a control-character grep on the diff.
 - **Better:** the brief expected `-LisFull` to restore the old 25.6K prompt; it measured 21,908 because the settings deny of Agent and Workflow stays on, which also turned the audit's "deny removes the schema" observation into a VERIFIED pair (run (b) 21,911). Predict a switch's result from every layer it leaves in place, not only the flags it drops.
 - **Better:** Claude Code's session transcript carries a `prompt_snapshot` attachment with the full system prompt; it proves an `--append-system-prompt` reached the request builder when the server log runs below prompt verbosity.
 
@@ -82,7 +81,6 @@
 - **Better:** the classifier cost is structural, not a RUN 2 accident: 7 classifier requests took about 240 s of RUN 3's 330 s of GPU time (2.7x the work). Auto mode on the local model is a cost figure the operator rules on, not a bug to fix.
 
 ## 2026-10-25 - Ruling 15 build: rule set A, lis-guard hook, perm bench
-- **Mistake:** wrote the dry matcher and the corpus sanitiser through Bash heredocs with backslash literals; both died on a SyntaxError and the fix attempts through `sed` and `python -c` hit the same collapse. -> Promoted to Standing rules: Write/Edit tool, or `chr(92)`.
 - **Mistake:** in PowerShell, `$s = Invoke-RestMethod ...` overwrote `$S` (the scratch path): variables are case-insensitive, and the `--debug-file` went nowhere. -> Distinct names, never case variants.
 - **Mistake:** edited `scripts/hooks/lis-guard.py` while the AH bench was calling it per tool use, so one run could mix versions. -> Freeze every file a running bench reads; park edits in the scratchpad and re-run after.
 - **Avoid:** a scratch dir named `build`: a PreToolUse hook protects it as generated output and refuses Edit.
@@ -143,5 +141,12 @@
 ## 2026-11-05 — S-B3 per-run hook copies: glob coverage (audit C1 rounds 2-3)
 
 - **Mistake:** modelled the stamp in `lis-hooks-<x>` as free text, so any `*`-led glob with 5 literals (`ls src/*.test.js`, `cat logs/*-error.log`) became a guard file and was denied; the corpus had deny rows only, no converse rows. -> A glob-to-name model gives its free slot the real alphabet (`[0-9-]` for a stamp or pid) and ships with converse rows plus a property oracle both ways (ordinary globs never deny; fnmatch-true globs always deny).
-- **Mistake:** wrote test rows holding backslash paths through a Bash heredoc again; the doubled backslashes collapsed and the rows tested different strings. -> The standing rule holds for test rows too: Write tool, raw strings.
 - **Better:** before building a new matcher, measure the simpler route against the old guard (here: mirroring the copies under `scripts\hooks\`); the measurement showed which rows each route misses.
+
+## 2026-11-05 — S-O3 user scope off, S-B4 inline code and session-written files (c32)
+
+- **Mistake:** the brief assumed a pre-existing file edited in-run keeps its birthtime; measured false (the Edit tool rewrites the file: new birthtime on NTFS and ReFS), and the first fold then stated "only an in-place write keeps the birthtime", while the auditor measured NTFS tunneling (delete and recreate within 15 s keeps the OLD birthtime). -> A file-time rule is proven by measuring the exact tool's write path and the volume's quirks before a doc states it; judge birth AND mtime.
+- **Mistake:** the run-target rule stat'ed the file before the command ran, so `cp new.py f.py && python f.py` and every grouped form (`( )`, `{ }`, `if`, backticks, `bash -c --`) got no decision; found by the auditor, not the corpus. -> A rule over run targets judges the command's own writers and missing targets, and walks every grouping form the walker already handles for `$( )`.
+- **Mistake:** the new property invariant checked only the converse (ordinary commands never deny), so disabling the rule kept 23531 cases green. -> Every new deny rule ships with a positive oracle (random instances must deny) and a converse one; mutation over the unit rows alone proves little.
+- **Better:** when a settings scope is excluded, read what it carried (the debug log's "Adding N allow rule(s) to destination 'userSettings'") and name every bench whose inputs change; with user scope on, "no decision" means allow in a rep, and with it off, deny in a lean `-p` session.
+- **Mistake:** the pre-commit ParseFile list carried a script that does not exist in this repo (`scripts/run.ps1`) from a compaction summary. -> `ls` the list before running it; the repo's actual `.ps1` files are the list.

@@ -1,7 +1,6 @@
 # Agent learnings — local-inference-studio
 
 ## Standing rules
-
 - Every built commit gets a scoped qa-auditor pass before push; warnings become a follow-up commit, never a silent amend of content.
 - Git commit messages go through a message file (`git commit -F <abs path>`), never a PowerShell here-string piped to `-F -` and never `git log --format=%B` round-tripped through `-replace` (both lose newlines or fail).
 - Anything that crosses into WSL from PowerShell is wrapped in `bash -c '...'`: PowerShell expands a bare `~` to the Windows profile before `wsl` sees it, so `wsl -- rm -rf ~/x` silently misses.
@@ -10,67 +9,53 @@
 - GPU work is single-tenant: a benching agent checks `nvidia-smi` compute apps and port 8081 before `stop.ps1`, and restores the Scheduled Task afterwards.
 - Vendor "fits a 16 GB GPU" claims are measured against the desktop's 1.3 to 2.0 GiB already resident, never against 16 GB.
 - A driver that starts `serve.ps1` with `Start-Process` passes ONE argument string with `-ExtraArgLine "-lv 4"` quoted inside it; an `-ArgumentList` array splits `'-lv 4'` into two tokens (llama-server then gets `--port 4` and a bare `-lv`). Check the first line of the server log (the command line) before trusting a driver loop.
-- Scripted doc edits detect `
-` per file before matching, apply every edit before any `git add`, and the diff stat is checked against the intended file list (a half-applied script shipped one of four fixes on 10-24).
+- Scripted doc edits detect `\r\n` per file before matching, apply every edit before
+  any `git add` and check the diff stat against the file list (10-24: 1 of 4 shipped).
 - A brief's claim about a model (MTP head, template, fit) is read from `config/models.md` or the GGUF header before dispatch, never from memory; the subagent verifies it again on arrival.
 - Code or doc text containing backslashes goes through the Write or Edit tool, never a Bash heredoc or `python -c`: the Bash tool collapses a doubled backslash to one (hit 3 times: 10-24 3d, 10-24 lean set, 10-25 permissions).
 - A permission allow prefix for a command that takes file-valued options cannot be made safe by a hook that reads tokens before the shell expands them; allow such commands only through the hook's own recogniser, never a glob rule.
 - A hook that allows commands gives no decision on any segment with a shell expansion (`$`, backtick, unquoted `{}`/`*?[]`/`~`), and every verb handler AND the env-prefix filter are allow-lists; no grammar over expansions survives audit (6 rounds, 2026-10-25).
+- Grade a run by its artefact against a fixed fact checklist, never by server health.
 
 ## 2026-10-24 — P3 to P5: bench matrix, Saluki/GSQ-RCO/Orca, vLLM spike
-
 - **Mistake:** a subagent committed with an Opus trailer and a WSL username in the ROADMAP. → Brief states the exact trailer; audit checks for usernames.
 - **Better:** fit questions get answered by the `-lv 4` placement lines (layers on GPU, CPU_Mapped MiB, KV MiB, free MiB) captured in the same run as the numbers.
 - **Better:** the GSQ-RCO MTP head runs on stock llama.cpp `--spec-type draft-mtp`; test MTP at the context where the model fits all-GPU, since its ~1.3 GB cost otherwise spills layers and hides the speed-up.
 
 ## 2026-10-24 — Phase 3c: Qwen3.8-27B-Uncensored GGUF
-
-- **Mistake:** repeated the logged `-lv 4` split in a Start-Process driver (three dead starts, each "health NOT ok after 2 s"), then broke the retry by re-assigning a split array into a `[string]` param, which PowerShell joins back into one space-separated string. → Promoted to Standing rules; split into a new variable, never back into a typed param.
 - **Better:** a background poll (port 8081, `pgrep vllm` in WSL, `memory.used`) that also accepts "llama-server back on :8080" as the other agent's done signal ended the GPU wait without guessing.
 
 ## 2026-10-24 — Phase 3d: agentic-loop comparison
-
 - **Mistake:** started 3-rep loops on Saluki and GSQ-RCO without checking that their chat template accepts Claude Code's message order; every rep burned about 3 min on 11 HTTP 500 retries (`raise_exception('System message must be at the beginning.')`). → Before a long loop on a new GGUF, run one `-v` request and read the converted role order (the operator's SessionStart hook output arrives as a second, non-leading system message), or POST it to `/apply-template`.
 - **Mistake:** the loop fixture had a `package.json`; the operator's `~/.bashrc` runs `fnm env --use-on-cd`, so any `cd <dir> && node ...` inside Claude Code's Bash tool failed in `fnm use` and one rep timed out at 30 min while debugging fnm. → A fixture carries no `package.json`, `.nvmrc` or `.node-version`; `node --test` discovers `test/*.test.js` alone.
 - **Avoid:** under `pwsh -File`, an argument value that starts with `-` and contains `:` (`-ExtraArgLine "--chat-template-file Z:/x"`) is parsed as a `-name:value` token and fails with "Missing an argument for parameter". Pass it as ONE token `"-ExtraArgLine:<value>"`.
-- **Avoid:** heredocs through the Bash tool collapse `\\` to `\`, and Python text-mode writes CRLF on Windows; write template or escape-heavy files with the Write tool, or open with `newline=''`.
-- **Mistake:** a Python edit script asserted on `\n` patterns against files that are CRLF on disk (ROADMAP, models.md); the first edit passed, the script died, and a commit went out with one of four fixes. → Detect `\r\n` per file before matching, apply all edits before any `git add`, and check the diff stat lists every intended file.
-- **Better:** when a contender's wall time is quoted "on both fixtures", check that the other contenders produced a number on both; a comparison with one finisher is a measurement, not a ranking (audit catch).
 
 ## 2026-10-24 — Ruling 6 cutover (Orca IQ3_XXS default)
-
 - **Mistake:** template detection compared a non-normalised path; `GetFullPath` ran only on relative inputs, so an absolute forward-slash `-Model` skipped `--chat-template-file` (HTTP 500 under Claude Code) (audit catch). → Normalise every path before any prefix test.
 - **Better:** the logon task log runs at verbosity 3 and carries no placement lines; capture fit with ONE `-lv 4` start on :8081 after stopping the task server (two 27B servers cannot share the card), then restart the task.
 
 ## 2026-10-24 — Session close (orchestration)
-
 - **Mistake:** the Phase 3d summary's "fastest on both fixtures" passed the orchestrator's read before the audit caught that only one contender finished on the old fixture. → Rankings need every contender to have a number on the same fixture.
 
 ## 2026-10-24 — Live monitoring of the Orca default
-
 - **Mistake:** reported the running context size by summing prompt-in and tokens-out per turn (said ~67K); the server's own `stop processing: n_tokens` line peaked at 45,417. → Read the server's count; the sum ignores compaction and parallel conversations.
 - **Better:** a `tail -F | grep --line-buffered` monitor on `prompt eval time|eval time|total time|truncated = [1-9]|exited|error` gives one event per turn with the cache hit/miss visible in the prompt token count (tens = hit, tens of thousands = full re-read).
 - **Better:** judge a model's agentic cost from a real session's decode share (here 90 %) before optimising prefill; the loop bench over-weighted prefill because every rep started cold.
 
 ## 2026-10-24 — Ruling 13 lean set
-
 - **Better:** the brief expected `-LisFull` to restore the old 25.6K prompt; it measured 21,908 because the settings deny of Agent and Workflow stays on, which also turned the audit's "deny removes the schema" observation into a VERIFIED pair (run (b) 21,911). Predict a switch's result from every layer it leaves in place, not only the flags it drops.
 - **Better:** Claude Code's session transcript carries a `prompt_snapshot` attachment with the full system prompt; it proves an `--append-system-prompt` reached the request builder when the server log runs below prompt verbosity.
 
 ## 2026-10-25 — First real session on 65K+MTP+lean (PC recon, two runs compared)
-
-- **Mistake:** declared the lean run healthy from server stats (0 server errors, all cache hits); the report it produced was wrong on two disks and silent on the GPU. -> Judge a run by its artefact against ground truth, not by the serving log.
 - **Avoid:** auto permission mode on the local model: the classifier call (own system prompt + whole transcript, ~36K tokens) consumed 2x the GPU time of the work, timed out 9 times, denied 2 calls, and the detours inflated the context to the compaction threshold.
 - **Avoid:** letting auto-compact fire mid-task on a 65,536 window: it triggered at ~36K; the model's own summary turned "J 135/4657, K 328/14902" into "mostly free" and the final report was written from the summary.
 - **Better:** report-producing tasks write facts to a file as they go; the raw tool output is the only thing compaction cannot be trusted to keep.
 - **Better:** llama-server's prompt cache restores interleaved conversations without re-prefill; one slot is not one conversation. Two full re-reads in 20 turns, both after long classifier generations.
 
 ## 2026-10-25 — Ruling 14: revert to 131K, RUN 3 of the PC recon
-
 - **Mistake:** the RUN 2 verdict named compaction as the whole cause and auto mode as the fix; RUN 3 (131K, no compaction, one classifier timeout) was still incomplete: 6 of 8 volumes missing, GPU "not checked". -> Grade every run against a fixed checklist of the facts the task must contain (every volume, GPU, CPU, RAM, OS, toolchain, services) before naming a cause.
 - **Mistake:** RUN 3 lost all three drive queries for three different reasons: one classifier timeout, one bash expansion of an unescaped `$_` inside `powershell -Command "..."`, one PowerShell precedence error (`-f $_.Size/1GB, ...`) hidden by `2>/dev/null`; the model fell back to `df` on C and Z. The first write-up blamed `$_` for both executed failures (audit catch). -> Read each failed call's result separately before naming one cause; a policy fix for `$_` covers one of the two.
 - **Mistake:** wrote "compacted at about 36K" from the monitor's last n_tokens; the transcript's `compact_boundary.preTokens` says 39,098. -> Compaction size comes from the transcript metadata, not from the last server line before it.
-- **Avoid:** judging a run by server health (no compaction, no truncation, no denials): RUN 3 was clean on every server metric and still omitted the two nearly-full disks.
 - **Better:** the classifier cost is structural, not a RUN 2 accident: 7 classifier requests took about 240 s of RUN 3's 330 s of GPU time (2.7x the work). Auto mode on the local model is a cost figure the operator rules on, not a bug to fix.
 
 ## 2026-10-25 - Ruling 15 build: rule set A, lis-guard hook, perm bench
@@ -81,14 +66,11 @@
 - **Better:** the debug log names every permission path: `classifier_request_started/finished ... outcome=`, `tool_dispatch_start ... permissionDecisionMs=` and `Hook ... returned permissionDecision:`; the bench reads them instead of guessing from the server log.
 
 ## 2026-10-25 — RUN 4 (rules + lis-guard): permission layer fixed, report still 7/14
-
 - **Mistake (the local model's, logged for the policy text):** RUN 4 trusted a leftover probe script in the cwd (`repo-sweep.sh`, written by RUN 2 with a Docker path that never exists) and reported "Docker Desktop is not installed"; a direct `Test-Path` would have shown the binary. -> A recon never cites a script it did not write this session without reading it first; stale helpers in a cwd are inputs to verify, not facts.
 - **Mistake (the model's):** chose `Get-PhysicalDisk` over `Get-Volume`, so the report lists six drive models with no letters or free space and misses J and K at 2-3 % free; GPU and the llama-server process omitted for the third run in a row. -> A fixed recon checklist in the prompt or policy is the next lever; the harness is no longer the cause (0 classifier requests, 0 timeouts, 162 s).
 - **Better:** 16 Bash calls, 15 allowed by lis-guard in 91-119 ms each and 1 by rule; zero classifier calls; wall 162 s vs 342 s (RUN 3) and ~53 min (RUN 2). The allow-list premise held exactly as Phase 0 measured it.
-- **Avoid:** grading a run by its permission metrics: RUN 4 met every harness target and scored lower than RUN 3 on the report (7/14 vs 8/14), with two false statements.
 
 ## 2026-10-25 — lis-guard audit R1: FAIL (25+ false allows)
-
 - **Mistake:** the hook's read-only grammar was a VERB list with "any arguments" for most verbs; `uniq a OUT`, `tree -o`, `sort -uo`, `nvidia-smi -f`, `wmic ... delete`, `date --set`, curl `-D/--cookie-jar`, ssh `-o ProxyCommand=` and PowerShell `% Delete` / `. $f` / `.$m()` all got `allow`. A safety allow-list is per-verb ARGUMENT shapes, never verb names -> the check that catches it: for every allowed verb ask "which of its options write a file, run a program or change state", and probe each one before the first live run.
 - **Mistake:** my own-review commit ADDED `uniq`, `tree`, `rg` as "read-only verbs" without reading their man pages; `rg --pre` runs a program, `uniq` and `tree -o` write files. -> No verb enters the allow list without its write/exec options enumerated in the same commit.
 - **Mistake:** docs said "no decision goes to the classifier"; it goes to the ALLOW RULES first, so a hook pass + a broad prefix rule (`git branch*`, `curl -s http://127.0.0.1:*`, `Get-*`) = unjudged write. -> Trace the full decision chain (hook -> deny rules -> ask rules -> allow rules -> classifier) before writing one sentence about where a case lands.
@@ -99,7 +81,6 @@
 - **Better:** three audit rounds on a safety hook: R1 attack+mutation (FAIL, 25 allows), R2 re-attack 80 new shapes (PASS-W, 0 allows, 7 deny-misses), R3 fold check 10 mutants (PASS-W, rule-level residuals → ask rules). Ship after R3 with only UNVERIFIED-live items left.
 
 ## 2026-10-25 — policy-text levers (ruling 15 follow-up)
-
 - **Mistake:** the local model reported counts it never computed (listed 16 and 30 dirs, wrote 18 and 33; wrote 46 for a 47-line sweep). -> The appended policy now says every number is copied from a tool output and counts come from `wc -l` / `Measure-Object`; grade RUN 5 on each count against its own tool output.
 - **Mistake:** the local model cited a stale helper script left in the cwd ("Docker not installed") and appended `2>/dev/null` to probes, so a failed probe read as a fact. -> Policy: read a script before citing it, prefer a direct check, never silence stderr on a probe.
 - **Avoid:** `powershell -NoProfile -Command "... $_ ..."` through the Bash tool (bash expands `$_`); also unquoted `~` in `wsl -d Ubuntu -- ssh -i ~/...` from Git Bash, which expands to the Windows home and fails with "Permission denied (publickey)". -> Single-quote the PowerShell payload (inner strings in double quotes work) and quote `'~/.ssh/...'`; both verified from Git Bash 2026-10-25.
@@ -132,12 +113,10 @@
 - **Better:** when a fold adds a parser for harness output, the auditor's first probe is `grep -c` of the assumed shape over every stream on disk; 0 hits means the parser is dead.
 
 ## 2026-11-05 — S-B3 per-run hook copies: glob coverage (audit C1 rounds 2-3)
-
 - **Mistake:** modelled the stamp in `lis-hooks-<x>` as free text, so any `*`-led glob with 5 literals (`ls src/*.test.js`, `cat logs/*-error.log`) became a guard file and was denied; the corpus had deny rows only, no converse rows. -> A glob-to-name model gives its free slot the real alphabet (`[0-9-]` for a stamp or pid) and ships with converse rows plus a property oracle both ways (ordinary globs never deny; fnmatch-true globs always deny).
 - **Better:** before building a new matcher, measure the simpler route against the old guard (here: mirroring the copies under `scripts\hooks\`); the measurement showed which rows each route misses.
 
 ## 2026-11-05 — S-O3 user scope off, S-B4 inline code and session-written files (c32)
-
 - **Mistake:** the brief assumed a pre-existing file edited in-run keeps its birthtime; measured false (the Edit tool rewrites the file: new birthtime on NTFS and ReFS), and the first fold then stated "only an in-place write keeps the birthtime", while the auditor measured NTFS tunneling (delete and recreate within 15 s keeps the OLD birthtime). -> A file-time rule is proven by measuring the exact tool's write path and the volume's quirks before a doc states it; judge birth AND mtime.
 - **Mistake:** the run-target rule stat'ed the file before the command ran, so `cp new.py f.py && python f.py` and every grouped form (`( )`, `{ }`, `if`, backticks, `bash -c --`) got no decision; found by the auditor, not the corpus. -> A rule over run targets judges the command's own writers and missing targets, and walks every grouping form the walker already handles for `$( )`.
 - **Mistake:** the new property invariant checked only the converse (ordinary commands never deny), so disabling the rule kept 23531 cases green. -> Every new deny rule ships with a positive oracle (random instances must deny) and a converse one; mutation over the unit rows alone proves little.
@@ -145,7 +124,6 @@
 - **Mistake:** the pre-commit ParseFile list carried a script that does not exist in this repo (`scripts/run.ps1`) from a compaction summary. -> `ls` the list before running it; the repo's actual `.ps1` files are the list.
 
 ## 2026-11-05 — Restart proofs, the harness's own warnings (c34)
-
 - **Mistake:** the S-O3 live proof's debug log carried six `[WARN] [permissions]` lines (every `Write(path)` deny rule inert, the `git -C *` allow rules approving `-c`/`--exec-path`) and the proof was graded only on the figures it was run for; the warnings sat in a gitignored log for 18 hours. -> Every live proof gets a `[WARN]` grep of its debug log before the row is marked LANDED; the harness's own warnings are findings.
 - **Better:** a row that "waits on the next start" is proven from the log lines the restart wrote (stop marker, pin check, hash-marker reuse, vram line, launch) and the endpoints with the new key, not from the first `/health` ok; the live stop-marker order differed from the stub's (serve.ps1 quotes it after the exit line while it holds the log) and the row now states the measured order.
 - **Mistake:** the S-B8 rule read only tokens starting with `-` before the git subcommand, although the standing rule says a hook fails on any unquoted expansion; the auditor's `{-c,core.fsmonitor=...}` and `$'-c'` forms got no decision and bash ran them. -> Every new token-reading rule starts with the expansion clause (`$`, `{`, `[`, `*`, `?`, backtick before the judged position = deny) and its positive oracle includes expansion spellings.
@@ -159,3 +137,13 @@
 - **Mistake:** the test-list extraction regex (`^\s*python -I`) matched zero CLAUDE.md lines because the commands are backticked mid-line, and the loop was started before its command count was checked; it "completed" with no test run. -> Print the extracted command count and compare it with the list's length before the loop starts, never after.
 - **Mistake:** the dry run and the real run have different stamps (the stamp is taken at start), so the first look for the real run's artifacts used the dry run's stamp. -> Read the stamp from the run's own log line (`generated: ... manifest <stamp>`), never from an earlier invocation.
 - **Better:** the R-C2 bar (2 h of wall time) was unreachable by the fixture's 79-module cap; saying so before the run and asking for the ruling let the run count without rework. A bar that no allowed input can meet is a ruling to request, not a run to repeat.
+
+## 2026-11-05 - web access via Jarvis MCP in a container (c39)
+- **Mistake:** the first web design left the jarvis-web server in the session's cwd (tsx
+  read the work tree's `tsconfig.json`; eviction wrote to `<cwd>/data`); the audit's
+  probe caught it. -> A helper process Claude Code starts inherits the untrusted work
+  dir as cwd: pin config paths and chdir away before loading code.
+- **Avoid:** counting a regex secret filter as a control (encoding, splitting and keyless
+  shapes pass it); what the container mounts is the control.
+- **Better:** prove the Docker host route from inside a container before planning host
+  network changes; `host.docker.internal:8080` worked and saved an admin portproxy.

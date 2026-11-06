@@ -121,17 +121,18 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - [docs/audits/2026-10-30-resilience.md](docs/audits/2026-10-30-resilience.md) —
   resilience audit (FAIL for unsupervised multi-hour tasks)
 - [docs/audits/2026-10-30-security.md](docs/audits/2026-10-30-security.md) — security
-  audit (FAIL for enabling web fetch now)
+  audit (FAIL for enabling web fetch then; web access ARMED 2026-11-05 via `-LisWeb`)
 - [docs/audits/2026-10-30-trustworthiness.md](docs/audits/2026-10-30-trustworthiness.md)
   — trustworthiness audit of the ladder artifacts (FAIL for unsupervised long tasks)
 - [docs/audits/2026-10-30-web-access-prep.md](docs/audits/2026-10-30-web-access-prep.md)
-  — web access prep report (DISARMED)
+  (web access prep report: DISARMED then; superseded by docs/web-access.md)
 - [docs/evaluation-2026-10-24.md](docs/evaluation-2026-10-24.md) — the two repos the operator asked about (both REFERENCE ONLY) and the orcarouter HF org
 - [docs/landscape-2026-10-24.md](docs/landscape-2026-10-24.md) — Claude Code wiring, backends, model candidates, gotchas
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phases P0-P6
 - [docs/uploader-rule.md](docs/uploader-rule.md) — GGUF uploader per model (ruling 35)
-- [docs/web-access.md](docs/web-access.md) — web fetch/search for the local model,
-  staged DISARMED
+- [docs/web-access.md](docs/web-access.md) - web read/search for the local model,
+  ARMED 2026-11-05: `-LisWeb` runs the session in the lis-web container with Jarvis's
+  web tools over MCP; WebFetch and WebSearch stay denied; open egress is a residual
 - [config/models.md](config/models.md) — tracked model candidates
 - [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used
   by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 131072,
@@ -149,6 +150,9 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
   (`-LisTask review|edit|longrun`) set the tools, policy, rules and the checks you run
   at the end; `-LisPrintArgs` prints the claude arguments and settings JSON without
   launching (docs/SETUP.md step 8)
+- [scripts/web-image.ps1](scripts/web-image.ps1) - builds the `lis-web:2.1.318` image
+  from `container/Dockerfile` that `claude-local.ps1 -LisWeb` runs web sessions in
+  (operator-run; docs/web-access.md)
 - [scripts/hooks/loop-guard.py](scripts/hooks/loop-guard.py) - PreToolUse hook on every
   tool that denies a call identical to 3 or more of the session's last 12 counted calls,
   the loop seen in 5 of the 8 bench/compact runs (2026-10-26), 4 of which it held until

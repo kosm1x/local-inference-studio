@@ -8,6 +8,8 @@ Constraints for agents working in this repo:
 - Scripts never pipe to a shell (`irm | iex`, `curl | bash`).
 - Mark any claim not verified on this machine as UNVERIFIED.
 - Scripts are PowerShell 7 (`#Requires -Version 7.0`); Git Bash only for POSIX helpers.
+- `container/` holds the lis-web image's Dockerfile; `scripts/web-image.ps1` builds it
+  (operator-run; `claude-local.ps1 -LisWeb` runs web sessions in it).
 - Bench results are JSON under `bench/results/` (gitignored); schema in `bench/README.md`.
 - Tests, run from the repo root exactly as written:
   `python -I scripts/hooks/tests/lis-guard_test.py`,
@@ -27,5 +29,7 @@ Constraints for agents working in this repo:
   `python -I scripts/tests/verify_claims_report_test.py`,
   `python -I scripts/tests/resilience_test.py`,
   `python -I scripts/tests/claude_settings_test.py`,
-  `python -I scripts/tests/install_verify_test.py` and
+  `python -I scripts/tests/install_verify_test.py`,
+  `python -I scripts/tests/lisweb_test.py` (its container half needs Docker and the
+  lis-web image) and
   `node --test bench/loop/fixture/test/text.test.js` (3 fail by design).

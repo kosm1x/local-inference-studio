@@ -3535,7 +3535,10 @@ def main():
                   'scripts/verify-claims.ps1', 'scripts/watchdog.ps1',
                   'bench/ladder/bait.py', 'bench/ladder/gen_bait.py',
                   'bench/ladder/tests/bait_test.py', 'bench/ladder/tests/blocked_test.py',
-                  'bench/ladder/tests/gen_bait_test.py'}
+                  'bench/ladder/tests/gen_bait_test.py',
+                  # operator-run: docker build of the lis-web image, and the -LisWeb test whose
+                  # in-container half runs docker run and names the Jarvis .env mount
+                  'scripts/web-image.ps1', 'scripts/tests/lisweb_test.py'}
     root = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
     lead = {'ps1': 'pwsh -NoProfile -File ', 'sh': 'bash ', 'py': 'python -I ', 'js': 'node ', 'mjs': 'node '}
     denied = set()

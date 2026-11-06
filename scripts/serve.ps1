@@ -124,7 +124,9 @@
   (their lines go to the console) or starts anything. -VerifyOnly creates logs\ and
   writes logs/model-verify.json when the model hash runs and matches; -PrintArgs
   writes nothing.
-  -Web is the server half of a web session (docs/web-access.md, still DISARMED): it
+  -Web is the server half of a web session (docs/web-access.md; the session half is
+  `claude-local.ps1 -LisWeb`, which runs in the lis-web container and does not start the
+  server): it
   passes -lv 3 (info, llama-server's default threshold), clears LLAMA_ARG_LOG_VERBOSITY
   and refuses -v, --verbose, --log-verbose and any -lv, --verbosity or --log-verbosity
   above 3 in -ExtraArgs or -ExtraArgLine (security audit S-L1: levels 4 and 5 may log

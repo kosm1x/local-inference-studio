@@ -224,17 +224,23 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (32 LANDED, 3 BUILT, 15 OPEN of 50 on 2026-11-05) in
+owner, fix and proof is in one table (38 LANDED, 4 BUILT, 11 OPEN of 53 on 2026-11-05) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
 - Trustworthiness: FAIL for unsupervised long tasks; PASS WITH WARNINGS for short
   test-gated ones read at STATUS and After.
-- Security: FAIL for enabling web fetch now (blockers B1-B7).
+- Security: FAIL for enabling web fetch at the audit (blockers B1-B7). 2026-11-05: web
+  access ARMED through the Jarvis MCP route in the lis-web container; WebFetch and
+  WebSearch stay denied; residuals: open container egress (W-8), the keys in the
+  session's environment (W-9).
   S-O3 drops the user `autoMode` rules: without `--permission-mode auto` a lean `-p`
   session denies what no rule or hook allows; a caller's `--permission-mode auto` is
-  still accepted and the classifier still runs, so the S-B2 ruling stays open.
-- Web access prep: DISARMED until the security blockers close.
+  still accepted outside web sessions and the classifier still runs there (the S-B2
+  ruling of 2026-11-05 covers web sessions).
+- Web access prep: ARMED 2026-11-05 (`-LisWeb`; [docs/web-access.md](web-access.md)).
+  Next: search keys in the Jarvis `.env` (operator), the egress and key-split rulings
+  (W-8, W-9).
 - Counts on disk (T-8): at the audit `bench/results/` held 10 rung-2 (long-fix) sets and
   23 ladder `.jsonl` streams, not the 13 sets and ~35 sessions of the audit brief. On
   2026-11-04 it holds 21 long-fix sets (10 of 2026-10-26, 11 of 2026-11-04) and 40
@@ -363,6 +369,27 @@ Batches (IDs in the ledger):
   `git log*` rule, with or without a backslash-newline, are denied by Claude Code
   with the hook silent (reason text as the session reported it: "nested command
   can't be checked", "redirection needs approval"); docs/SETUP.md.
+- Web access, 2026-11-05: S-B1i, S-B2, W-2, W-3, W-6 and W-7 LANDED, W-4 BUILT, W-8
+  and W-9 OPEN. Operator rulings: web access goes through Jarvis's own web tools over
+  a stdio MCP server (`jarvis-web`: web_search, exa_search, jina_search, web_read,
+  web_read_tweet), never WebFetch or WebSearch, which stay denied; web sessions run in
+  a container with no access to the user profile; Docker Desktop's
+  `host.docker.internal:8080` reaches the loopback-bound server, so no host network
+  change. `-LisWeb` runs the lean session in the `lis-web:2.1.318` container
+  (`container/Dockerfile`, `scripts/web-image.ps1`) with `permissions.defaultMode`
+  pinned to `default`, auto mode refused, five allow rules and tsx `--tsconfig` pinned
+  (audit CRITICAL, W-7). Round-2 audit folds: the Jarvis `.env` and the key file are
+  not mounted (the three web keys and the server key come in through a per-run
+  `--env-file`), junction and `subst` mount sources are refused, the container runs
+  with `--init` and is force-removed on exit, and the image checks claude-code's
+  sha512. Proof: lisweb_test 157 checks, 3 mutants red; live
+  2026-11-05 23:02 a `-LisWeb -LisTask review -p` session read `https://example.com/`
+  through `web_read` (rc 0, 2 turns, 8220 ms, no permission denial); `--tools` does
+  not hide MCP tools; the re-run on the folded launcher at 23:34 passed the same way
+  (2 turns, 2412 ms, 0 env files and 0 containers left). Open: the search tools
+  are keyless until the operator adds keys to the Jarvis `.env`; container egress is
+  open (W-8) and the keys share the session's environment (W-9), both operator
+  rulings; docs/web-access.md.
 - Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
   cost of the user-scope load (the orientation hook re-injected at every compaction and
   the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the
@@ -2659,7 +2686,8 @@ only: it is an Anthropic server-side tool that cannot work against the local ser
 WebFetch fetches and converts the page in Claude Code, then runs the prompt over it in
 a separate model call; only the hostname goes to api.anthropic.com (the domain
 preflight). That the extraction call goes to the configured local endpoint is
-UNVERIFIED: the docs do not say. It stays denied until the web-access blockers close.
+UNVERIFIED: the docs do not say. It stays denied; since 2026-11-05 web sessions use the
+Jarvis MCP route instead (docs/web-access.md).
 Corrected 2026-11-04, ledger W-1).
 VERIFIED from the `system/init` event of `--output-format stream-json --verbose`,
 run through `scripts/claude-local.ps1` from a throwaway git repo:

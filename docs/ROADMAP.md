@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (31 LANDED, 3 BUILT, 16 OPEN of 50 on 2026-11-05) in
+owner, fix and proof is in one table (32 LANDED, 3 BUILT, 15 OPEN of 50 on 2026-11-05) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -260,7 +260,15 @@ Batches (IDs in the ledger):
   the hook's context after 5 of 5 compactions, four of them with the built-in restore
   absent (T-9; docs/audits/2026-11-04-batch-e-reps.md).
 - F, operator apply lines (user scope, firewall, task history, restart).
-- G, a multi-hour supervised run after A to E.
+- G, a multi-hour supervised run after A to E. LANDED 2026-11-05 by ruling (R-C2): the
+  fixture caps the task at 79 modules, so the longest run it allows replaced the 2 h
+  bar. The 79-module run at the 131,072 default took 31.6 min (344 turns), fixed all
+  237 tests in scope, no relaunch; its one auto compaction came after the last edit
+  (the grader reports the compaction axis not exercised: the facts file survived but
+  was only Grep-counted afterwards). The longrun verdict is false on the facts gate
+  alone (78 of 80 FIXED lines name two tests each); the test cadence was also short
+  (10 runs of 22, report-only). Shorter than the 42 min record, so multi-hour use
+  stays unproven; the ledger row has the figures.
 - Six small rows, 2026-11-04: R-W4 LANDED (serve.ps1 logs free VRAM before each start;
   live `vram free: 14384 MiB` at the 2026-11-05 restart), R-R1 LANDED (`--metrics`; 200
   with the key and 401 without, live 2026-11-05), R-R2 LANDED (README logoff line), R-R3

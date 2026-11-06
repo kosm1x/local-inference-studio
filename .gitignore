@@ -14,6 +14,7 @@ bench/results/*.txt
 bench/results/*.facts.md
 .claude/agent-memory/
 bench/results/latest
+bench/results/*/
 __pycache__/
 lis-facts-*.md
 *.transcript.jsonl

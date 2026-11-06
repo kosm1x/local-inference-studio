@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (38 LANDED, 4 BUILT, 11 OPEN of 53 on 2026-11-05) in
+owner, fix and proof is in one table (38 LANDED, 5 BUILT, 11 OPEN of 54 on 2026-11-06) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -390,6 +390,7 @@ Batches (IDs in the ledger):
   are keyless until the operator adds keys to the Jarvis `.env`; container egress is
   open (W-8) and the keys share the session's environment (W-9), both operator
   rulings; docs/web-access.md.
+  `-LisTerminal` (W-10, BUILT 2026-11-06): `docker run -it`; a live run is UNVERIFIED.
 - Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
   cost of the user-scope load (the orientation hook re-injected at every compaction and
   the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the

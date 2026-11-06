@@ -51,7 +51,8 @@
   naming that build line, and otherwise runs `docker run --rm --init --name
   lis-web-<stamp> --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 512
   --memory 6g --tmpfs /tmp --user lis -w /work --env-file <temp root>/lis-web-<stamp>.env`,
-  plus -i only when stdin is not a terminal (a -p run with piped stdin) and never -t, with
+  plus -i only when stdin is not a terminal (a -p run with piped stdin) and -t only with
+  -LisTerminal (-it, below), with
   these --mount type=bind entries and no other: this repo read-only at /lis; the Jarvis
   checkout's src read-only at /jarvis/src and its tsconfig.json read-only at
   /jarvis/tsconfig.json; a per-run directory <repo>\logs\web-<stamp>\ (stamp = local
@@ -73,16 +74,36 @@
   Edit denials name the container paths), or when a path holds a comma or a double quote
   (docker's --mount syntax). The command inside is `pwsh -NoProfile -File
   /lis/scripts/claude-local.ps1 -LisWeb -LisJarvisDir /jarvis` followed by the caller's
-  arguments in order, minus -LisWeb, -LisJarvisDir PATH and -LisPrintArgs (a [bool] that
-  pwsh -File split off a switch is joined back: -LisNoLoopGuard:false). The wrapper
-  exits with the container's exit code, prints "claude-local: container:
-  lis-web:2.1.318 (home not mounted; work=<cwd>; logs=<per-run dir>)" to stderr, and
+  arguments in order, minus -LisWeb, -LisTerminal, -LisJarvisDir PATH and -LisPrintArgs (a
+  [bool] that pwsh -File split off a switch is joined back: -LisNoLoopGuard:false). The
+  wrapper exits with the container's exit code, prints "claude-local: container:
+  lis-web:2.1.318 (home not mounted; work=<cwd>; logs=<per-run dir>)" (with -LisTerminal
+  "lis-web:2.1.318 (terminal) (home not mounted; ...)") to stderr, and
   sets no env var on the host; the server preflight runs inside. With -LisPrintArgs it
   prints that banner and the docker argument list ("docker arguments (JSON array, in
   order):", which names the env file but never its contents) and exits 0 without running
   docker or reading or writing a key. LIS_DOCKER_EXE
   (tests only, scripts/tests/lisweb_test.py): a file under the temp root to run instead
   of docker, any other path throws.
+  -LisTerminal (host only, with -LisWeb): an interactive session in the container. The
+  docker line gets -it in place of the -i rule; --init, --rm, the name, the mounts, the
+  env file and the finally cleanup are unchanged. Before docker runs, it writes
+  <per-run dir>\home\.claude.json as {"hasCompletedOnboarding":true,"theme":"dark"}, so
+  the fresh home skips claude's whole first-run onboarding: the theme picker (dark is
+  claude's default theme), the "Security notes" screen (the prompt-injection notice,
+  which matters most in a web session) and the terminal-setup question. Nothing else is
+  seeded (the trust dialog is not), and without -LisTerminal nothing is. The
+  working-directory trust prompt may still appear, since the home (and its trust
+  record) is fresh every run. Ctrl+C reaches claude in the container as a key (claude's
+  own handling; UNVERIFIED through docker's console); when docker returns or the
+  wrapper is interrupted, the finally block force-removes the container. Closing the
+  console window (CTRL_CLOSE_EVENT) may end pwsh before the finally block runs, leaving
+  the container running and the env file in the temp root (UNVERIFIED). Refused
+  before any output: without -LisWeb, inside the container, with -LisTask longrun (the
+  relaunch supervisor works on -p runs only), with -p, --print or --output-format; and
+  when stdin or stdout is redirected (it needs a console), which -LisPrintArgs skips
+  (it starts nothing). LIS_TEST_CONSOLE=1 (tests only) skips the console check, and only
+  while LIS_DOCKER_EXE names a stub. An interactive run is UNVERIFIED live.
   Inside the container (LIS_CONTAINER=1, the image's marker), -LisWeb builds the
   session: the per-run MCP file holds one stdio server, jarvis-web, instead of none:
   command node by absolute path (Get-Command; Windows would resolve a bare name through
@@ -268,8 +289,8 @@
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The script options, -LisContextTokens N, -LisFull, -LisNoGuard,
-  -LisNoLoopGuard, -LisStrictSlot, -LisUserScope, -LisWeb, -LisJarvisDir PATH, -LisTask
-  NAME, -LisRelaunchMax N and -LisPrintArgs, are taken out of $args here.
+  -LisNoLoopGuard, -LisStrictSlot, -LisUserScope, -LisWeb, -LisTerminal, -LisJarvisDir
+  PATH, -LisTask NAME, -LisRelaunchMax N and -LisPrintArgs, are taken out of $args here.
   -LisContextTokens defaults to 114688: the default server ctx of 131072 (ruling 14)
   minus CLAUDE_CODE_MAX_OUTPUT_TOKENS 16384, so a prompt at Claude Code's limit plus a
   full-length reply still fits the server's window (the server runs without context
@@ -292,6 +313,8 @@
   pwsh scripts/claude-local.ps1 -LisTask longrun -LisRelaunchMax 0 -LisPrintArgs
 .EXAMPLE
   pwsh scripts/claude-local.ps1 -LisWeb -LisTask review -LisPrintArgs
+.EXAMPLE
+  pwsh scripts/claude-local.ps1 -LisWeb -LisTerminal -LisTask review
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -308,7 +331,7 @@ $tempRoot = if ($env:TEMP) { $env:TEMP } else { [IO.Path]::GetTempPath() }
 # -LisContextTokens N, -LisContextTokens:N (any case). In-process, PowerShell hands
 # -LisContextTokens:N over as '-LisContextTokens:' followed by N, so an empty inline
 # value takes the next token. The switches -LisFull, -LisNoGuard, -LisNoLoopGuard,
-# -LisStrictSlot, -LisUserScope, -LisWeb and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
+# -LisStrictSlot, -LisUserScope, -LisWeb, -LisTerminal and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
 # '-LisFull:' followed by a [bool]). All checks run before any env change.
 $LisContextTokens = 114688
 $LisFull = $false
@@ -317,6 +340,7 @@ $LisNoLoopGuard = $false
 $LisStrictSlot = $false
 $LisUserScope = $false
 $LisWeb = $false
+$LisTerminal = $false
 $LisJarvisDir = $null
 $LisTask = $null
 $LisRelaunchMax = $null
@@ -324,10 +348,10 @@ $LisPrintArgs = $false
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
 $seenSwitch = @{}
-# The $args positions of -LisWeb, -LisJarvisDir and -LisPrintArgs (values included): the
-# host launcher passes every other token to the container's wrapper (docstring).
+# The $args positions of -LisWeb, -LisTerminal, -LisJarvisDir and -LisPrintArgs (values
+# included): the host launcher passes every other token to the container's wrapper (docstring).
 $launcherOnly = [Collections.Generic.HashSet[int]]::new()
-$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisPrintArgs)(:(.*))?\z'
+$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisTerminal|LisPrintArgs)(:(.*))?\z'
 # pwsh -File passes -X:true|false as '-X' followed by a [bool] but -X:0 as '-X' followed
 # by the string '0', the same as '-X 0'. Only the process command line keeps the colon,
 # so when this script is the -File target ($MyInvocation.Line is empty) check it there.
@@ -351,7 +375,7 @@ for ($j = 0; $j -lt $args.Count; $j++) {
             # following [bool] is the value; a string after a bare switch is a prompt.
             $on = if ($args[$j + 1] -is [bool]) { $args[++$j] } else { $true }
             Set-Variable -Name $name -Value $on
-            if ($name -in 'LisWeb', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
+            if ($name -in 'LisWeb', 'LisTerminal', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
             continue
         }
         # -X:V, or in-process '-X:' followed by V (a [bool], a string or a number).
@@ -364,7 +388,7 @@ for ($j = 0; $j -lt $args.Count; $j++) {
         if ($v -is [bool]) { $on = $v }
         elseif (-not [bool]::TryParse("$v".TrimStart('$'), [ref]$on)) { throw "-$name value '$v' is not true or false." }
         Set-Variable -Name $name -Value $on
-        if ($name -in 'LisWeb', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
+        if ($name -in 'LisWeb', 'LisTerminal', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
         continue
     }
     # -LisRelaunchMax N, -LisRelaunchMax:N: the session supervisor's bound (0 to 3).
@@ -471,6 +495,23 @@ if ($LisWeb) {
 } elseif ($null -ne $LisJarvisDir) {
     throw '-LisJarvisDir needs -LisWeb (it names the checkout the jarvis-web server runs from).'
 }
+# -LisTerminal (docstring): the host launcher's interactive container session. Checked
+# before any output; the console check is in the host branch below (-LisPrintArgs skips it).
+if ($LisTerminal) {
+    if (-not $LisWeb -or $inContainer) {
+        throw '-LisTerminal needs -LisWeb, on the host: it gives the lis-web container a terminal.'
+    }
+    if ($LisTask -eq 'longrun') {
+        throw ('-LisTerminal cannot be combined with -LisTask longrun: the longrun relaunch ' +
+            'supervisor works on -p runs only. Run longrun with -p and without -LisTerminal.')
+    }
+    foreach ($a in $claudeArgs) {
+        if (("$a" -cin '-p', '--print') -or "$a" -match '^--output-format(=|$)') {
+            throw ("-LisTerminal runs an interactive session, and '$a' is a print-mode option. " +
+                'Leave it out, or drop -LisTerminal for a -p run.')
+        }
+    }
+}
 if ($LisTask) {
     if ($LisFull) { throw "-LisTask cannot be combined with -LisFull: the profile sets --tools and the policy." }
     if ($LisNoGuard) {
@@ -554,6 +595,14 @@ function Get-LisApiKey([string]$KeyFile) {
 $lisWebImage = 'lis-web:2.1.318'
 if ($LisWeb -and -not $inContainer) {
     $dockerExe = Get-LisStub 'LIS_DOCKER_EXE' 'docker'
+    # -LisTerminal needs a console (docstring); -LisPrintArgs starts nothing, so it skips this.
+    # LIS_TEST_CONSOLE=1 (tests only) skips it too, and only with the LIS_DOCKER_EXE stub.
+    $stubConsole = $env:LIS_TEST_CONSOLE -eq '1' -and $dockerExe -ne 'docker'
+    if ($LisTerminal -and -not $LisPrintArgs -and -not $stubConsole -and
+        ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected)) {
+        throw ('-LisTerminal needs a console: stdin or stdout is redirected. Start it from a ' +
+            'terminal window, or drop -LisTerminal for a -p run.')
+    }
     $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
     $work = (Get-Location).ProviderPath
     $stamp = '{0:yyyyMMdd-HHmmss}-{1}' -f (Get-Date), $PID
@@ -633,14 +682,16 @@ if ($LisWeb -and -not $inContainer) {
         }
         $innerArgs.Add("$t")
     }
-    # -i only for piped stdin (a -p run); never -t. --init reaps and forwards signals.
-    $dockerArgs = @('run', '--rm') + @(if ([Console]::IsInputRedirected) { '-i' }) + @(
+    # -i only for piped stdin (a -p run); -t only with -LisTerminal (-it). --init reaps and
+    # forwards signals.
+    $dockerArgs = @('run', '--rm') + @(if ($LisTerminal) { '-it' } elseif ([Console]::IsInputRedirected) { '-i' }) + @(
         '--init', '--name', $container, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
         '--pids-limit', '512', '--memory', '6g', '--tmpfs', '/tmp', '--user', 'lis', '-w', '/work',
         '--env-file', $envFile) +
         @($mountArgs) + @($lisWebImage, 'pwsh', '-NoProfile', '-File', '/lis/scripts/claude-local.ps1',
         '-LisWeb', '-LisJarvisDir', '/jarvis') + @($innerArgs)
-    $banner = "claude-local: container: $lisWebImage (home not mounted; work=$work; logs=$runDir)"
+    $banner = "claude-local: container: $lisWebImage$(if ($LisTerminal) { ' (terminal)' }) " +
+        "(home not mounted; work=$work; logs=$runDir)"
     if ($LisPrintArgs) {
         # Nothing is written or read and docker is not run; the env file is named, never shown.
         [Console]::Error.WriteLine($banner)
@@ -659,6 +710,13 @@ if ($LisWeb -and -not $inContainer) {
             (Join-Path $repo 'scripts' 'web-image.ps1'))
     }
     $null = New-Item -ItemType Directory -Path (Join-Path $runDir 'logs'), (Join-Path $runDir 'home')
+    # -LisTerminal (docstring): the fresh home skips claude's whole first-run onboarding:
+    # the theme picker, the "Security notes" prompt-injection notice and the terminal-setup
+    # question. The trust dialog is not seeded; the work directory's prompt may still show.
+    if ($LisTerminal) {
+        [IO.File]::WriteAllText((Join-Path $runDir 'home' '.claude.json'),
+            '{"hasCompletedOnboarding":true,"theme":"dark"}' + "`n")
+    }
     # The env file: LIS_API_KEY (the server key, as for a host session) and, from the Jarvis
     # .env when it exists, the three web search keys and no other line (KEY=VALUE, optional
     # export and quotes; the last assignment wins). LF ends: docker keeps a CR in the value.

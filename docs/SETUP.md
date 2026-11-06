@@ -544,8 +544,19 @@ directory inside or above the user profile, this repo or the Jarvis checkout, an
 missing image (naming the build line). Mount sources must be real paths; junctions and
 subst drives are refused. It runs docker under try/finally and force-removes
 `lis-web-<stamp>` on exit, so killing the wrapper leaves no web-enabled container
-running. It passes `-i` only when stdin is piped and never `-t`, so only `-p` runs work
-(interactive sessions are not supported); the exit code is the container's. Inside
+running. Without `-LisTerminal` it passes `-i` only when stdin is piped and never `-t`
+(a `-p` run). Terminal mode (built 2026-11-06): `pwsh -NoProfile -File
+<repo>\scripts\claude-local.ps1 -LisWeb -LisTerminal [-LisTask review|edit]` from a
+console window starts an interactive session with `docker run -it`; it seeds the
+fresh home's `.claude.json` with `hasCompletedOnboarding` and `theme` only. That skips
+the whole first-run onboarding: the theme picker, the "Security notes" screen (the
+prompt-injection notice, which matters most in a web session) and the terminal-setup
+question. The trust dialog is not seeded, so the work directory's trust prompt may
+still show (the home is fresh every run). It is refused when stdin or stdout is
+redirected, without `-LisWeb`, with `-p`, `--print`, `--output-format` or `-LisTask
+longrun`; `--print=<v>` and bundled short flags (`-cp`) are not detected (no security
+effect: a print run under `-it`). A live interactive run is UNVERIFIED until the
+operator runs one. The exit code is the container's. Inside
 (`LIS_CONTAINER=1`, refused on the host unless the script runs from `/lis`) the lean
 session runs against `http://host.docker.internal:8080` (Docker Desktop forwards it to
 the loopback-bound server; no firewall or `--host` change) with one MCP server,
@@ -559,8 +570,9 @@ WebSearch stay denied. Refused with `-LisWeb`: `-LisFull`, `-LisNoGuard`,
 `-LisUserScope`, `--permission-mode auto` (any spelling or case), any caller
 `--mcp-config` and an `--allowedTools` value naming WebFetch, WebSearch or `mcp__`.
 Banner on the host: `container: lis-web:2.1.318 (home not mounted; work=<cwd>;
-logs=<per-run dir>)`; inside: `server: http://host.docker.internal:8080 (lis-web
-container)`, `web: jarvis-web (5 tools) via /jarvis` and `jarvis-web log: <path>`. Keys:
+logs=<per-run dir>)`, with `(terminal)` after the tag under `-LisTerminal`; inside:
+`server: http://host.docker.internal:8080 (lis-web container)`, `web: jarvis-web (5
+tools) via /jarvis` and `jarvis-web log: <path>`. Keys:
 the host launcher reads `<agent-controller>\.env`, keeps only `BRAVE_SEARCH_API_KEY`,
 `EXA_API_KEY` and `JINA_API_KEY`, writes them with the server key as `LIS_API_KEY` into a
 per-run env file outside every mount, passes it with `--env-file` and deletes it when the

@@ -61,8 +61,8 @@ docker run --rm --init --name lis-web-<stamp> --cap-drop ALL
   pwsh -NoProfile -File /lis/scripts/claude-local.ps1 -LisWeb -LisJarvisDir /jarvis <args>
 ```
 
-(`<args>`: the caller's arguments in order, minus `-LisWeb`, `-LisJarvisDir` and
-`-LisPrintArgs`.)
+(`<args>`: the caller's arguments in order, minus `-LisWeb`, `-LisTerminal`,
+`-LisJarvisDir` and `-LisPrintArgs`.)
 
 | Host path | In the container | Mode |
 | --- | --- | --- |
@@ -94,8 +94,20 @@ docker run --rm --init --name lis-web-<stamp> --cap-drop ALL
 - Cleanup: the launcher runs docker under try/finally and force-removes
   `lis-web-<stamp>` on exit, with `--init`; killing the wrapper no longer leaves a
   web-enabled container running.
-- `-i` only when stdin is piped, never `-t`: only `-p` runs work; interactive
-  sessions are not supported in the container. The exit code is the container's.
+- Without `-LisTerminal`: `-i` only when stdin is piped, never `-t` (a `-p` run).
+  With `-LisTerminal` (built 2026-11-06, from a console window): `-it`, an
+  interactive session; the launcher seeds the fresh home's `.claude.json` with
+  `hasCompletedOnboarding` and `theme` only. That skips the whole first-run
+  onboarding: the theme picker, the "Security notes" screen (the prompt-injection
+  notice, which matters most in a web session) and the terminal-setup question. The
+  trust dialog is not seeded, so the work directory's trust prompt may still show
+  (the home is fresh every run). Refused when stdin or stdout is redirected, and
+  with `-p`, `--print`, `--output-format` or `-LisTask longrun`. Ctrl+C should reach
+  claude as a key, and the finally block should still force-remove the container
+  (both UNVERIFIED). Closing the console window (CTRL_CLOSE_EVENT) may end pwsh
+  before the finally block runs, leaving the container running and the env file,
+  with the four key values, in the temp root (UNVERIFIED). The exit code is the
+  container's.
 - Image: `container/Dockerfile`, `node:24-bookworm-slim` by digest, python3 (with a
   `python` link), git, curl and ca-certificates (unpinned, said in a comment),
   PowerShell `7.6.9-1.deb` (pinned) from Microsoft's apt repo (the repo .deb checked
@@ -283,7 +295,8 @@ will reliably decline them. A web session keeps:
 - lis-guard's content scan denies `scripts/web-image.ps1` and
   `scripts/tests/lisweb_test.py` (they hold docker run text the scan flags);
   `scripts/hooks/tests/lis-guard_test.py` lists them.
-- Tests: `python -I scripts/tests/lisweb_test.py` 157 checks (its in-container half
+- Tests: `python -I scripts/tests/lisweb_test.py` 173 checks, 16 of them for
+  `-LisTerminal` since 2026-11-06 (its in-container half
   runs a real lis-web container and is skipped with a message when docker or the image
   is missing), resilience_test, claude_settings_test 622/622, lis-guard_test 2831/2831,
   ParseFile 0 errors on both .ps1. Mutants (marker check removed, `--tsconfig`
@@ -359,6 +372,13 @@ Not closed (round-2 audit, 2026-11-05):
   control is what the container holds.
 - A force-killed `jarvis-web` leaves its scratch folder in the container's `/tmp`
   (tmpfs, gone with the container).
+- `-LisTerminal` (2026-11-06) has no live interactive run yet: the skipped
+  onboarding, the trust prompt and Ctrl+C through docker's console are UNVERIFIED
+  until the operator's first session, and so is a console window closed mid-session
+  (CTRL_CLOSE_EVENT may end pwsh before the finally block runs, leaving the container
+  and the env file with the four key values in the temp root; `docker ps --filter
+  name=lis-web` and `Get-ChildItem $env:TEMP -Filter lis-web-*.env` show a leftover).
+  Ledger W-10.
 
 ## Operator actions
 
@@ -371,3 +391,8 @@ Not closed (round-2 audit, 2026-11-05):
   that strips query strings.
 - Rule on the keys (W-9): a two-container split for jarvis-web, or a ruling that the
   four values may live in the web session.
+- First interactive session (W-10): from a console window in an empty directory
+  outside the profile, `pwsh -NoProfile -File <repo>\scripts\claude-local.ps1 -LisWeb
+  -LisTerminal -LisTask review`; ask for one `web_read` of `https://example.com/`,
+  exit with `/exit`, then check that both of these list nothing:
+  `docker ps --filter name=lis-web` and `Get-ChildItem $env:TEMP -Filter lis-web-*.env`.

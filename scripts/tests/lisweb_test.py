@@ -1,4 +1,4 @@
-"""Tests for -LisWeb and -LisJarvisDir of scripts/claude-local.ps1 (operator ruling
+"""Tests for -LisWeb, -LisTerminal and -LisJarvisDir of scripts/claude-local.ps1 (operator ruling
 2026-11-05: web access goes through Jarvis's web tools over MCP, and a web-enabled session
 runs in the lis-web container with no access to the operator's home folder).
 Run: python -I scripts/tests/lisweb_test.py
@@ -8,7 +8,8 @@ copy of the wrapper in a temp tree (under <repo>/logs, outside the user profile)
 -LisPrintArgs, which prints the docker run argument list and starts nothing, and with
 LIS_DOCKER_EXE naming a PowerShell stub under %TEMP% that records its calls (and copies the
 env file it is handed; the test .env and key hold dummy values, and a failure prints names
-only). Inside the
+only). -LisTerminal's launch case also sets LIS_TEST_CONSOLE=1, which skips its console
+check only while LIS_DOCKER_EXE names the stub. Inside the
 container (LIS_CONTAINER=1, the wrapper at /lis/scripts/claude-local.ps1) -LisWeb builds the
 session: the in-container cases run this file with --inner in a lis-web:<version> container
 with the repo mounted read-only at /lis, -LisPrintArgs again (no claude, no server query, no
@@ -299,7 +300,7 @@ def env_file_path(name):
     return os.path.join(os.environ['TEMP'], name + '.env')
 
 
-def want_docker(lis, jd, work, name, run_dir, inner):
+def want_docker(lis, jd, work, name, run_dir, inner, tty='-i'):
     mounts = [(lis, '/lis', True), (os.path.join(jd, 'src'), '/jarvis/src', True),
               (os.path.join(jd, TSC), '/jarvis/tsconfig.json', True),
               (os.path.join(run_dir, 'logs'), '/lis/logs', False),
@@ -307,7 +308,7 @@ def want_docker(lis, jd, work, name, run_dir, inner):
     flat = []
     for src, dst, ro in mounts:
         flat += ['--mount', f'type=bind,source={src},target={dst}' + (',readonly' if ro else '')]
-    return (['run', '--rm', '-i', '--init', '--name', name, '--cap-drop', 'ALL', '--security-opt',
+    return (['run', '--rm', tty, '--init', '--name', name, '--cap-drop', 'ALL', '--security-opt',
              'no-new-privileges:true', '--pids-limit', '512', '--memory', '6g', '--tmpfs', '/tmp',
              '--user', 'lis', '-w', '/work', '--env-file', env_file_path(name)] + flat
             + [image_tag(), 'pwsh', '-NoProfile', '-File', '/lis/scripts/claude-local.ps1',
@@ -491,6 +492,99 @@ def test_host_launcher(root, stub_dir):
           rc != 0 and 'LIS_CONTAINER=1 is set' in err, f'{rc} {err}')
 
 
+TERM_REFUSED = [(['-LisTerminal'], 'needs -LisWeb'),
+                (['-LisTerminal', '-LisTask', 'review'], 'needs -LisWeb'),
+                (['-LisWeb', '-LisTerminal', '-p', 'hi'], 'print-mode option'),
+                (['-LisWeb', '-LisTerminal', '--print', 'hi'], 'print-mode option'),
+                (['-LisWeb', '-LisTerminal', '--output-format', 'json'], 'print-mode option'),
+                (['-LisWeb', '-LisTerminal', '--output-format=json'], 'print-mode option'),
+                (['-LisWeb', '-LisTerminal', '-LisTask', 'longrun'], 'longrun')]
+
+
+def test_terminal(root, stub_dir):
+    """-LisTerminal: -it on the docker line, a seeded .claude.json, the refusals."""
+    lis, wrapper, work, jd = make_tree(root)
+    caller = ['-LisWeb', '-LisTerminal', '-LisJarvisDir', jd, '-LisTask', 'review',
+              '--max-turns', '6']
+    inner = ['-LisTask', 'review', '--max-turns', '6']
+    rc, out, err = run_wrapper(['-LisPrintArgs'] + caller, wrapper, work)
+    got = docker_args(out) or []
+    name = value_after(got, '--name') or ''
+    m = re.match(r'lis-web-(\d{8}-\d{6}-\d+)\Z', name)
+    run_dir = os.path.join(lis, 'logs', f'web-{m.group(1)}' if m else '?')
+    check('terminal: -LisPrintArgs (stdin redirected) prints the line with -it, no bare -i, '
+          'and no -LisTerminal inside',
+          rc == 0 and bool(m) and got == want_docker(lis, jd, work, name, run_dir, inner, '-it')
+          and '-i' not in got and '-LisTerminal' not in got,
+          f'{rc} {err}\n{json.dumps(got)}')
+    check('terminal: banner says (terminal); -LisPrintArgs writes nothing',
+          f'claude-local: container: {image_tag()} (terminal) (home not mounted; work={work}; '
+          f'logs={run_dir})' in err.splitlines() and not os.path.exists(run_dir), err)
+    rc, out, err = run_wrapper(['-LisPrintArgs', '-LisTerminal:false'] + caller[:1] + caller[2:],
+                               wrapper, work)
+    got = docker_args(out) or []
+    check('terminal: -LisTerminal:false keeps -i and is not passed inside',
+          rc == 0 and got[:3] == ['run', '--rm', '-i'] and '-it' not in got
+          and not [x for x in got if 'LisTerminal' in x], f'{rc} {err} {got}')
+    for extra, why in TERM_REFUSED:
+        args = extra + (['-LisJarvisDir', jd] if '-LisWeb' in extra else [])
+        rc, out, err = run_wrapper(['-LisPrintArgs'] + args, wrapper, work)
+        check(f'terminal: refused: {" ".join(extra)}',
+              rc != 0 and not out.strip() and '-LisTerminal' in err and why in err
+              and 'claude-local:' not in err, f'{rc} {out}{err}')
+    term = os.path.join(stub_dir, 'term')
+    os.makedirs(term)
+    shutil.copy(os.path.join(stub_dir, 'docker-stub.ps1'), term)
+    with open(os.path.join(term, 'mode.txt'), 'w') as f:
+        f.write('ok\n')
+    env = dict(os.environ)
+    env['LIS_DOCKER_EXE'] = os.path.join(term, 'docker-stub.ps1')
+    env.pop('LIS_TEST_CONSOLE', None)
+    rc, out, err = run_wrapper(caller, wrapper, work, env)
+    check('terminal: stdin/stdout redirected -> refused, needs a console, docker never called',
+          rc != 0 and not out.strip() and 'needs a console' in err and not stub_calls(term)
+          and not [d for d in os.listdir(os.path.join(lis, 'logs')) if d.startswith('web-')],
+          f'{rc} {stub_calls(term)} {out}{err}')
+    # The seam needs the stub: LIS_TEST_CONSOLE=1 alone still refuses. PATH holds no
+    # docker, so a seam that skipped the check could not reach a real container.
+    bare = dict(os.environ, LIS_TEST_CONSOLE='1')
+    bare.pop('LIS_DOCKER_EXE', None)
+    bare['PATH'] = os.pathsep.join(
+        d for d in bare.get('PATH', '').split(os.pathsep)
+        if d and not shutil.which('docker', path=d) and 'docker' not in d.lower())
+    if shutil.which('docker', path=bare['PATH']):
+        check('terminal: PATH without docker for the seam case', False, 'docker still found')
+    else:
+        rc, out, err = run_wrapper(caller, wrapper, work, bare)
+        check('terminal: LIS_TEST_CONSOLE=1 without the LIS_DOCKER_EXE stub -> still refused, '
+              'needs a console',
+              rc != 0 and not out.strip() and 'needs a console' in err
+              and not [d for d in os.listdir(os.path.join(lis, 'logs')) if d.startswith('web-')],
+              f'{rc} {out}{err}')
+    env['LIS_TEST_CONSOLE'] = '1'
+    rc, out, err = run_wrapper(caller, wrapper, work, env)
+    calls = stub_calls(term)
+    run = calls[1] if len(calls) == 3 else []
+    name = value_after(run, '--name') or ''
+    m = re.match(r'lis-web-(\d{8}-\d{6}-\d+)\Z', name)
+    run_dir = os.path.join(lis, 'logs', f'web-{m.group(1)}' if m else '?')
+    check('terminal: launch (stub, LIS_TEST_CONSOLE=1) -> docker run -it with the printed '
+          'line, then docker rm -f <name> in finally; rc = the container\'s (7)',
+          rc == 7 and calls[0][:2] == ['image', 'inspect']
+          and run == want_docker(lis, jd, work, name, run_dir, inner, '-it')
+          and calls[2] == ['rm', '-f', name], f'{rc} {err} {json.dumps(calls)}')
+    home = os.path.join(run_dir, 'home')
+    seed = os.path.join(home, '.claude.json')
+    raw = open(seed, 'rb').read() if os.path.exists(seed) else b''
+    check('terminal: the per-run home holds only .claude.json with hasCompletedOnboarding '
+          'true and theme dark (UTF-8, no BOM)',
+          os.listdir(home) == ['.claude.json'] and not raw.startswith(b'\xef\xbb\xbf')
+          and json.loads(raw or b'null') == {'hasCompletedOnboarding': True, 'theme': 'dark'},
+          f'{os.listdir(home) if os.path.isdir(home) else home} {raw[:80]}')
+    check('terminal: the env file is deleted after the run',
+          bool(name) and not os.path.exists(env_file_path(name)), name)
+
+
 def test_default_dir(root):
     """A wrapper copy at <root>/lis/scripts: the default is <root>/agent-controller."""
     lis = os.path.join(root, 'lis')
@@ -589,6 +683,10 @@ def main():
             test_refusals(jd)
             test_jarvis_dir(tmp, cwd=tmp)
             test_inner_key(tmp, jd)
+            rc, _, _, _, out, err = print_args(['-LisWeb', '-LisJarvisDir', jd, '-LisTerminal'])
+            check('container: -LisTerminal (a host switch) is refused inside',
+                  rc != 0 and not out.strip() and '-LisTerminal needs -LisWeb, on the host' in err,
+                  f'{rc} {err}')
     else:
         test_image_pin()
         # Temp trees under <repo>/logs (gitignored): the launcher refuses mounts inside the
@@ -610,6 +708,7 @@ def main():
                 test_refusals(jd, wrapper, work)
                 test_jarvis_dir(os.path.join(tmp, 'host'), wrapper, work)
                 test_host_launcher(os.path.join(tmp, 'launcher'), stub_dir)
+                test_terminal(os.path.join(tmp, 'terminal'), stub_dir)
                 test_default_dir(os.path.join(tmp, 'default'))
         run_inner()
     print(f'{len(FAILS)} failed' if FAILS else 'all passed')

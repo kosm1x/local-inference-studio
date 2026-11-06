@@ -940,10 +940,17 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   named `--output=/tmp/o` exists under the working directory (contrived); every other
   obfuscation of `--output` is denied (`$(echo --output=..)`, a brace, `$'..\x75..'`,
   `--outp''ut=`, `--outp"u"t=`, `--outp\ut=`, a backslash-newline split).
-  UNVERIFIED, predates S-B8, needs a live run: whether Claude Code approves a command
-  substitution or a redirection under a trailing-`*` allow rule (`git log $(./evil.sh)`,
-  `git log -1 > /tmp/out.txt`; the hook gives neither a decision). A lean
-  session denies what no rule allows.
+  Live 2026-11-05 (lean `-p` session in a throwaway repo, 2.1.318): a command
+  substitution and a redirection under the trailing-`*` rule `Bash(git log*)` were
+  both denied by Claude Code with the hook silent (the debug log shows the hooks
+  finish with no decision, then `Bash tool permission denied`): the three commands
+  `git log -1 $(echo --format=%h)`, the same split by a backslash-newline, and
+  `git log -1 > out.txt` are verbatim in the session's `permission_denials`; no file
+  was written (`bench/results/trailstar-20261105/`). The reason text is the model's
+  own report: "A nested command in this command can't be checked before it runs"
+  and "Output redirection to '<path>' needs approval", which match the harness's
+  check messages; the log does not show whether such a check or a rule non-match
+  denied them. A lean session denies what no rule allows.
   Residuals the hook allows or leaves open: a recursive search of the repo or another
   non-home directory (`grep -rn KEY .`), `git grep`, `git config --list`, `git remote
   -v` (a token embedded in a remote URL shows), `/proc/self/cmdline`, using an alias

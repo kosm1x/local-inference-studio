@@ -350,7 +350,10 @@ Batches (IDs in the ledger):
   lis-guard_test (65 rows), property invariant (x) both ways, 6 hook mutants
   red, claude_settings_test red when a removed rule is put back; `git branch -a*` and
   `-vv*` made exact (`-a`, `-vv`) after the audit measured `-a -m`/`-vv -m` renaming a
-  branch; docs/SETUP.md.
+  branch; live 2026-11-05: a command substitution and a redirection under the kept
+  `git log*` rule, with or without a backslash-newline, are denied by Claude Code
+  with the hook silent (reason text as the session reported it: "nested command
+  can't be checked", "redirection needs approval"); docs/SETUP.md.
 - Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
   cost of the user-scope load (the orientation hook re-injected at every compaction and
   the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the

@@ -344,8 +344,14 @@ current user, no elevation. At logon it runs `pwsh -NoProfile -NonInteractive
 repo root, on battery too, with no time limit. Its restart settings retry a launch that
 fails (3 times, 1 minute apart). After a llama-server crash serve.ps1 starts it again
 (10, 30, 60, 120, then 300 s later, at most 5 times an hour); after `stop.ps1` the
-server stays down until the next logon or `Start-ScheduledTask`. Stop the manual server
-from step 5 first:
+server stays down until the next logon or `Start-ScheduledTask`. Once the process has
+exited, `stop.ps1` also appends `[stop.ps1] stopped PID <pid> (llama-server) <time>` to
+the log (`stop timed out PID <pid> <time>` after 30 s): the record that the stop
+completed, next to the `stop requested` marker that serve.ps1 quotes after the exit
+line. The log is held by serve.ps1's own pwsh (its `*>>` redirect; measured 2026-11-05:
+with the wrapper stopped and its child still running, an append succeeds), so a stop
+while serve.ps1 is gone gets the first marker directly. Stop the manual server from
+step 5 first:
 
 ```powershell
 pwsh scripts\stop.ps1
@@ -528,7 +534,9 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   -L*)`. No settings rule allows a PowerShell `-Command` payload except the exact
   `$PSVersionTable` check: a prefix rule allowed `Get-Volume; & ./x.ps1` (audit A3,
   2026-10-30), so the 24 survey prefixes were dropped and the hook allows the survey's
-  `Get-Volume` and `Get-CimInstance` reads by parsing the payload. The matcher sees the
+  `Get-Volume` and `Get-CimInstance` reads by parsing the payload. No settings rule
+  allows `git -C <path> ...` or `git branch --show-current` either (ledger S-B8): the
+  hook allows their read-only forms by parsing them. The matcher sees the
   raw command string, and every `;` / `&&` / `|` segment of a command must match. An
   allowed command skips the auto-mode classifier (about 60 s per decision on the local
   model). Sixteen exact rules run tests: thirteen run this repo's tests from its root,
@@ -566,9 +574,13 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   registry, services, scheduled tasks, `wsl --unregister|--import` and Docker deletes,
   plus `Bash(powershell *Remove-Item*)`-style rules (with `powershell.exe`/`pwsh.exe`
   variants) that see inside a payload. `git branch` is allowed only by its read-only
-  forms (`-a`, `--list`, `--show-current`, `-vv`, bare); `curl` and `wmic` have no
-  allow rule (the hook allows a read-only `curl` to the local server and `wmic <alias>
-  get|list`, and gives no decision on the rest).
+  forms (`--list*`, and exactly `-a`, `-vv` and bare; `--show-current` through the
+  hook, ledger S-B8): `git branch -a*` and `-vv*` approved ref writes the hook leaves
+  undecided (`git branch -a -m keepme renamed` renamed the branch in a scratch repo,
+  audit 2026-11-05; `-vv -M`, `-a -c`, `--set-upstream-to=`, `--edit-description`
+  too). `--list*` stays: git rejects `--list -m` and `--list -c`. `curl` and `wmic`
+  have no allow rule (the hook allows a read-only `curl` to the local server and
+  `wmic <alias> get|list`, and gives no decision on the rest).
   `date`, `nvidia-smi` and `hostname` are allowed only as `date`, `date +*`,
   `nvidia-smi`, `nvidia-smi --query-*`, `nvidia-smi -L*`, `nvidia-smi -q*` and a bare
   `hostname`, so `date -s`, `nvidia-smi -pl` and `hostname <name>` match no allow rule.
@@ -869,7 +881,7 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   tdir`, a Git Bash root path such as `/tmp/x.py`), code injected through the
   environment (`NODE_OPTIONS=--require=...`, `PYTHONPATH=. python -m x`), `exec -a`,
   `builtin`, `node --import=data:...`, awk
-  `system()` or sed `e`, `find -exec`, `git -c core.pager=...`, a writer outside the
+  `system()` or sed `e`, `find -exec`, a writer outside the
   list above rewriting an existing file in the same command (`sed -i`, `curl -o`), and
   file times set back (`touch -d`). The governing fact: lis-guard is a text classifier
   and one layer. Since S-O3 a lean `-p` session treats a call that no hook or rule
@@ -877,6 +889,61 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   prompts, and a caller's `--permission-mode auto` still runs the classifier), so these
   shapes are refused there; a `-LisUserScope` rep loads the user's allow rules, which
   can run them.
+  A git global option that runs code (ledger S-B8, 2026-11-05) is denied right after
+  the scans, so the `git -c alias.`/`credential.` scan keeps its own reason: `-c <k=v>`
+  (also glued `-c<k=v>`), `--config-env[=...]` or `--exec-path[=...]` before the
+  subcommand, at every level the walker reads (`&&`, `;`, `|`, `$( )`, backticks, `( )`,
+  `bash -c`, `pwsh -Command`, `wsl`, `timeout`, code literals and argv lists). The
+  reason reads `lis-guard: git global option <opt> can run code (pager, fsmonitor,
+  alias, exec path); run git without it`. The settings rules `Bash(git -C * status*)`,
+  `log*` and `branch --show-current*` matched any option at the `*` (Claude Code 2.1.318
+  warns about it in the debug log), so they are removed, with
+  `Bash(git branch --show-current*)`: its trailing `*` approved options after the
+  subcommand, which the hook leaves undecided (`git branch --show-current
+  --exec-path=x`). The hook allows `git -C <path> status|log|branch --show-current|
+  diff|show|rev-parse` and `git branch --show-current` by parsing them, and a shape it
+  cannot decide now meets no rule: denied in a lean `-p` session, approved in a
+  `-LisUserScope` ladder rep by the user-scope `Bash(git:*)` rule (ruling 19's
+  tradeoff). In a scratch repo (audit, 2026-11-05)
+  `git -c core.fsmonitor='touch x; false' status` ran its command, while
+  `-c core.pager=` ran nothing: git starts a pager only when stdout is a terminal, so
+  the pager path is UNVERIFIED here. `--exec-path=<dir>` runs a helper planted there.
+  A word up to the subcommand that the shell expands (`{-c,k=v}`, `$'-c'`, `${X:--c}`,
+  `-[c]`, a `$X` that word-splits, in a `wsl` payload too) is denied as well, since
+  the shell turns it into `-c` after the hook reads it (the audit's brace and `$'-c'`
+  forms ran their fsmonitor command under Git Bash). That reason reads `lis-guard: git
+  global option <word> may expand to one that can run code (pager, fsmonitor, alias,
+  exec path); run git without the expansion`. A double-quoted `-C "$d"` is denied too,
+  an accepted over-deny (it cannot word-split). A quoted literal is not an expansion:
+  `git -C . log --grep='-c core.pager'` stays allowed. A quoted bracket or glob before
+  the subcommand is denied when the same segment expands elsewhere: `git -C '[x]' log
+  -1 $REF` denies, `git -C '[x]' log -1` is allowed.
+  A backslash-newline (one not itself escaped) is a line continuation bash removes
+  before it splits words: the audit's `git -C . -\<newline>c core.fsmonitor=x status`
+  and `--exec-\<newline>path=` forms got no decision and bash ran them. The hook
+  judges a command holding one twice, as written and joined (single quotes keep it:
+  `echo 'a\<newline>b'` prints the backslash and the line break, measured; a pwsh
+  payload in single quotes keeps it too, UNVERIFIED), and denies when either view
+  denies, allows only when both allow; `r\<newline>m -rf x`
+  and `cat .e\<newline>nv` are denied the same way. UNVERIFIED: how 2.1.318's allow
+  rules match a command split across lines.
+  Harmless keys (`-c core.quotepath=off`) and the bare `--exec-path` are denied too,
+  an accepted over-deny. `-C`, `--git-dir` and `--work-tree` alone are unchanged.
+  An env prefix (`GIT_PAGER=`, `GIT_EXEC_PATH=`, `GIT_CONFIG_PARAMETERS=`,
+  `HOME=/tmp/h git -C . log -1`) or an earlier `export GIT_PAGER=x; git -C . log -1`
+  gets no decision from the hook and stays in the env-prefix residual class; no repo
+  rule approves it now, and whether the user-scope `Bash(git:*)` of a `-LisUserScope`
+  rep matches an env-prefixed command is UNVERIFIED. `git -C . log -1 $REF` with
+  `REF=--output=<path>` gets no decision either (it predates S-B8: the expansion comes
+  after the subcommand); with the allow rules gone no repo rule approves it.
+  `git log -1 --outpu[t]=/tmp/o` gets no decision and writes only if a path literally
+  named `--output=/tmp/o` exists under the working directory (contrived); every other
+  obfuscation of `--output` is denied (`$(echo --output=..)`, a brace, `$'..\x75..'`,
+  `--outp''ut=`, `--outp"u"t=`, `--outp\ut=`, a backslash-newline split).
+  UNVERIFIED, predates S-B8, needs a live run: whether Claude Code approves a command
+  substitution or a redirection under a trailing-`*` allow rule (`git log $(./evil.sh)`,
+  `git log -1 > /tmp/out.txt`; the hook gives neither a decision). A lean
+  session denies what no rule allows.
   Residuals the hook allows or leaves open: a recursive search of the repo or another
   non-home directory (`grep -rn KEY .`), `git grep`, `git config --list`, `git remote
   -v` (a token embedded in a remote URL shows), `/proc/self/cmdline`, using an alias
@@ -1136,10 +1203,10 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   not-relaunch, unset, missing, empty, oversize or error) and no output. It always
   exits 0.
   lis-guard denies a Bash command that names the log literally (`lis-facts-inject` or
-  `LIS_FACTS_INJECT_LOG`, a read included) and the per-run settings deny Edit and Write
-  of `lis-facts-inject-*`; a globbed or computed name still reaches it, so the grader's
-  `facts_injected_*` fields are forgeable and report-only (the transcript check decides
-  `facts_read_after_boundary_any`). Tests:
+  `LIS_FACTS_INJECT_LOG`, a read included) and the per-run settings deny Edit (Write
+  included) of `lis-facts-inject-*`; a globbed or computed name still reaches it, so
+  the grader's `facts_injected_*` fields are forgeable and report-only (the transcript
+  check decides `facts_read_after_boundary_any`). Tests:
   `python -I scripts/hooks/tests/facts-inject_test.py`.
 - Hook copies (ledger S-B3): every hook script a run registers (`lis-guard.py`,
   `loop-guard.py`, `verify-doc.py`, `facts-inject.py`) runs from a copy in
@@ -1149,10 +1216,18 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   hook of that session. lis-guard runs as `lis-guard.py --hooks-dir
   <repo>/scripts/hooks`, so its exempt files and repo root still name the repo;
   verify-doc runs with `--script <repo>/scripts/verify-doc.py`, so its "+N more; run:"
-  hint names the repo file. The per-run settings deny Edit and Write of the directory,
-  by its path and as `//**/lis-hooks-*/**`. lis-guard denies any Bash command that
-  names `lis-hooks-`, `lis-settings-` or `lis-mcp-` (a read included): in Git Bash
-  `chmod +w` clears the read-only flag, and an emptied hook exits 0, which fails open.
+  hint names the repo file. The per-run settings deny Edit of the directory, by its
+  path and as `//**/lis-hooks-*/**` (Claude Code applies an Edit rule to every
+  file-editing tool, Write included; a `Write(path)` rule is not matched by its file
+  permission checks, warned at startup by 2.1.318, so the launcher emits none; a live
+  lean `-p` session on 2026-11-05 was refused a Write into a hook copy directory and
+  of `models/manifest.json`, and neither file was written; that session still carried
+  the inert Write rules, so the inference rests on 2.1.318's warning plus that denial,
+  and the next live session on this launcher, which emits none, re-proves it).
+  lis-guard denies any Bash
+  command that names `lis-hooks-`, `lis-settings-` or `lis-mcp-` (a read included): in
+  Git Bash `chmod +w` clears the read-only flag, and an emptied hook exits 0, which
+  fails open.
   A glob path whose last two parts can match `lis-hooks-<x>/<hook>`, or whose last part
   can match `lis-settings-<x>.json` or `lis-mcp-<x>.json`, counts as that file for the
   write checks (`cp /dev/null $TEMP/*/lis-guard.py`, a `glob.glob('.../lis-h*/*.py')`
@@ -1171,9 +1246,10 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `longrun.py`'s `facts_injected_*` fields show the gap on a graded rep. `-LisNoGuard`
   without longrun registers no hook and makes no copy; `-LisPrintArgs` shows the copy
   paths but writes nothing. The hooks' tests import the repo files. Remove old
-  directories by hand when `%TEMP%` fills. The per-run settings also deny Edit and Write
-  of the two pin sources `serve.ps1` trusts, `scripts/install.ps1` (zip, exe and dll
-  digests) and `models/manifest.json` (GGUF digests), by absolute path in every profile.
+  directories by hand when `%TEMP%` fills. The per-run settings also deny Edit (Write
+  included) of the two pin sources `serve.ps1` trusts, `scripts/install.ps1` (zip, exe
+  and dll digests) and `models/manifest.json` (GGUF digests), by absolute path in every
+  profile.
 - Verifier pass (verify-claims), by hand, not a hook: `pwsh scripts/verify-claims.ps1
   -Document <file.md> [-Root <repo>] [-Batch 1] [-MaxTurns 8] [-MaxClaims 0]
   [-OutDir <dir>] [-DryRun]` (Root defaults to the current directory, OutDir to this
@@ -1294,7 +1370,7 @@ session ends:
   verify-doc and verify-claims on the report.
 - longrun: as edit, plus a facts file `lis-facts-<stamp>.md` in the working directory
   that the model appends verified figures to, so a compaction cannot lose them. It also
-  registers the facts-inject hook (step 8) and denies Edit and Write of
+  registers the facts-inject hook (step 8) and denies Edit (Write included) of
   `lis-facts-inject-*`.
   Session supervisor (ledger R-W2, T-5; a session decision of 2026-11-04 that the
   operator can overturn, not a ruling): with `-p <prompt>`, a claude exit with rc != 0
@@ -1365,9 +1441,9 @@ and local settings and the per-run `--settings` file still load. Consequences:
   2026-10-25 loaded 98 user allow rules and the user `autoMode` rules),
   `bench/loop/run.ps1` (`-LisNoLoopGuard`, no `-LisTask`) and `bench/compact/run.ps1`
   (`--permission-mode auto`).
-- Every mode's per-run settings deny Edit and Write of `**/.claude/settings*.json`
-  (S-O3 audit W4): whether a mid-session change to a work-tree settings file reloads is
-  UNVERIFIED, and the deny is cheap.
+- Every mode's per-run settings deny Edit (Write included) of
+  `**/.claude/settings*.json` (S-O3 audit W4): whether a mid-session change to a
+  work-tree settings file reloads is UNVERIFIED, and the deny is cheap.
 
 S-O3 relies on the installed Claude Code build: its changelog, as the S-O3 audit read
 it, says "Fixed a settings file excluded with --setting-sources still supplying some

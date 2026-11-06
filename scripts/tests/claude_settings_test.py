@@ -89,12 +89,23 @@ MUST_DENY = ['git push origin main', 'git -C /z/repos/x push', 'gh gist create n
              'docker container exec web sh', 'docker.exe run alpine',
              # gh is denied whole: deny wins over any allow, so the survey's gh check cannot be carved out
              'gh auth status', 'gh --version']
-MUST_PASS = ['git status', 'git log --oneline -3', 'git -C /z/repos/x status',
+MUST_PASS = ['git status', 'git log --oneline -3',
              "curl -sS http://127.0.0.1:8080/props -H 'Authorization: Bearer local'",
              'curl -fsS http://127.0.0.1:8080/health', 'nvidia-smi', 'cat README.md',
              'wsl -l -v', 'wsl --list --verbose', 'wsl.exe -l -v', 'wsl --status', 'docker version',
              'docker --version', 'docker context ls', 'docker ps', 'docker ps -a', 'docker info',
              'docker version --format {{.Server.Version}}']
+# Ledger S-B8: `git -C <path>` reads and `git branch --show-current` have no settings
+# allow (a `*` there approved -c core.fsmonitor= or --exec-path= with no prompt): the hook
+# allows the read-only forms by parsing them, and a shape it cannot decide meets no rule.
+HOOK_GIT = ['git -C /z/repos/x status', 'git -C . log --oneline -3',
+            'git -C . branch --show-current', 'git branch --show-current']
+HOOK_GIT_UNSAFE = ['git -C . -c core.fsmonitor=x status', 'git -C . --exec-path=/tmp/e log -1',
+                   'git branch --show-current --exec-path=/tmp/e',
+                   # ref writes a trailing `*` on `git branch -a`/`-vv` approved (audit, S-B8)
+                   'git branch -vv -m main other', 'git branch -a -c main copy',
+                   'git branch -a --edit-description']
+GIT_BRANCH_EXACT = ['git branch -a', 'git branch -vv']   # exact allow rules, no trailing `*`
 
 
 
@@ -158,9 +169,21 @@ def main():
     deny_rx = [(b, rule_regex(b)) for b in bash_bodies(deny)]
     for cmd in MUST_DENY:
         check(any(rx.match(cmd) for _, rx in deny_rx), f'no deny rule matches {cmd!r}')
-    for cmd in MUST_PASS:
+    for cmd in MUST_PASS + HOOK_GIT:
         hit = [b for b, rx in deny_rx if rx.match(cmd)]
         check(not hit, f'deny rule {hit} matches the read-only command {cmd!r}')
+    for cmd in HOOK_GIT + HOOK_GIT_UNSAFE:     # S-B8: no settings rule approves these
+        check(not any(rx.match(cmd) for rx in allow_rx), f'a settings allow matches {cmd!r} (S-B8)')
+    for cmd in HOOK_GIT:
+        d = guard.decide(cmd, None)
+        check(d is not None and d[0] == 'allow', f'the hook does not allow {cmd!r}: {d}')
+    for b in bash_bodies(allow):
+        check(not b.startswith(('git -C', 'git branch --show-current')),
+              f'allow Bash({b}) is back (S-B8: the hook decides these)')
+        check(not (b.startswith(tuple(GIT_BRANCH_EXACT)) and b not in GIT_BRANCH_EXACT),
+              f'allow Bash({b}) is wider than the exact form (S-B8: it approved ref writes)')
+    for cmd in GIT_BRANCH_EXACT:
+        check(f'Bash({cmd})' in allow, f'exact allow rule missing: Bash({cmd})')
     # No allow rule may be shadowed by a deny: deny wins, so a shadowed allow is dead text
     # that claims a capability the session does not have. A '*' in an allow is sampled as X.
     for b in bash_bodies(allow):

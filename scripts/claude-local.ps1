@@ -47,7 +47,7 @@
   (scripts/hooks, the serve/stop/watchdog and task scripts, this file, config, bin,
   .gitignore, .gitattributes, logs/api-key and the logs/.stop-requested-<port> files,
   and the three scripts/tests files the guard hook exempts from its content scan) by
-  absolute path, and Edit and Write of the two pin
+  absolute path, and Edit (Write included) of the two pin
   sources serve.ps1 trusts (scripts/install.ps1, models/manifest.json; ledger S-B3).
   The hook denies critical writes, also inside interpreter and ssh payloads,
   and allows read-only commands and read-only scripts; see docs/SETUP.md step 8.
@@ -63,8 +63,11 @@
   kept after exit (path in the banner), so an edit of the repo files mid-session changes
   no hook. lis-guard.py gets --hooks-dir <repo>/scripts/hooks so its exemptions and
   repo root still name the repo; verify-doc.py gets --script <repo>/scripts/verify-doc.py
-  so its "+N more; run:" hint names the repo file. The per-run settings deny Edit and
-  Write of that directory and of lis-hooks-* at any depth, and lis-guard denies a Bash
+  so its "+N more; run:" hint names the repo file. The per-run settings deny Edit
+  (Write included) of that directory and of lis-hooks-* at any depth. No Write(path)
+  rule is emitted anywhere: Claude Code applies an Edit rule to every file-editing tool,
+  and 2.1.318 warns at startup that a Write(path) rule is not matched by its file
+  permission checks. lis-guard denies a Bash
   command that names lis-hooks-, lis-settings- or lis-mcp- (a literal chmod, cp or echo
   could otherwise empty a copy, and an emptied hook exits 0: fail open), also through a
   glob that can match a copy, the settings or the MCP file (the stamp and pid are digits
@@ -84,8 +87,8 @@
   compact) with LIS_FACTS_FILE and LIS_FACTS_INJECT_LOG set: after each compaction it
   puts the facts file back into context and logs that to
   $env:TEMP\lis-facts-inject-<stamp>.log (kept after exit; path in the banner). The
-  per-run settings deny Edit and Write of lis-facts-inject-* and lis-guard denies a Bash
-  command naming the log literally; a computed name still reaches it, so the grader
+  per-run settings deny Edit (Write included) of lis-facts-inject-* and lis-guard denies
+  a Bash command naming the log literally; a computed name still reaches it, so the grader
   treats the log as report-only.
   Session supervisor (ledger R-W2, T-5; a session decision of 2026-11-04 that the operator
   can overturn, not a ruling): under -LisTask longrun with -p <prompt>, a claude exit with
@@ -142,7 +145,7 @@
   launcher judging them), its deny rules, hooks, env, model, enabled plugins,
   permissions.defaultMode and autoMode rules do not apply in the session. The project
   and local settings of the working directory and the per-run --settings file still
-  load; in every mode the per-run settings deny Edit and Write of
+  load; in every mode the per-run settings deny Edit (Write included) of
   **/.claude/settings*.json, so a session cannot write rules into the work tree's own
   settings (whether such a change would reload mid-session is UNVERIFIED; the deny is
   cheap). -LisFull keeps user scope; -LisUserScope opts it back in for one run (allowed
@@ -548,7 +551,7 @@ function Write-LisBanner {
     $guardState = if ($LisNoGuard) { 'off' } elseif ($LisNoLoopGuard) { 'on, loop-guard off' } else { 'on' }
     $e.WriteLine("claude-local: profile: $LisTask   tools: $tools   guard: $guardState")
     $denied = $profiles[$LisTask].deny
-    if ($LisTask -eq 'longrun') { $denied = @($denied) + 'Edit/Write of lis-facts-inject-*' }
+    if ($LisTask -eq 'longrun') { $denied = @($denied) + 'Edit of lis-facts-inject-*' }
     $e.WriteLine('claude-local: rules added: ' + $(if ($denied) { 'deny ' + ($denied -join ', ') } else { 'none' }))
     if ($LisTask -eq 'longrun') { $e.WriteLine("claude-local: facts inject log: $injectLog") }
     if ($LisTask -eq 'longrun') {
@@ -596,20 +599,20 @@ try {
     # serve.ps1 trusts these two as pin sources (zip/exe/dll and GGUF sha256s; ledger S-B3).
     $cfg.permissions['deny'] = @($cfg.permissions['deny']) +
         @('scripts/install.ps1', 'models/manifest.json' |
-            ForEach-Object { "Edit($repoRule/$_)"; "Write($repoRule/$_)" })
+            ForEach-Object { "Edit($repoRule/$_)" })
     # The work tree's own settings files (docstring, ledger S-O3 audit W4), every mode.
     $cfg.permissions['deny'] = @($cfg.permissions['deny']) +
-        @('Edit(**/.claude/settings*.json)', 'Write(**/.claude/settings*.json)')
+        @('Edit(**/.claude/settings*.json)')
     if ($LisTask -and $profiles[$LisTask].deny) {
         $cfg.permissions['deny'] = @($cfg.permissions['deny']) + $profiles[$LisTask].deny
     }
     if ($LisTask -eq 'longrun') {
         # The facts-inject log is the grader's record of each injection (batch E audit W2):
-        # no Edit or Write of it, by its TEMP path or at any depth; lis-guard denies Bash.
+        # no Edit of it (Write included), by its TEMP path or at any depth; lis-guard denies Bash.
         $tp = $env:TEMP.Replace('\', '/')
         $tempRule = '//' + $tp.Substring(0, 1).ToLower() + $tp.Substring(2)
-        $cfg.permissions['deny'] = @($cfg.permissions['deny']) + @(foreach ($k in 'Edit', 'Write') {
-                "$k($tempRule/lis-facts-inject-*)"; "$k(//**/lis-facts-inject-*)" })
+        $cfg.permissions['deny'] = @($cfg.permissions['deny']) +
+            @("Edit($tempRule/lis-facts-inject-*)", 'Edit(//**/lis-facts-inject-*)')
     }
     if (-not $LisNoGuard) {
         $guard = Add-LisHook 'hooks\lis-guard.py'
@@ -653,11 +656,10 @@ try {
             })
     }
     if ($hookCopies.Count) {
-        # The hook copies (ledger S-B3): no Edit or Write, by their TEMP path or at any depth.
+        # The hook copies (ledger S-B3): no Edit (Write included), by their TEMP path or at any depth.
         $hd = $hookDir.Replace('\', '/')
         $hookRule = '//' + $hd.Substring(0, 1).ToLower() + $hd.Substring(2)
-        $cfg.permissions['deny'] = @($cfg.permissions['deny']) + @(foreach ($k in 'Edit', 'Write') {
-                "$k($hookRule/**)"; "$k(//**/lis-hooks-*/**)" })
+        $cfg.permissions['deny'] = @($cfg.permissions['deny']) + @("Edit($hookRule/**)", 'Edit(//**/lis-hooks-*/**)')
     }
     $json = $cfg | ConvertTo-Json -Depth 10
     Write-LisBanner

@@ -7,8 +7,9 @@ Run: python -I scripts/tests/resilience_test.py
 
 Everything runs on copies of the scripts in a temp "repo" whose bin/llama-server.exe is a
 stub compiled from STUB_CS with the .NET Framework csc.exe (those cases are skipped when it
-is missing). The stub never binds 8080 and ends on its own (exit plan or exit file); no
-case stops a process. HTTP endpoints are a Python stub on a free loopback port. The live
+is missing). The stub never binds 8080 and ends on its own (exit plan or exit file); the
+one process a case stops is that stub, by stop.ps1 on the stub's free port (test_stop_stub).
+HTTP endpoints are a Python stub on a free loopback port. The live
 server, the scheduled tasks and claude are never touched. Exit 0 = all pass.
 The session supervisor of claude-local.ps1 runs against a stub claude compiled from
 STUB_CLAUDE_CS (LIS_CLAUDE_EXE; skipped without csc.exe). Optional argument: a wrapper
@@ -334,8 +335,9 @@ def hook_scripts(cfg):
 
 def check_hook_settings(name, cfg, want, err):
     """The hook commands name one per-run lis-hooks-<stamp>-<pid> directory under %TEMP%, not
-    the repo; lis-guard gets --hooks-dir <repo>/scripts/hooks; Edit and Write of that
-    directory are denied; the banner names it. Returns the directory (None without hooks)."""
+    the repo; lis-guard gets --hooks-dir <repo>/scripts/hooks; Edit of that directory is
+    denied (an Edit rule covers Write); the banner names it. Returns the directory (None
+    without hooks)."""
     deny = cfg['permissions']['deny']
     hooks = hook_scripts(cfg)
     dirs = {os.path.dirname(p) for _, p, _ in hooks}
@@ -359,9 +361,8 @@ def check_hook_settings(name, cfg, want, err):
     vd = [rest for _, p, rest in hooks if p.endswith('/verify-doc.py')]
     check(f'hook copies {name}: verify-doc gets --script <repo>/scripts/verify-doc.py (audit C1)',
           vd == [f' --hook --script "{REPO.replace(os.sep, "/")}/scripts/verify-doc.py"'], f'{vd}')
-    rules = [f'{k}({abs_rule(d)}/**)' for k in ('Edit', 'Write') if d] + \
-        [f'{k}(//**/lis-hooks-*/**)' for k in ('Edit', 'Write')]
-    check(f'hook copies {name}: Edit and Write of the copies denied',
+    rules = ([f'Edit({abs_rule(d)}/**)'] if d else []) + ['Edit(//**/lis-hooks-*/**)']
+    check(f'hook copies {name}: Edit of the copies denied',
           d and all(x in deny for x in rules), [x for x in rules if x not in deny])
     check(f'hook copies {name}: the banner names the directory',
           f'claude-local: hook copies: {d.replace("/", os.sep)} ' in err, err)
@@ -388,7 +389,9 @@ def check_user_scope(name, argv, cfg, err, on):
     arguments, and the banner says off; on (-LisFull or -LisUserScope): no flag, the banner
     names the switch. Either way the per-run settings env carries LIS_SESSION_START, the
     reads the user scope denied on the audit machine (.env, ~/.ssh, ~/.aws) stay denied, and
-    Edit and Write of the work tree's .claude/settings*.json are denied (S-O3 audit W4)."""
+    Edit of the work tree's .claude/settings*.json is denied (S-O3 audit W4). No Write(path)
+    rule is emitted: Claude Code 2.1.318 does not match one in its file permission checks
+    (an Edit rule covers every file-editing tool, Write included) and warns at startup."""
     argv = argv or []
     n = argv.count('--setting-sources')
     i = argv.index('--setting-sources') if n else -1
@@ -407,9 +410,11 @@ def check_user_scope(name, argv, cfg, err, on):
     reads = ['Read(**/.env*)', f'Read({home}/.ssh/**)', f'Read({home}/.aws/**)']
     check(f'user scope {name}: the .env, ~/.ssh and ~/.aws read denies are per-run',
           all(x in deny for x in reads), [x for x in reads if x not in deny])
-    own = [f'{k}(**/.claude/settings*.json)' for k in ('Edit', 'Write')]
-    check(f'user scope {name}: Edit and Write of .claude/settings*.json denied per run',
-          all(x in deny for x in own), [x for x in own if x not in deny])
+    check(f'user scope {name}: Edit of .claude/settings*.json denied per run',
+          'Edit(**/.claude/settings*.json)' in deny, deny)
+    writes = [x for x in deny if x.startswith('Write(')]
+    check(f'user scope {name}: no Write(path) deny rule emitted (inert on 2.1.318)',
+          not writes, writes)
 
 
 def test_wrapper_web_and_hooks():
@@ -426,11 +431,16 @@ def test_wrapper_web_and_hooks():
         check(f'web/hooks {name}: PowerShell and the three Playwright tools denied',
               rc == 0 and all(x in deny for x in WEB_DENIES),
               [x for x in WEB_DENIES if x not in deny])
-        # serve.ps1's pin sources (ledger S-B3): Edit and Write denied by absolute path.
-        pins = [f'{t}({abs_rule(REPO)}/{f})' for t in ('Edit', 'Write')
+        # serve.ps1's pin sources (ledger S-B3): Edit denied by absolute path.
+        pins = [f'Edit({abs_rule(REPO)}/{f})'
                 for f in ('scripts/install.ps1', 'models/manifest.json')]
-        check(f'web/hooks {name}: Edit and Write of install.ps1 and models/manifest.json denied',
+        check(f'web/hooks {name}: Edit of install.ps1 and models/manifest.json denied',
               not [x for x in pins if x not in deny], [x for x in pins if x not in deny])
+        if 'longrun' in args:               # the facts-inject log (batch E audit W2)
+            facts = [f'Edit({abs_rule(os.environ["TEMP"])}/lis-facts-inject-*)',
+                     'Edit(//**/lis-facts-inject-*)']
+            check(f'web/hooks {name}: Edit of lis-facts-inject-* denied',
+                  all(x in deny for x in facts), [x for x in facts if x not in deny])
         d = check_hook_settings(name, cfg, want, err)
         if d:
             check(f'hook copies {name}: -LisPrintArgs writes no copy', not os.path.exists(d), d)
@@ -783,6 +793,61 @@ def test_stop_marker():
             check(f'stop: -Reason {reason!r} without -FromWatchdog refused, nothing written',
                   r.returncode != 0 and 'may not start with' in r.stdout + r.stderr and after == sentinel,
                   r.stdout + r.stderr + after)
+
+
+def test_stop_stub(stub_exe):
+    """stop.ps1 against the stub llama-server on a free port (never 8080): the log keeps what
+    was in it, carries the "stop requested" marker when nothing held it, and ALWAYS ends with
+    "[stop.ps1] stopped PID <pid> (llama-server) <timestamp> (<reason>)", written after the
+    stub exited. The second case gives the stub the log as its stdout, as serve.ps1's
+    redirect does; on this machine that handle does not block an append (measured
+    2026-11-05), so the held case is checked for the last line only."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = make_repo(tmp, stub_exe)
+        exe = os.path.join(root, 'bin', 'llama-server.exe')
+        stop = os.path.join(root, 'scripts', 'stop.ps1')
+        log = os.path.join(root, 'logs', 'llama-server.log')
+        serving = os.path.join(root, 'bin', 'stub-serving.txt')
+        for held in (False, True):
+            name = 'log held as the stub stdout' if held else 'nothing holds the log'
+            port = free_port()
+            while port == 8080:
+                port = free_port()
+            with open(log, 'w') as f:
+                f.write('stub output line\n')
+            if os.path.exists(serving):
+                os.remove(serving)
+            out = open(log, 'a') if held else subprocess.DEVNULL
+            p = subprocess.Popen([exe, '--port', str(port)], stdout=out, stderr=subprocess.DEVNULL)
+            try:
+                for _ in range(100):
+                    if os.path.exists(serving) or p.poll() is not None:
+                        break
+                    time.sleep(0.1)
+                r = subprocess.run([PWSH, '-NoProfile', '-File', stop, '-Port', str(port),
+                                    '-Reason', 'test'], capture_output=True, text=True, timeout=90)
+                try:
+                    p.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                with open(log) as f:
+                    lines = f.read().splitlines()
+                last = re.fullmatch(rf'\[stop\.ps1\] stopped PID {p.pid} \(llama-server\) '
+                                    r'\d{4}-\d\d-\d\dT\S+ \(test\)', lines[-1] if lines else '')
+                marker = [i for i, x in enumerate(lines)
+                          if x.startswith('[stop.ps1] stop requested ')]
+                check(f'stop: stub stopped ({name}) -> "stopped PID" is the last log line',
+                      r.returncode == 0 and p.poll() is not None
+                      and lines[:1] == ['stub output line'] and bool(last)
+                      and (held or marker == [len(lines) - 2]),
+                      f'{r.stdout}{r.stderr}{lines}')
+            finally:
+                if p.poll() is None:            # stop.ps1 failed: the stub's own exit file
+                    with open(os.path.join(root, 'bin', 'stub-exit.txt'), 'w') as f:
+                        f.write('0')
+                    p.wait(timeout=10)
+                if held:
+                    out.close()
 
 
 def test_watchdog(port):
@@ -1205,6 +1270,7 @@ def main():
                 exe = os.path.join(tmp, 'llama-server.exe')
                 subprocess.run([CSC, '-nologo', '-out:' + exe, src], check=True, capture_output=True, cwd=tmp)
                 test_serve_loop(exe)
+                test_stop_stub(exe)
         else:
             print(f'skip  serve restart-loop cases: {CSC} not found')
     finally:

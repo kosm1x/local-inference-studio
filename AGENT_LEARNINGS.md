@@ -19,9 +19,6 @@
 
 ## 2026-10-24 — P3 to P5: bench matrix, Saluki/GSQ-RCO/Orca, vLLM spike
 
-- **Mistake:** P3 part B published a decode median that included the cold first request (Qwen3.6 104 vs 134 tok/s). → Discard one warm-up; the audit's cross-check of per-run values caught it.
-- **Mistake:** per-run spread figures were written into the summary from console output nobody saved. → Tee every run; unsaved figures are marked UNVERIFIED.
-- **Mistake:** `git commit -F -` with a PowerShell here-string failed with "pathspec did not match", and a later `--amend` built from `git log --format=%B` collapsed the message to one line. → Message file in the scratchpad, always.
 - **Mistake:** a subagent committed with an Opus trailer and a WSL username in the ROADMAP. → Brief states the exact trailer; audit checks for usernames.
 - **Better:** fit questions get answered by the `-lv 4` placement lines (layers on GPU, CPU_Mapped MiB, KV MiB, free MiB) captured in the same run as the numbers.
 - **Better:** the GSQ-RCO MTP head runs on stock llama.cpp `--spec-type draft-mtp`; test MTP at the context where the model fits all-GPU, since its ~1.3 GB cost otherwise spills layers and hides the speed-up.
@@ -42,16 +39,12 @@
 
 ## 2026-10-24 — Ruling 6 cutover (Orca IQ3_XXS default)
 
-- **Mistake:** the brief claimed the Orca GGUF has "no MTP head", but `config/models.md` (header table: `nextn_predict_layers` 1) and the live log (`blk.64.*` unused tensors) show it has one. → Check `nextn_predict_layers` in `config/models.md` (and the server log) before asserting a model has or lacks MTP.
 - **Mistake:** template detection compared a non-normalised path; `GetFullPath` ran only on relative inputs, so an absolute forward-slash `-Model` skipped `--chat-template-file` (HTTP 500 under Claude Code) (audit catch). → Normalise every path before any prefix test.
 - **Better:** the logon task log runs at verbosity 3 and carries no placement lines; capture fit with ONE `-lv 4` start on :8081 after stopping the task server (two 27B servers cannot share the card), then restart the task.
 
 ## 2026-10-24 — Session close (orchestration)
 
-- **Mistake:** the orchestrator's brief for the cutover asserted "no MTP head" from memory; the repo's own table said otherwise. → Promoted to Standing rules.
 - **Mistake:** the Phase 3d summary's "fastest on both fixtures" passed the orchestrator's read before the audit caught that only one contender finished on the old fixture. → Rankings need every contender to have a number on the same fixture.
-- **Better:** every built commit went through qa-auditor before push (3d, 3d residuals, ruling 6, ruling 6 residuals); each audit found a real wording or edge-case gap, none found a wrong number.
-- **Better:** a 3-strike stop on identical 500s (Saluki r1-r3 + GSQ-RCO r1) and a redirect to capture ONE failing request found the template cause in one pass; the fix then unblocked four model files.
 
 ## 2026-10-24 — Live monitoring of the Orca default
 
@@ -150,3 +143,11 @@
 - **Mistake:** the new property invariant checked only the converse (ordinary commands never deny), so disabling the rule kept 23531 cases green. -> Every new deny rule ships with a positive oracle (random instances must deny) and a converse one; mutation over the unit rows alone proves little.
 - **Better:** when a settings scope is excluded, read what it carried (the debug log's "Adding N allow rule(s) to destination 'userSettings'") and name every bench whose inputs change; with user scope on, "no decision" means allow in a rep, and with it off, deny in a lean `-p` session.
 - **Mistake:** the pre-commit ParseFile list carried a script that does not exist in this repo (`scripts/run.ps1`) from a compaction summary. -> `ls` the list before running it; the repo's actual `.ps1` files are the list.
+
+## 2026-11-05 — Restart proofs, the harness's own warnings (c34)
+
+- **Mistake:** the S-O3 live proof's debug log carried six `[WARN] [permissions]` lines (every `Write(path)` deny rule inert, the `git -C *` allow rules approving `-c`/`--exec-path`) and the proof was graded only on the figures it was run for; the warnings sat in a gitignored log for 18 hours. -> Every live proof gets a `[WARN]` grep of its debug log before the row is marked LANDED; the harness's own warnings are findings.
+- **Better:** a row that "waits on the next start" is proven from the log lines the restart wrote (stop marker, pin check, hash-marker reuse, vram line, launch) and the endpoints with the new key, not from the first `/health` ok; the live stop-marker order differed from the stub's (serve.ps1 quotes it after the exit line while it holds the log) and the row now states the measured order.
+- **Mistake:** the S-B8 rule read only tokens starting with `-` before the git subcommand, although the standing rule says a hook fails on any unquoted expansion; the auditor's `{-c,core.fsmonitor=...}` and `$'-c'` forms got no decision and bash ran them. -> Every new token-reading rule starts with the expansion clause (`$`, `{`, `[`, `*`, `?`, backtick before the judged position = deny) and its positive oracle includes expansion spellings.
+- **Mistake:** the docs' exploit example (`-c core.pager='touch pwned' log -1` "ran its pager") was written from the harness's warning, not from a run; git skips the pager without a TTY, while `-c core.fsmonitor=<cmd> status` does run. -> An exploit example in a doc is executed once in a scratch repo before it is written; otherwise it is marked UNVERIFIED.
+- **Better:** the third audit round hit the same class (expansion, re-quoted wsl payload, backslash-newline) and the 3-strike rule moved the fix off the tokenizer: the wildcard allow rules were removed (the hook already allows the benign forms, an undecided shape now meets no rule) and the hook judges the joined text as a second view. A rule that approves a prefix the hook cannot fully read is the hole; patching the reader is the 4th variation.

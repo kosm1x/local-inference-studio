@@ -34,7 +34,14 @@ for any input. It may allow only through its grammar. Every generated case is ch
   (ix) ledger S-B4 rule 1, positive: inline code (python -c, node -e, perl|ruby -e, php -r,
         lua -e, Rscript -e, code piped or heredoc-fed into an interpreter) with a clean
         payload, inside 0-2 random wrappers (bash -c [--], ( ), { ; }, if/while bodies,
-        backticks, $( ), !, timeout, a leading command), is always denied as inline code.
+        backticks, $( ), !, timeout, a leading command), is always denied as inline code;
+  (x)  ledger S-B8, both ways: git -C <path> with a read-only subcommand and a code-running
+        global option (-c, -c<k=v>, --config-env[=v], --exec-path[=v]) among its global
+        options, inside 0-2 random wrappers ((ix)'s, pwsh -Command, wsl, $( )), is always
+        denied with GIT_CODE_REASON naming that option, and a word the shell expands into -c
+        ({-c,k=v}, $'-c', ${X:--c}, -[c]) with GIT_EXPAND_REASON naming a word, also when a
+        backslash-newline splits the option (a scan hit or S-B4's inline-code deny of a
+        multi-line -c payload keeps its own reason); without either it never gets that deny.
 
 Generators: (a) random strings with non-ASCII, (b) mutations of every row in
 lis-guard_test.py, (c) PS_RO_SPEC-shaped payloads with one corruption, (d) cd / -wd /
@@ -42,7 +49,7 @@ option-prefix / script-target combinations in a fake repo root with an outside d
 junction into it, then UNC targets on random hosts and credential tokens behind a splice in
 allow-shaped commands and script bodies (their own rng, so the earlier streams are unchanged),
 then (vii)'s globs (a third rng), then (viii)'s commands (a fourth rng), then (ix)'s
-inline forms (a fifth rng).
+inline forms (a fifth rng), then (x)'s git commands (a sixth rng).
 (a)-(c) run with the repo root as cwd and (d) under a temp path named by seed and a fixed-width
 pid (parallel runs never share it; the pid feeds no generator), so a seed gives the same counts
 from any cwd.
@@ -720,6 +727,42 @@ def gen_inline(rng):
     return cmd
 
 
+GIT_CODE_OPTS = (                       # (x): (option text, the option the reason names)
+    ('-c core.pager=less', '-c'), ("-c core.pager='touch x'", '-c'), ('-c core.fsmonitor=e', '-c'),
+    ('-ccore.editor=vim', '-c'), ('-c core.quotepath=off', '-c'),
+    ('--config-env=core.pager=V', '--config-env'), ('--config-env core.pager=V', '--config-env'),
+    ('--exec-path=/tmp/e', '--exec-path'), ('--exec-path', '--exec-path'),
+    ('\\\n-c core.fsmonitor=e', '-c'), ('\\\n  -c core.fsmonitor=e', '-c'),   # continuations
+    ('-\\\nc core.fsmonitor=e', '-c'), ('--exec-\\\npath=/tmp/e', '--exec-path'))
+GIT_EXPAND_OPTS = (                     # (x): (a word the shell expands into -c, word shown)
+    ("{-c,core.fsmonitor='touch B; false'}", '{-c,core.fsmonitor=touch B; false}'),
+    ("$'-c' core.fsmonitor=e", '$-c'), ('${X:--c} core.fsmonitor=e', '${X:--c}'),
+    ('-[c] core.fsmonitor=e', '-[c]'))
+GIT_RO_SUBS = ('status', 'log', 'diff', 'show', 'rev-parse', 'branch --show-current')
+GIT_RO_ARGS = ('--short', '-1', '--oneline', '-c', '-3', 'HEAD', '--stat', '-p', 'README.md',
+               '--', '-s', '--name-only')
+GIT_PATHS = ('.', '/tmp/x', 'C:/x', '../y', 'src', '"a b"')
+GIT_WRAPS = INLINE_WRAPS + ('pwsh -NoProfile -Command {s}', 'wsl {c}', 'echo $({c})')
+
+
+def gen_git(rng, opt=None):
+    """(x) git -C <path> <read-only subcommand> <args>, with opt among the global options
+    when given, inside 0-2 random wrappers."""
+    glob = [f'-C {rng.choice(GIT_PATHS)}'] + rng.sample(('--no-pager', '--git-dir=.git',
+                                                          '--work-tree=.'), rng.randint(0, 2))
+    if opt:
+        glob.insert(rng.randint(0, len(glob)), opt)
+    cmd = ' '.join(['git'] + glob + [rng.choice(GIT_RO_SUBS)]
+                   + [rng.choice(GIT_RO_ARGS) for _ in range(rng.randint(0, 3))])
+    for _ in range(rng.randint(0, 2)):
+        w = rng.choice(GIT_WRAPS)
+        if ('`' in w and '`' in cmd) or (w.startswith(('timeout', 'wsl')) and (
+                not cmd[:1].isalpha() or cmd.startswith(('if ', 'while ', 'x=')))):
+            continue                    # nested backticks; timeout runs one program, not a group
+        cmd = w.format(c=cmd, s=shlex.quote(cmd))
+    return cmd
+
+
 def gen_run_glob(rng):
     """(command, dir glob, file glob, real parts) for a write through a glob of a per-run file."""
     d, f = rng.choice(RUN_FILES)
@@ -887,6 +930,27 @@ def main():
             d = g.decide(cmd, REPO)
             if kind(d) != 'deny' or 'inline code is not run' not in d[1]:
                 ck.fail('S-B4 inline form not denied as inline code', cmd, d)
+        # (x) ledger S-B8: a code-running git global option always denies with its reason
+        # (positive); git -C <path> <read-only subcommand> without one never gets that deny
+        rng6 = random.Random(SEED * 1000 + 61)
+        for _ in range(500):
+            opt, shown = rng6.choice(GIT_CODE_OPTS + GIT_EXPAND_OPTS)
+            why = (g.GIT_CODE_REASON if (opt, shown) in GIT_CODE_OPTS else g.GIT_EXPAND_REASON)
+            cmd = gen_git(rng6, opt)
+            ck.check(cmd, REPO, rng6)
+            d = g.decide(cmd, REPO)
+            if kind(d) != 'deny' or not (
+                    d[1] == why.format(shown) or g.critical(cmd)  # a scan hit keeps its reason
+                    or (why is g.GIT_EXPAND_REASON and re.fullmatch(  # a payload re-quotes it
+                        re.escape(why).replace(re.escape('{}'), '.+'), d[1], re.S))
+                    or 'inline code is not run' in d[1]):         # S-B4: a multi-line -c payload
+                ck.fail('S-B8 code-running git option not denied', cmd, d)
+        for _ in range(500):
+            cmd = gen_git(rng6)
+            ck.check(cmd, REPO, rng6)
+            d = g.decide(cmd, REPO)
+            if kind(d) == 'deny' and 'can run code' in d[1]:
+                ck.fail('S-B8 deny of git without a code-running option', cmd, d)
     finally:
         g.REPO_ROOT = old_root
         set_start(None)

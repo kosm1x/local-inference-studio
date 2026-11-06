@@ -5,6 +5,10 @@ Decision order for one Bash command:
       anywhere in it, including inside powershell/pwsh -Command (and -EncodedCommand),
       bash/sh -c, cmd /c, python -c, node -e, heredoc and here-string bodies fed to an
       interpreter, wsl ... -- and ssh payloads                      -> deny
+  (a1) a git global option that runs code (ledger S-B8): -c, -c<k=v>, --config-env[=v]
+      or --exec-path[=v] before the subcommand, at every level (a) reads, or a word
+      there that the shell expands  -> deny. Every rule also reads the command with its
+      backslash-newlines joined, as bash runs it (decide()).
   (b) a script run (bash|sh <file>, powershell|pwsh -File <file>, python|py|node
       [options] <file>): a deny hit on any line -> deny quoting that line; every line
       read-only -> allow (shell and PowerShell only; python/node files are never
@@ -1247,6 +1251,76 @@ def git_sub(a):
             i += 1
         else:
             return a[i]
+    return None
+
+
+# Ledger S-B8 (2026-11-05): a git global option that runs code. -c core.pager=, core.editor=,
+# core.fsmonitor= or alias.x=!cmd runs a program; --config-env sets a key from the
+# environment; --exec-path=<dir> dispatches to a helper planted there. The settings' allow
+# rules `git -C * status*` (and log, branch --show-current) matched any option at the `*`;
+# they are removed, so the hook allows the read-only forms and denies these, and a shape
+# it cannot decide meets no rule. Harmless keys (-c core.quotepath=off) are
+# denied too (accepted over-deny). The git -c alias/credential scan above keeps its reason.
+# A word up to the subcommand that the shell expands ({-c,k=v}, $'-c', ${X:--c}, -[c], a
+# $X that word-splits) may become -c after the hook reads it, so it is denied too; a quoted
+# literal is not an expansion (shell_expands() reads the quoting).
+GIT_CODE_REASON = ('lis-guard: git global option {} can run code (pager, fsmonitor, alias, '
+                   'exec path); run git without it')
+GIT_EXPAND_REASON = ('lis-guard: git global option {} may expand to one that can run code '
+                     '(pager, fsmonitor, alias, exec path); run git without the expansion')
+GIT_EXPAND_CHARS = re.compile(r'[${}\[\]*?`]')
+GIT_VALUED = {'-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env',
+              '--shallow-file', '--attr-source'}     # git's global options with a separate value
+
+
+def git_code_opt(toks, expands=False):
+    """The deny reason of a git command whose global options hold a code-running one
+    (-c, --config-env or --exec-path) or, when its segment expands (shell_expands), a word
+    up to and including the subcommand that may expand into one; else None."""
+    toks = unwrap(toks or [])
+    if not toks or exe(toks[0]) != 'git':
+        return None
+    a, i = toks[1:], 0
+    while i < len(a):
+        t = a[i]
+        if expands and GIT_EXPAND_CHARS.search(t):
+            return GIT_EXPAND_REASON.format(t)
+        if not t.startswith('-'):
+            return None                     # the subcommand
+        if t.startswith('-c'):
+            return GIT_CODE_REASON.format('-c')
+        if t.startswith(('--config-env', '--exec-path')):
+            return GIT_CODE_REASON.format(t.split('=', 1)[0])
+        v = a[i + 1] if t in GIT_VALUED and i + 1 < len(a) else ''
+        if expands and GIT_EXPAND_CHARS.search(v):
+            return GIT_EXPAND_REASON.format(v)  # -C $D with D='. -c k=v' word-splits
+        i += 2 if t in GIT_VALUED else 1
+    return None
+
+
+def git_opt_hit(cmd, ctx='local', depth=0):
+    """The deny reason of the first git command with a code-running global option (or an
+    expansion that may become one, git_code_opt) at every level walk() reads (segments,
+    $( ), backticks, groups, bash -c, pwsh -Command, wsl, code literals and argv lists),
+    also behind timeout/env/nohup and in a PowerShell segment read as a shell line."""
+    if depth > MAX_DEPTH:
+        return None
+    for c, seg in walk(strip_heredocs(cmd), ctx):
+        if c in ('py', 'js'):
+            continue                        # their string literals and argv lists come as 'lit'
+        if c == 'ps':                       # (git ...), bash -c '...' inside a payload
+            text = re.sub(r'^\s*(?:&\s*|\.\s+)', '', seg.replace('`', ''))
+            if why := git_opt_hit(text, 'local', depth + 1):
+                return why
+            continue
+        toks = strip_env(tokens(seg) or seg.split(), False)
+        # a wsl or ssh payload comes back re-quoted, so its expansions show in cmd only
+        x = shell_expands(seg) or (c in ('wsl', 'remote') and shell_expands(cmd))
+        if why := git_code_opt(toks, x):
+            return why
+        rest = unwrap(toks or [])           # timeout 5 pwsh -Command '...': walk() reads no further
+        if rest and rest != toks and (why := git_opt_hit(shlex.join(rest), c, depth + 1)):
+            return why
     return None
 
 
@@ -2866,8 +2940,29 @@ def in_repo(path):
     return p == REPO_ROOT or p.startswith(REPO_ROOT.rstrip(os.sep) + os.sep)
 
 
+# Ledger S-B8 (2026-11-05): bash removes a backslash-newline (one not itself escaped)
+# before it splits words, so `git -C . -\<newline>c k=v status` runs git -c and
+# `r\<newline>m -rf x` runs rm. Inside single quotes it stays (measured: echo 'a\<nl>b'
+# keeps both), and so may a single-quoted pwsh payload (UNVERIFIED), so decide() judges
+# such a command twice: as written and joined. Deny when either view denies; allow only
+# when both allow.
+CONTINUATION = re.compile(r'(?<!\\)((?:\\\\)*)\\\r?\n')
+
+
 def decide(cmd, cwd=None):
     """('deny'|'allow', reason) or None for no decision."""
+    d = decide_text(cmd, cwd)
+    joined = CONTINUATION.sub(r'\1', cmd)
+    if joined == cmd or (d and d[0] == 'deny'):
+        return d
+    j = decide_text(joined, cwd)
+    if j and j[0] == 'deny':
+        return j
+    return d if j else None
+
+
+def decide_text(cmd, cwd=None):
+    """decide() for one view of the command text."""
     if not cmd.strip():
         return None
     ascii_ok = cmd.isascii() and '\x00' not in cmd     # the allow path is ASCII-only (ruling 45)
@@ -2878,6 +2973,8 @@ def decide(cmd, cwd=None):
     hit = critical(cmd) or patch_hit(cmd, cwd)
     if hit:
         return 'deny', deny_reason(hit)
+    if why := git_opt_hit(cmd):             # ledger S-B8: after the scan, so its reason stays
+        return 'deny', why
     if _UNDECIDED[0]:
         return None                         # a cd rewrite too large to read (A10 W2)
     scripts, others = [], []

@@ -267,8 +267,9 @@ Batches (IDs in the ledger):
   LANDED (grade.py `stderr_other` without the benign `unrecognized_model` line), T-8
   LANDED (on-disk counts above), W-1 LANDED (WebFetch wording in ROADMAP, SETUP and the
   landscape doc; the deny stays).
-- Session supervisor (R-W2, T-5): BUILT 2026-11-04. Under `-LisTask longrun`,
-  scripts/claude-local.ps1 relaunches one fresh `-p` session (never `--continue`) when
+- Session supervisor (R-W2, T-5): BUILT 2026-11-04, first live relaunch 2026-11-05
+  (the ledger rows). Under `-LisTask longrun`, scripts/claude-local.ps1 relaunches one
+  fresh `-p` session (never `--continue`) when
   claude exits with rc != 0, except after the turn limit (`error_max_turns`); rc -1 (a
   claude killed by .NET Process.Kill) never relaunches, a kill that sets another code
   (taskkill /F gives 1, UNVERIFIED) does; the prompt gains one line that names the facts

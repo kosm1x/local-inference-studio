@@ -1392,7 +1392,13 @@ session ends:
   `claude-local: relaunch n=<n> rc=<rc> reason=thrash|exit` (thrash when the `result`
   field of the dead session's last stream-json result record on stdout, or its last 50
   stderr lines, hold "Autocompact is thrashing"; another stdout line quoting it, such as
-  a tool result, does not count), and the wrapper exits with the last session's rc. A
+  a tool result, does not count), and the wrapper exits with the last session's rc
+  (live 2026-11-05: a scratch session whose CLAUDE.md overflowed the context exited
+  rc 1 on the 400, stderr `relaunch n=1 rc=1 reason=exit`, the second session got its
+  own debug file and the facts-inject hook's relaunch start, the wrapper exited 1; the
+  relaunch repeats the same request, so a deterministic cause such as an oversized
+  working directory kills it too and the wrapper stops; it helps with one-off exits
+  such as an autocompact thrash). A
   result record is a stdout line that starts with `{`, contains `"type":"result"` and
   parses with type `result` (Claude Code writes that key late in the line, after
   `duration_api_ms` and the rest); a line that does not parse is checked by substring

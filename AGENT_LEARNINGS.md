@@ -17,29 +17,20 @@
 - A hook that allows commands gives no decision on any segment with a shell expansion (`$`, backtick, unquoted `{}`/`*?[]`/`~`), and every verb handler AND the env-prefix filter are allow-lists; no grammar over expansions survives audit (6 rounds, 2026-10-25).
 - Grade a run by its artefact against a fixed fact checklist, never by server health.
 - A ranking needs every contender to have a number on the same fixture (10-24 3d).
+- Every figure or quoted string in a doc is copied from a named artifact (JSON, log,
+  call log) in that artifact's order; a value remembered from the console, a wall
+  time or a build-context size nobody saved is not written (11-06, 11-07 audits).
 
 ## 2026-10-24 — P3 to P5: bench matrix, Saluki/GSQ-RCO/Orca, vLLM spike
 - **Mistake:** a subagent committed with an Opus trailer and a WSL username in the ROADMAP. → Brief states the exact trailer; audit checks for usernames.
-- **Better:** fit questions get answered by the `-lv 4` placement lines (layers on GPU, CPU_Mapped MiB, KV MiB, free MiB) captured in the same run as the numbers.
-- **Better:** the GSQ-RCO MTP head runs on stock llama.cpp `--spec-type draft-mtp`; test MTP at the context where the model fits all-GPU, since its ~1.3 GB cost otherwise spills layers and hides the speed-up.
 
 ## 2026-10-24 — Phase 3d: agentic-loop comparison
 - **Mistake:** started 3-rep loops on Saluki and GSQ-RCO without checking that their chat template accepts Claude Code's message order; every rep burned about 3 min on 11 HTTP 500 retries (`raise_exception('System message must be at the beginning.')`). → Before a long loop on a new GGUF, run one `-v` request and read the converted role order (the operator's SessionStart hook output arrives as a second, non-leading system message), or POST it to `/apply-template`.
 - **Mistake:** the loop fixture had a `package.json`; the operator's `~/.bashrc` runs `fnm env --use-on-cd`, so any `cd <dir> && node ...` inside Claude Code's Bash tool failed in `fnm use` and one rep timed out at 30 min while debugging fnm. → A fixture carries no `package.json`, `.nvmrc` or `.node-version`; `node --test` discovers `test/*.test.js` alone.
 - **Avoid:** under `pwsh -File`, an argument value that starts with `-` and contains `:` (`-ExtraArgLine "--chat-template-file Z:/x"`) is parsed as a `-name:value` token and fails with "Missing an argument for parameter". Pass it as ONE token `"-ExtraArgLine:<value>"`.
 
-## 2026-10-24 — Ruling 6 cutover (Orca IQ3_XXS default)
-- **Mistake:** template detection compared a non-normalised path; `GetFullPath` ran only on relative inputs, so an absolute forward-slash `-Model` skipped `--chat-template-file` (HTTP 500 under Claude Code) (audit catch). → Normalise every path before any prefix test.
-- **Better:** the logon task log runs at verbosity 3 and carries no placement lines; capture fit with ONE `-lv 4` start on :8081 after stopping the task server (two 27B servers cannot share the card), then restart the task.
-
 ## 2026-10-24 — Live monitoring of the Orca default
 - **Mistake:** reported the running context size by summing prompt-in and tokens-out per turn (said ~67K); the server's own `stop processing: n_tokens` line peaked at 45,417. → Read the server's count; the sum ignores compaction and parallel conversations.
-- **Better:** a `tail -F | grep --line-buffered` monitor on `prompt eval time|eval time|total time|truncated = [1-9]|exited|error` gives one event per turn with the cache hit/miss visible in the prompt token count (tens = hit, tens of thousands = full re-read).
-- **Better:** judge a model's agentic cost from a real session's decode share (here 90 %) before optimising prefill; the loop bench over-weighted prefill because every rep started cold.
-
-## 2026-10-24 — Ruling 13 lean set
-- **Better:** the brief expected `-LisFull` to restore the old 25.6K prompt; it measured 21,908 because the settings deny of Agent and Workflow stays on, which also turned the audit's "deny removes the schema" observation into a VERIFIED pair (run (b) 21,911). Predict a switch's result from every layer it leaves in place, not only the flags it drops.
-- **Better:** Claude Code's session transcript carries a `prompt_snapshot` attachment with the full system prompt; it proves an `--append-system-prompt` reached the request builder when the server log runs below prompt verbosity.
 
 ## 2026-10-25 — First real session on 65K+MTP+lean (PC recon, two runs compared)
 - **Avoid:** auto permission mode on the local model: the classifier call (own system prompt + whole transcript, ~36K tokens) consumed 2x the GPU time of the work, timed out 9 times, denied 2 calls, and the detours inflated the context to the compaction threshold.
@@ -150,5 +141,14 @@
   mount tweak: no foreign source, build context or `.env` path is left in the launcher.
 - **Mistake:** `--debug-file Z:\...\x.log` under `-LisWeb` wrote one file named after
   the whole path into /work. -> Container runs take relative names for file flags.
-- **Mistake:** a doc fold quoted a wall time and a build-context size no artifact holds;
-  the auditor caught both. -> Every figure in a doc names the file it was read from.
+
+## 2026-11-07 - keys imported, keyed proofs (c43)
+- **Mistake:** tried `ls -la .env` to verify the import by key names; the classifier
+  denies every `.env*` read, names included. -> Verify a secret file through the
+  consumer's own output (the server's `keys present:` stderr line), never the file.
+- **Mistake:** wrote "exa then jina" from the prompt's order; the call log had jina
+  first (the model chose). -> Quote tool order from the call log, not the prompt.
+- **Mistake:** replaced a title's middle dots with `-` to keep the doc ASCII without
+  saying so. -> Mark every altered character in a quoted string.
+- **Better:** two sessions, three search calls, judged from JSON `subtype`,
+  `permission_denials`, the call log and the cleanup counts, never from the reply.

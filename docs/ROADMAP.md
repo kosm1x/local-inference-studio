@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (38 LANDED, 5 BUILT, 11 OPEN of 54 on 2026-11-06) in
+owner, fix and proof is in one table (40 LANDED, 4 BUILT, 11 OPEN of 55 on 2026-11-07) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).

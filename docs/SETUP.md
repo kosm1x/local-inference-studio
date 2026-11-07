@@ -857,8 +857,9 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   decode piped to a shell, and a write to its own guard files (`scripts/hooks`,
   `verify-doc.py`, `serve.ps1`, `stop.ps1`, `claude-local.ps1`, `register-task.ps1`,
   `watchdog.ps1`, `register-watchdog.ps1`, `bench/ladder/run.ps1`,
-  `config/claude-settings.json`, the three
-  exempt tests in `scripts/tests`, `llama-server.exe`), including by `>`, `>>`, `>|`,
+  `config/claude-settings.json`, `config/automode-web.json`, `scripts/statusline.mjs`,
+  the three exempt tests in `scripts/tests`, `llama-server.exe`), including by `>`,
+  `>>`, `>|`,
   `sed -i`/`--in-place`, `perl -i`/`-pi`, `git
   checkout|restore|switch|reset|apply` naming one, `patch`, a `git apply`/`patch` diff
   file whose headers name one, `tee`, `Set-Content`/`Out-File`/`Add-Content` and

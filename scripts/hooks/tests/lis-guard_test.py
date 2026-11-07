@@ -795,6 +795,16 @@ FOLD3_CASES = [
     # W2: in-place edits, checkouts and cmdlets that rewrite a critical path
     ('sed -i s/a/b/ scripts/hooks/lis-guard.py', 'deny'),
     ('sed --in-place s/a/b/ config/claude-settings.json', 'deny'),
+    # the web autoMode rules feed the per-run settings like rule set A (ledger W-13)
+    ('sed -i s/a/b/ config/automode-web.json', 'deny'),
+    ('echo {} > config/automode-web.json', 'deny'),
+    ('cp x.json config/auto*-web.json', 'deny'),
+    ('pwsh -NoProfile -Command "Set-Content config/automode-web.json x"', 'deny'),
+    ('git checkout HEAD~1 config/automode-web.json', 'deny'),
+    # the web sessions' status line command: claude runs it on every refresh (ledger W-15)
+    ('echo x > scripts/statusline.mjs', 'deny'),
+    ('sed -i s/a/b/ scripts/statusline.mjs', 'deny'),
+    ('cp x.mjs scripts/status*.mjs', 'deny'),
     ('sed -i.bak s/a/b/ scripts/serve.ps1', 'deny'),
     ('perl -pi -e s/a/b/ scripts/hooks/lis-guard.py', 'deny'),
     ('perl -i -pe s/a/b/ scripts/tests/claude_settings_test.py', 'deny'),
@@ -1333,6 +1343,8 @@ BLAST = [
     'python --version',
     'node --version',
     'cat config/claude-settings.json',
+    'cat config/automode-web.json',
+    'cat scripts/statusline.mjs',
     'cat .gitignore',
     'grep -n "env" .gitignore',
     'cat docs/env-setup.md',
@@ -1444,6 +1456,7 @@ A2_EXTRA = [
     ('cd scripts && ls', 'allow'),
     # cd then a write into a guard file by a relative name
     ('cd config; echo {} > claude-settings.json', 'deny'),
+    ('cd config; echo {} > automode-web.json', 'deny'),
     ('cd scripts && cd hooks && cp a lis-guard.py', 'deny'),
     ('cd scripts; echo x > watchdog.ps1', 'deny'),
     # path normalisation before the guard-file match: /./, //, globs, splices, braces, >|

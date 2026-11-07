@@ -195,6 +195,30 @@ back unless `-LisFull` or `-LisUserScope` loads it.
   under `-LisWeb` the docker argument list instead, and exits. The MCP config JSON
   prints only inside the container. Starts neither claude nor docker.
 
+### `-LisWebAuto` (modifier, web lines only)
+
+- Use when: an attended web session (`-LisWeb -LisTerminal`) where a prompt per call
+  costs more than a classifier, and only after the operator's own test of it.
+- What: pins `permissions.defaultMode` to `auto` instead of `default` and adds the
+  banner line `auto mode: ON (-LisWebAuto; ledger S-B2 reopened by the operator)`;
+  nothing else. Shift+Tab reaches auto mode in any web session regardless of the
+  switch (observed 2026-11-07, ledger W-13), which is why every `-LisWeb` session now
+  carries the `autoMode` rules of `config/automode-web.json` (allow and soft_deny led
+  by `"$defaults"`, the launcher throws when either lacks it; the environment array is
+  prose without it). Refused without `-LisWeb` and with `-p`, `--print` or
+  `--output-format`; `--permission-mode auto` and `-LisUserScope` stay refused. Off by
+  default; `-LisWebAuto:false` is the same as leaving it out. Its tests run in
+  `scripts/tests/lisweb_test.py`, whose container half starts a throwaway
+  `docker run --rm` container of the lis-web image.
+- Cons: the classifier is the local uncensored model, the one running the session, so a
+  page that talks the session into a command can talk its judge into allowing it. It
+  costs GPU time; measured on the host 2026-10-25 (AGENT_LEARNINGS.md, 10-25 entry):
+  "7 classifier requests took about 240 s of RUN 3's 330 s of GPU time (2.7x the work)".
+- Heads-up: an operator decision that reopens ledger S-B2 (ledger W-13). The rule
+  block is UNVERIFIED live until the operator's first web session that shows it in
+  effect. A fresh
+  per-run home may show an auto-mode opt-in prompt on first use (UNVERIFIED).
+
 ## With web access (the lis-web container)
 
 Web sessions never start claude on the host: `-LisWeb` runs it inside `lis-web:2.1.318`
@@ -220,6 +244,13 @@ Shared warnings for every web line:
   proven live; `web_read_tweet` is keyless too (UNVERIFIED live).
 - The launcher refuses to start while any `.env*` file other than `.env` and
   `.env.example` sits at the repo root (`.env.local`, `.env.bak`): move it out.
+- Stale env files: each launch first deletes, unread, any `lis-web-<stamp>-<pid>.env`
+  in `%TEMP%` whose pid is gone (a window closed with the X leaves one, ledger W-16),
+  runs `docker rm -f` on that exact name unless `docker inspect` says it is still
+  running (then it is left), and prints one line per file.
+- Status line: model and context percentage from `scripts/statusline.mjs`
+  (`lis-web  <model> | ctx:<n>%`, then ` | left:<n>%` or ` | left:<n>k` when the
+  remaining figure or window size is given; ledger W-15); absent before 2026-11-07.
 - Pass `--debug-file` as a relative name (`debug.log`); a Windows path becomes one
   mangled file name inside the container.
 - The working directory must be a path on a local drive outside (and not above) your
@@ -284,8 +315,8 @@ Get-ChildItem $env:TEMP -Filter lis-web-*.env
   the lis-web server connected with all three keys, `/exit` left 0 containers and
   0 env files; `hasTrustDialogAccepted` appears only after the seed, so the trust
   prompt was answered in the run (inferred; the dialog itself is not logged). No
-  prompt was sent, so an interactive tool call is
-  still UNVERIFIED (web-access.md "Residuals").
+  prompt was sent. The first interactive tool call ran 2026-11-07 16:13 (web-access.md
+  "Proof"; ledger W-13, W-14).
 - Heads-up: on start the fresh home auto-installs the official plugin marketplace
   (declared source `anthropics/claude-plugins-official`; the download host is
   UNVERIFIED: a `.gcs-sha` marker, no `.git`) into the run folder, 621 files and
@@ -293,10 +324,13 @@ Get-ChildItem $env:TEMP -Filter lis-web-*.env
   on a fresh home before the model does anything.
 - Cons: needs a real console window. Refused when stdin or stdout is redirected, with
   `-p`, `--print`, `--output-format` or `-LisTask longrun`.
-- Warning (UNVERIFIED): Ctrl+C should reach claude as a keystroke and the wrapper
-  should still force-remove the container; closing the window instead may end the
-  wrapper before cleanup, leaving the container running and the env file with the four
-  values in the temp root. Run the two checks above afterwards.
+- Warning: Ctrl+C should reach claude as a keystroke and the wrapper should still
+  force-remove the container (UNVERIFIED). Closing the window with the X ends the
+  wrapper before cleanup (observed 2026-11-07, ledger W-16): docker events show
+  SIGTERM to the container (its sender is inferred) and `--rm` removes it, but the env
+  file (the server key and any web keys) stays in the temp root until the next web
+  launch sweeps
+  it. Run the two checks above afterwards.
 
 ### `claude-local.ps1 -LisWeb -LisTerminal -LisTask edit`
 

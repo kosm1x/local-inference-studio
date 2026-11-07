@@ -238,7 +238,8 @@ CRIT_FILES = ('scripts/hooks/lis-guard.py', 'scripts/hooks/loop-guard.py', 'scri
               'scripts/serve.ps1', 'scripts/stop.ps1', 'scripts/claude-local.ps1', 'scripts/register-task.ps1',
               'scripts/watchdog.ps1', 'scripts/register-watchdog.ps1',
               'scripts/tests/claude_settings_test.py', 'scripts/tests/install_verify_test.py',
-              'scripts/tests/resilience_test.py', 'config/claude-settings.json', 'bench/ladder/run.ps1')
+              'scripts/tests/resilience_test.py', 'config/claude-settings.json',
+              'config/automode-web.json', 'bench/ladder/run.ps1', 'scripts/statusline.mjs')
 # The launcher's per-run files in %TEMP% (ledger S-B3, audit C1 re-check): a glob word
 # that can match a hook copy (lis-hooks-<x>/<hook>) counts as that hook in scripts/hooks,
 # one that can match the settings or MCP file (lis-settings-<x>.json, lis-mcp-<x>.json)
@@ -344,10 +345,13 @@ CRITICAL_PATH = re.compile(
     r'|\.env\b|\.pem\b|\.key\b|[\\/]token\b|^token\b|\.git(?:[\\/]|$|[\s\'"])'
     r'|[._]curlrc\b'  # curl's default config file (~/.curlrc, %APPDATA%\_curlrc)
     # this repo's guards and launch path (audit B3): the hooks, the wrapper, the logon
-    # task's serve script, the per-run settings and the server binary
+    # task's serve script, the per-run settings (rule set A and the web autoMode rules, ledger
+    # W-13), the web sessions' status line command (W-15) and the server binary
+    r'|scripts[\\/]+statusline\.mjs\b'
     r'|scripts[\\/]+(?:hooks\b|verify-doc\.py\b|(?:serve|stop|claude-local|register-task|watchdog|register-watchdog)\.ps1\b'
     r'|tests[\\/]+(?:claude_settings|install_verify|resilience)_test\.py\b)'
-    r'|config[\\/]+claude-settings\.json\b|llama-server\.exe\b|bench[\\/]+ladder[\\/]+run\.ps1\b'
+    r'|config[\\/]+(?:claude-settings|automode-web)\.json\b|llama-server\.exe\b'
+    r'|bench[\\/]+ladder[\\/]+run\.ps1\b'
     r'|(?<![\w-])lis[-_]hooks[-_](?=[\d*?\[$%{(`"\'\\/]|$))')   # the per-run hook copies (S-B3)
 
 WRITE_VERBS = {'tee', 'mv', 'cp', 'chmod', 'chown', 'ln', 'install', 'truncate', 'touch'}

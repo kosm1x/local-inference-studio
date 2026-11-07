@@ -20,9 +20,14 @@
 - Every figure or quoted string in a doc is copied from a named artifact (JSON, log,
   call log) in that artifact's order; a value remembered from the console, a wall
   time or a build-context size nobody saved is not written (11-06, 11-07 audits).
-
-## 2026-10-24 — P3 to P5: bench matrix, Saluki/GSQ-RCO/Orca, vLLM spike
-- **Mistake:** a subagent committed with an Opus trailer and a WSL username in the ROADMAP. → Brief states the exact trailer; audit checks for usernames.
+- How a session ended is read from docker events (`kill` signal, `die` exit code)
+  and the per-run `history.jsonl`, never from the reply or a recollection (11-07:
+  two runs a minute apart, one clean, one closed with the X).
+- Every added line passes the identity grep before commit and every brief states
+  the exact commit trailer (10-24: a subagent shipped an Opus trailer and a WSL
+  username to this public repo).
+- A brief that forbids a binary forbids it in version probes too; its version is
+  recorded from the real-run path only (10-26: `claude --version` in a toolchain probe).
 
 ## 2026-10-24 — Phase 3d: agentic-loop comparison
 - **Mistake:** started 3-rep loops on Saluki and GSQ-RCO without checking that their chat template accepts Claude Code's message order; every rep burned about 3 min on 11 HTTP 500 retries (`raise_exception('System message must be at the beginning.')`). → Before a long loop on a new GGUF, run one `-v` request and read the converted role order (the operator's SessionStart hook output arrives as a second, non-leading system message), or POST it to `/apply-template`.
@@ -66,10 +71,6 @@
 - **Mistake:** `seg_readonly` replaced each `$(...)` with a one-word placeholder after checking its inner verbs, which hid the word-split: `curl URL/$(printf 'a %so F' -)` was allowed and bash turned it into `-o F` (also `find`, `sort`, `git log`, unquoted `$X`). -> The R8 fix (no decision on an unquoted `$` or backtick, assignments excepted) failed R7 audit too: a quoted expansion is still a flag (`find D "$(printf -- -delete)"` deleted dirs), `X=${Y@P}` runs a command, a backtick inside double quotes runs one, and `[[ Z -eq 1 ]]` evaluates arithmetic. Now any `$` or backtick in a segment means no decision, `[[`/`[`/`test` are not read-only, and a PowerShell payload may hold `$_` only where bash leaves it (single quotes or `\$`).
 - **Mistake:** `find`, `tree` and `rg` kept deny-lists (`-delete`, `-o`, `--pre`) after every other verb became an allow-list, so a brace-built flag got through: `find D -{delete,delete}` was allowed and deleted a scratch tree (also `rg --{pre,pre}=sh`, `tree X -{o,}OUT`, `find X *` with a planted `-delete` file). -> Check that every verb handler is an allow-list (unknown token = no decision), and treat unquoted braces, globs and `~` as expansions like `$`.
 - **Mistake:** the env-prefix filter was a deny-list (`PATH`, `LD_PRELOAD`, `NODE_OPTIONS`, ...) and missed the git exec family: `GIT_EXTERNAL_DIFF=<script> git diff --ext-diff` was allowed and ran the script live with no denial (also `GIT_CONFIG_*` core.fsmonitor, `PAGER`, `GIT_PAGER`, `GIT_CONFIG_GLOBAL`, `GIT_DIR`). -> Any list that names the dangerous members is a deny-list and will miss one; the filter is now `ENV_SAFE`, a list of harmless names.
-
-## 2026-10-26 — bench/ladder harness (build + dry-run only)
-- **Mistake:** ran `claude --version` in a toolchain probe while the brief said never launch `claude`. -> When a brief forbids a binary, leave it out of version probes too; record the version in the real-run path only.
-- **Better:** under `-LisTask` (`--allowedTools` refused) a bench task can still run its test command without a prompt by copying the fixture to its repo-relative path, so the committed exact allow rule matches; a scratch stub wrapper exercises the whole non-dry path without a session.
 
 ## 2026-11-04 — MTP A/B run (three arms, operator restarts)
 - **Mistake:** chained `bench/run.ps1` and `bench/ladder/run.ps1` in one command with no gap; the ladder's busy check (server log written < 10 s ago) refused the rep because of the bench's own last request. -> Leave 15 s between two users of the same server, or run the ladder first.
@@ -153,3 +154,14 @@
 - **Avoid:** keeping a setup wizard's allow lines unread: the `/auto-mode` wizard
   wrote a blanket allow straight against an existing soft_deny. Read each line
   against the deny list before it stays.
+
+## 2026-11-07 - first interactive web read, closed window, four-part build (c46)
+- **Mistake:** briefed "five curl fetches allowed" from memory of the transcript;
+  it held four run and one denied. -> Count tool calls from the transcript first.
+- **Mistake:** matched the operator's "closed after /exit" to the leaking run; that
+  run was a different window a minute earlier with no `/exit` in `history.jsonl`.
+  -> Pin the artifact to its run folder before matching it to a recollection.
+- **Mistake:** called S-B2 closed by a `defaultMode` pin; Shift+Tab reached auto
+  mode in a pinned session. -> A default is not a lock; test the runtime toggle.
+- **Better:** four additions to one implementer on the same files, each sent as a
+  message carrying the measured facts, then one audit: no merge of parallel edits.

@@ -204,6 +204,22 @@ KEPT = [['--permission-mode', 'acceptEdits'], ['--permission-mode', 'plan'],
         ['-p', 'what does --permission-mode auto do with WebFetch?'],
         ['--disallowedTools', 'WebFetch'],
         ['--allowedTools', 'Bash(git status)', '-p', 'WebFetch']]
+# -LisWebAuto (ledger W-13): refused before any output, on the host and inside, each with a
+# message naming the switch; (e) the --permission-mode auto and -LisUserScope refusals stay.
+AUTO_BANNER = ('claude-local: auto mode: ON (-LisWebAuto; ledger S-B2 reopened by the '
+               'operator)')
+AUTO_REFUSED = [(['-LisWebAuto'], '-LisWebAuto needs -LisWeb'),
+                (['-LisWebAuto', '-LisTask', 'review'], '-LisWebAuto needs -LisWeb'),
+                (['-LisWeb', '-LisWebAuto', '-p', 'x'], "-LisWebAuto cannot be combined with '-p'"),
+                (['-LisWeb', '-LisWebAuto', '--print', 'x'], 'cannot be combined with'),
+                (['-LisWeb', '-LisWebAuto', '--output-format', 'json'], 'print-mode run'),
+                (['-LisWeb', '-LisWebAuto', '--output-format=json'], 'print-mode run'),
+                (['-LisWeb', '-LisWebAuto', '--permission-mode', 'auto'],
+                 '-LisWeb cannot be combined with --permission-mode auto'),
+                (['-LisWeb', '-LisWebAuto', '--permission-mode=auto'],
+                 '-LisWeb cannot be combined with --permission-mode auto'),
+                (['-LisWeb', '-LisWebAuto', '-LisUserScope'],
+                 '-LisWeb cannot be combined with -LisUserScope')]
 
 
 def test_web_runs():
@@ -225,6 +241,165 @@ def test_refusals(wrapper=None, cwd=REPO):
         rc, argv, cfg, mcp, out, err = print_args(['-LisWeb'] + extra, wrapper, cwd)
         printed = mcp is not None if INNER else docker_args(out) is not None
         check(f'{where}: kept: -LisWeb {" ".join(extra)}', rc == 0 and printed, f'{rc} {err}')
+    for extra, why in AUTO_REFUSED:
+        rc, argv, cfg, mcp, out, err = print_args(extra, wrapper, cwd)
+        check(f'{where}: auto refused: {" ".join(extra)}',
+              rc != 0 and cfg is None and not out.strip() and why in err
+              and 'claude-local:' not in err, f'{rc} {out}{err}')
+
+
+def norm_run(argv, cfg):
+    """A claude line and settings without the per-run stamp, pid and start time."""
+    c = json.loads(json.dumps(cfg))
+    c.get('env', {}).pop('LIS_SESSION_START', None)
+    s = re.sub(HOOK_DIR_RE, 'HOOK-DIR', json.dumps([argv, c]))
+    return re.sub(r'([a-z]{3}-(?:settings|mcp)-)\d+(\.json)', r'\1PID\2', s)
+
+
+STATUS_LINE = {'type': 'command', 'command': 'node /lis/scripts/statusline.mjs'}
+
+
+def rules_ok(am):
+    """The web autoMode block: three string arrays; the two rule arrays led by "$defaults",
+    the prose environment without it."""
+    return (sorted(am) == ['allow', 'environment', 'soft_deny']
+            and all(isinstance(v, list) and all(isinstance(x, str) for x in v) for v in am.values())
+            and am['allow'][:1] == ['$defaults'] and am['soft_deny'][:1] == ['$defaults']
+            and '$defaults' not in am['environment'])
+
+
+def test_web_auto():
+    """In the container: every -LisWeb session carries config/automode-web.json as autoMode
+    and the status line; -LisWebAuto only pins auto and adds the banner line (W-13, W-15)."""
+    rc0, argv0, cfg0, _, out0, err0 = print_args(['-LisWeb'])
+    rc1, argv1, cfg1, _, out1, err1 = print_args(['-LisWeb', '-LisWebAuto'])
+    rc2, argv2, cfg2, _, out2, err2 = print_args(['-LisWeb', '-LisWebAuto:false'])
+    rc3, argv3, cfg3, _, out3, err3 = print_args([])
+    if cfg0 is None or cfg1 is None or cfg2 is None or cfg3 is None:
+        check('auto: the four runs print settings', False, f'{rc0} {rc1} {rc2} {rc3} {err1}{err2}')
+        return
+    want = json.loads(read('config', 'automode-web.json'))
+    am0 = cfg0.get('autoMode') or {}
+    check('auto (a): without -LisWebAuto defaultMode is default and autoMode is present, '
+          'allow and soft_deny led by "$defaults"',
+          rc0 == 0 and cfg0['permissions'].get('defaultMode') == 'default' and rules_ok(am0),
+          f'{cfg0["permissions"].get("defaultMode")} {json.dumps(am0)[:300]}')
+    check('auto (a): the autoMode block is config/automode-web.json as committed',
+          am0 == want, json.dumps(am0)[:300])
+    check('auto (a): a run without -LisWeb has no autoMode and no statusLine key',
+          rc3 == 0 and 'autoMode' not in cfg3 and 'statusLine' not in cfg3, list(cfg3))
+    check('auto (b): -LisWeb -LisWebAuto pins permissions.defaultMode to auto',
+          rc1 == 0 and cfg1['permissions'].get('defaultMode') == 'auto',
+          f'{rc1} {cfg1["permissions"].get("defaultMode")}')
+    check('auto (b): with the switch the same autoMode block (rule arrays led by "$defaults", '
+          'no "$defaults" in environment)',
+          cfg1.get('autoMode') == am0 and rules_ok(cfg1.get('autoMode') or {}),
+          json.dumps(cfg1.get('autoMode'))[:300])
+    rest = json.loads(json.dumps(cfg1))
+    rest['permissions']['defaultMode'] = 'default'
+    check('auto (b): beside defaultMode the claude line and settings are unchanged',
+          norm_run(argv1, rest) == norm_run(argv0, cfg0), list(cfg1))
+    check('auto (g): the banner prints the auto-mode line with the switch',
+          AUTO_BANNER in err1.splitlines(), err1)
+    check('auto (g): no auto-mode line without the switch or with -LisWebAuto:false',
+          AUTO_BANNER not in err0 and AUTO_BANNER not in err2, err0 + err2)
+    check('auto (h): -LisWebAuto:false equals absent (claude line and settings)',
+          rc2 == 0 and norm_run(argv2, cfg2) == norm_run(argv0, cfg0), list(cfg2))
+    check('status (i): every -LisWeb run sets statusLine to node /lis/scripts/statusline.mjs',
+          all(c.get('statusLine') == STATUS_LINE for c in (cfg0, cfg1, cfg2)),
+          [c.get('statusLine') for c in (cfg0, cfg1, cfg2)])
+    rc, argv, cfg, mcp, out, err = print_args(['-LisWeb', '-LisWebAuto', '-LisTask', 'review'])
+    check('auto: with -LisTask review the pin, autoMode, status line and banner line hold',
+          rc == 0 and cfg is not None and cfg['permissions'].get('defaultMode') == 'auto'
+          and cfg.get('autoMode') == am0 and cfg.get('statusLine') == STATUS_LINE
+          and AUTO_BANNER in err.splitlines()
+          and 'Task profile: review' in (value_after(argv, '--append-system-prompt') or ''),
+          f'{rc} {err}')
+
+
+def test_automode_file():
+    """config/automode-web.json: the three arrays, "$defaults" leading the two rule arrays,
+    ASCII, LF, 100 cols."""
+    with open(os.path.join(REPO, 'config', 'automode-web.json'), 'rb') as f:
+        raw = f.read()
+    text = raw.decode('ascii', 'replace')
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = {}
+    check('automode file: allow and soft_deny led by "$defaults", environment prose without it',
+          isinstance(data, dict) and rules_ok(data), text[:200])
+    check('automode file: environment has 6 to 10 lines',
+          6 <= len(data.get('environment', [])) <= 10, len(data.get('environment', [])))
+    check('automode file: ASCII, LF ends, lines <= 100 columns',
+          raw.isascii() and b'\r' not in raw and all(len(x) <= 100 for x in text.split('\n')),
+          max((len(x) for x in text.split('\n')), default=0))
+    check('automode file: no drive path, IP address or email',
+          not re.search(r'[A-Za-z]:[\\/]|\b\d{1,3}(\.\d{1,3}){3}\b|@', text),
+          re.findall(r'[A-Za-z]:[\\/]|\b\d{1,3}(?:\.\d{1,3}){3}\b|@', text))
+    check('automode file: soft_deny names curl, wget, nc, ssh and the three GitHub hosts',
+          all(w in ' '.join(data.get('soft_deny', [])) for w in
+              ('curl', 'wget', 'nc', 'ssh', 'python -c', 'node -e', 'pip', 'npm', 'github.com',
+               'raw.githubusercontent.com', 'api.github.com')), data.get('soft_deny'))
+
+
+# scripts/statusline.mjs (W-15): stdin JSON -> one plain line; nothing, exit 0, on bad input.
+STATUS_CASES = [
+    ('display_name and used_percentage 37.4',
+     {'model': {'display_name': 'Qwen'}, 'context_window': {'used_percentage': 37.4}},
+     'lis-web  Qwen | ctx:37%\n'),
+    ('remaining_percentage adds left:<n>%',
+     {'model': {'display_name': 'Qwen'},
+      'context_window': {'used_percentage': 37.4, 'remaining_percentage': 62.6}},
+     'lis-web  Qwen | ctx:37% | left:63%\n'),
+    ('context_window_size alone gives left in k tokens',
+     {'model': {'display_name': 'Qwen'},
+      'context_window': {'used_percentage': 50, 'context_window_size': 131072}},
+     'lis-web  Qwen | ctx:50% | left:66k\n'),
+    ('no model: its part is omitted',
+     {'context_window': {'used_percentage': 12.6}}, 'lis-web  ctx:13%\n'),
+    ('no context_window: model only', {'model': {'display_name': 'Qwen'}}, 'lis-web  Qwen\n'),
+    ('no field at all: the prefix only', {}, 'lis-web\n'),
+    ('control characters in the name become spaces (no escape sequence passes)',
+     {'model': {'display_name': '\x1b[31mQwen\x1b[0m'}}, 'lis-web  [31mQwen [0m\n'),
+    ('the one-byte C1 CSI U+009B becomes a space',
+     {'model': {'display_name': '\x9b31mQwen'}}, 'lis-web  31mQwen\n'),
+    ('the bidi override U+202E becomes a space (no reordering)',
+     {'model': {'display_name': 'Qwen\u202eabc'}}, 'lis-web  Qwen abc\n'),
+    ('a string percentage is not a number: omitted',
+     {'model': {'display_name': 'Qwen'}, 'context_window': {'used_percentage': '37'}},
+     'lis-web  Qwen\n')]
+
+
+def test_statusline():
+    """The status line script under node, as Claude Code runs it (stdin JSON)."""
+    where = 'container' if INNER else 'host'
+    script = os.path.join(REPO, 'scripts', 'statusline.mjs')
+    node = shutil.which('node')
+    if not node:
+        check(f'{where}: status line: node on PATH', False, 'node missing')
+        return
+
+    def run(stdin):
+        r = subprocess.run([node, script], input=stdin, capture_output=True, text=True,
+                           timeout=30, cwd=REPO, encoding='utf-8')
+        return r.returncode, r.stdout, r.stderr
+
+    for label, data, want in STATUS_CASES:
+        rc, out, err = run(json.dumps(data))
+        check(f'{where}: status (ii): {label}', rc == 0 and out == want and not err,
+              f'{rc} {out!r} {err[-200:]}')
+    for label, stdin in (('empty stdin', ''), ('not JSON', '{"model":'), ('a JSON array', '[1]'),
+                         ('JSON null', 'null')):
+        rc, out, err = run(stdin)
+        check(f'{where}: status (ii): {label} prints nothing and exits 0',
+              rc == 0 and out == '' and not err, f'{rc} {out!r} {err[-200:]}')
+    with open(script, 'rb') as f:
+        raw = f.read()
+    check(f'{where}: status line script: ASCII, LF ends, lines <= 100 columns, no import',
+          raw.isascii() and b'\r' not in raw
+          and all(len(x) <= 100 for x in raw.decode('ascii').split('\n'))
+          and not re.search(rb'(?m)^\s*import\b|require\(', raw), '')
 
 
 def test_inner_server():
@@ -270,11 +445,14 @@ def test_inner_server():
 
 
 def make_tree(root):
-    """A copy of the wrapper at <root>/lis/scripts and a work dir."""
+    """A copy of the wrapper at <root>/lis/scripts, of the web autoMode rules at
+    <root>/lis/config (every -LisWeb run reads them), and a work dir."""
     lis = os.path.join(root, 'lis')
     os.makedirs(os.path.join(lis, 'scripts'))
     os.makedirs(os.path.join(lis, 'logs'))
+    os.makedirs(os.path.join(lis, 'config'))
     shutil.copy(WRAPPER, os.path.join(lis, 'scripts', 'claude-local.ps1'))
+    shutil.copy(os.path.join(REPO, 'config', 'automode-web.json'), os.path.join(lis, 'config'))
     work = os.path.join(root, 'work')
     os.makedirs(work)
     return lis, os.path.join(lis, 'scripts', 'claude-local.ps1'), work
@@ -384,6 +562,11 @@ if ($args[0] -eq 'run') {
         Copy-Item -LiteralPath $args[$i + 1] -Destination (Join-Path $dir 'env-copy.txt')
     }
     exit 7
+}
+if ($args[0] -eq 'inspect') {
+    if ($mode -eq 'running') { 'true'; exit 0 }
+    if ($mode -eq 'stopped') { 'false'; exit 0 }
+    exit 1
 }
 if ($args[0] -eq 'rm') { exit 1 }
 exit 2
@@ -676,6 +859,181 @@ def test_terminal(root, stub_dir):
           bool(name) and not os.path.exists(env_file_path(name)), name)
 
 
+def test_host_auto(root, stub_dir):
+    """-LisWebAuto on the host: passed inside, refused before docker; the web autoMode file is
+    checked before docker on every -LisWeb run, switch or not."""
+    lis, wrapper, work = make_tree(root)
+    conf = os.path.join(lis, 'config', 'automode-web.json')
+    rc, argv, cfg, mcp, out, err = print_args(['-LisTask', 'review'])
+    check('host (i): a host run (no -LisWeb) has no autoMode and no statusLine key',
+          rc == 0 and cfg is not None and 'autoMode' not in cfg and 'statusLine' not in cfg,
+          f'{rc} {list(cfg or {})}')
+    for flag in ('-LisWebAuto', '-LisWebAuto:false'):
+        rc, out, err = run_wrapper(['-LisPrintArgs', '-LisWeb', flag, '-LisTask', 'review'],
+                                   wrapper, work)
+        got = docker_args(out) or []
+        name = value_after(got, '--name') or ''
+        m = re.match(r'lis-web-(\d{8}-\d{6}-\d+)\Z', name)
+        run_dir = os.path.join(lis, 'logs', f'web-{m.group(1)}' if m else '?')
+        check(f'host auto: -LisWeb {flag} prints the docker line with {flag} passed inside',
+              rc == 0 and bool(m) and got == want_docker(lis, work, name, run_dir,
+                                                         [flag, '-LisTask', 'review']),
+              f'{rc} {err}\n{json.dumps(got)}')
+    sub = os.path.join(stub_dir, 'auto')
+    os.makedirs(sub)
+    shutil.copy(os.path.join(stub_dir, 'docker-stub.ps1'), sub)
+    with open(os.path.join(sub, 'mode.txt'), 'w') as f:
+        f.write('ok\n')
+    env = dict(os.environ, LIS_DOCKER_EXE=os.path.join(sub, 'docker-stub.ps1'))
+    rc, out, err = run_wrapper(['-LisPrintArgs', '-LisWebAuto'], wrapper, work, env)
+    check('host auto (c): -LisWebAuto without -LisWeb throws before any output or docker call',
+          rc != 0 and not out.strip() and '-LisWebAuto needs -LisWeb' in err
+          and not stub_calls(sub), f'{rc} {out}{err}')
+    rc, out, err = run_wrapper(['-LisWeb', '-LisWebAuto', '-p', 'x'], wrapper, work, env)
+    check('host auto (d): -LisWeb -LisWebAuto -p x throws before docker runs',
+          rc != 0 and not out.strip() and "-LisWebAuto cannot be combined with '-p'" in err
+          and not stub_calls(sub), f'{rc} {stub_calls(sub)} {out}{err}')
+    good = json.loads(read('config', 'automode-web.json'))
+    for kind in ('soft_deny', 'allow'):
+        rest = [x for x in good[kind] if x != '$defaults']
+        # "$defaults" missing, second instead of first, or a scalar string, not an array
+        for how, value in (('lacks', rest), ('has second', rest[:1] + ['$defaults'] + rest[1:]),
+                           ('has as a scalar', '$defaults')):
+            bad = json.loads(json.dumps(good))
+            bad[kind] = value
+            with open(conf, 'w', newline='\n') as f:
+                json.dump(bad, f)
+            for extra in (['-LisWebAuto'], []):
+                label = ' '.join(['-LisWeb'] + extra)
+                rc, out, err = run_wrapper(['-LisPrintArgs', '-LisWeb'] + extra, wrapper, work)
+                rc2, out2, err2 = run_wrapper(['-LisWeb'] + extra, wrapper, work, env)
+                check(f'host auto (f): {label}: a config whose {kind} {how} "$defaults" throws '
+                      '("must start with"), naming it, before any output or docker call',
+                      rc != 0 and not out.strip() and f'the {kind} array of' in err
+                      and '"$defaults"' in err and 'must start with' in err and rc2 != 0
+                      and f'the {kind} array of' in err2 and not stub_calls(sub),
+                      f'{rc} {rc2} {stub_calls(sub)} {err[-300:]}')
+    os.remove(conf)
+    for extra in (['-LisWebAuto'], []):
+        rc, out, err = run_wrapper(['-LisPrintArgs', '-LisWeb'] + extra, wrapper, work)
+        check(f'host auto (f): {" ".join(["-LisWeb"] + extra)}: a missing '
+              'config/automode-web.json throws before any output',
+              rc != 0 and not out.strip() and 'automode-web.json' in err, f'{rc} {err[-300:]}')
+
+
+def test_sweep(root, stub_dir):
+    """W-16: a closed console window ends pwsh before its finally block, leaving the env file;
+    the next host launch sweeps every lis-web-<stamp>-<pid>.env whose pid is gone."""
+    lis, wrapper, work = make_tree(root)
+    sub = os.path.join(stub_dir, 'sweep')
+    os.makedirs(sub)
+    shutil.copy(os.path.join(stub_dir, 'docker-stub.ps1'), sub)
+    with open(os.path.join(sub, 'mode.txt'), 'w') as f:
+        f.write('ok\n')
+    env = dict(os.environ, TEMP=sub, TMP=sub, LIS_DOCKER_EXE=os.path.join(sub, 'docker-stub.ps1'))
+    child = subprocess.Popen(['cmd', '/c', 'exit 0'], stdin=subprocess.DEVNULL)
+    child.wait()
+    dead = child.pid
+    stale = f'lis-web-20261107-160905-{dead}'
+    alive = f'lis-web-20261107-160906-{os.getpid()}'
+    # Off the anchored pattern; the next two pass the 'lis-web-*.env' filter and hold the
+    # stale name inside them; the last has two Arabic-Indic digits as its pid (.NET \d
+    # would take them and [int] would throw).
+    indic = 'lis-web-20261107-160905-\u0661\u0662.env'
+    others = ['lis-web-notes.env', 'lis-web-20261107-160907-abc.env', f'{stale}.envx',
+              f'x-{stale}.env', f'lis-web-x-{stale}.env', f'{stale}.env.env', indic]
+    for name in [stale + '.env', alive + '.env'] + others:
+        with open(os.path.join(sub, name), 'w', newline='\n') as f:
+            f.write('SWEEP_PROBE=do-not-print\n')
+    calls_file = os.path.join(sub, 'calls.jsonl')
+    rc, out, err = run_wrapper(['-LisWeb', '-p', 'hi'], wrapper, work, env)
+    calls = stub_calls(sub)
+    run = [c for c in calls if c[:1] == ['run']]
+    name = value_after(run[0], '--name') if run else ''
+    rms = [c for c in calls if c[:1] == ['rm']]
+    check('sweep (i): a stale env file whose launcher pid is gone is deleted, and docker rm -f '
+          'gets exactly its container name',
+          rc == 7 and not os.path.exists(os.path.join(sub, stale + '.env'))
+          and rms.count(['rm', '-f', stale]) == 1, f'{rc} {json.dumps(calls)} {err[-300:]}')
+    check('sweep (i): a stale file whose pid part is two Arabic-Indic digits is left alone and '
+          'the launch proceeds (rc = the container\'s)',
+          rc == 7 and os.path.exists(os.path.join(sub, indic)) and len(run) == 1, err[-300:])
+    check('sweep (ii): a file whose pid is alive (this test) is left and gets no rm',
+          os.path.exists(os.path.join(sub, alive + '.env'))
+          and ['rm', '-f', alive] not in rms, json.dumps(rms))
+    check('sweep (iii): seven files off the lis-web-<stamp>-<pid>.env pattern are left, no rm',
+          all(os.path.exists(os.path.join(sub, x)) for x in others)
+          and sorted(map(tuple, rms)) == sorted([('rm', '-f', stale), ('rm', '-f', name)]),
+          f'{[x for x in others if not os.path.exists(os.path.join(sub, x))]} {json.dumps(rms)}')
+    check('sweep (iv): order image inspect, inspect <stale>, rm -f <stale>, run, rm -f <own>: '
+          'the sweep runs before the run\'s own env file is written and never touches it',
+          [c[:2] for c in calls] == [['image', 'inspect'], ['inspect', '-f'], ['rm', '-f'],
+                                     ['run', '--rm'], ['rm', '-f']]
+          and calls[1] == ['inspect', '-f', '{{.State.Running}}', stale]
+          and calls[2] == ['rm', '-f', stale] and calls[4] == ['rm', '-f', name]
+          and name != stale and os.path.exists(os.path.join(sub, 'env-copy.txt'))
+          and not os.path.exists(os.path.join(sub, name + '.env')), json.dumps(calls))
+    lines = [x for x in err.splitlines() if x.startswith('claude-local: swept ')]
+    check('sweep (v): one banner line names the swept file and its pid; no file content shown',
+          lines == [f'claude-local: swept stale env file {stale}.env (launcher pid {dead} '
+                    f'gone; docker rm -f {stale})']
+          and 'do-not-print' not in out + err and 'SWEEP_PROBE' not in out + err, err[-400:])
+    os.remove(calls_file)
+    rc, out, err = run_wrapper(['-LisWeb', '-p', 'hi'], wrapper, work, env)
+    calls = stub_calls(sub)
+    check('sweep (v): with nothing stale no sweep line and no extra rm (image, run, rm)',
+          rc == 7 and [c[0] for c in calls] == ['image', 'run', 'rm']
+          and 'claude-local: swept' not in err
+          and os.path.exists(os.path.join(sub, alive + '.env')), f'{json.dumps(calls)} {err}')
+    stale2 = os.path.join(sub, f'lis-web-20261107-160908-{dead}.env')
+    with open(stale2, 'w', newline='\n') as f:
+        f.write('SWEEP_PROBE=do-not-print\n')
+    os.remove(calls_file)
+    rc, out, err = run_wrapper(['-LisPrintArgs', '-LisWeb', '-p', 'hi'], wrapper, work, env)
+    check('sweep: -LisPrintArgs sweeps nothing (a stale file stays, no docker call)',
+          rc == 0 and os.path.exists(stale2) and not stub_calls(sub)
+          and 'claude-local: swept' not in err, err[-300:])
+    os.remove(stale2)
+    # docker inspect decides: a running container (pwsh gone, docker.exe alive) is left.
+    for mode, left in (('running', True), ('stopped', False)):
+        with open(os.path.join(sub, 'mode.txt'), 'w') as f:
+            f.write(mode + '\n')
+        s3 = f'lis-web-20261107-16091{int(left)}-{dead}'
+        with open(os.path.join(sub, s3 + '.env'), 'w', newline='\n') as f:
+            f.write('SWEEP_PROBE=do-not-print\n')
+        if os.path.exists(calls_file):
+            os.remove(calls_file)
+        rc, out, err = run_wrapper(['-LisWeb', '-p', 'hi'], wrapper, work, env)
+        calls = stub_calls(sub)
+        what = (f'container {s3} is still running and was left' if left
+                else f'docker rm -f {s3}')
+        check(f'sweep: inspect prints {"true" if left else "false"}: the file is deleted and '
+              f'the container is {"left (no rm)" if left else "removed (rm -f)"}',
+              rc == 7 and not os.path.exists(os.path.join(sub, s3 + '.env'))
+              and ['inspect', '-f', '{{.State.Running}}', s3] in calls
+              and (['rm', '-f', s3] in calls) is not left
+              and f'claude-local: swept stale env file {s3}.env (launcher pid {dead} gone; '
+                  f'{what})' in err.splitlines(), f'{rc} {json.dumps(calls)} {err[-300:]}')
+    with open(os.path.join(sub, 'mode.txt'), 'w') as f:
+        f.write('ok\n')
+    # A file that cannot be deleted (held open without delete sharing) is not "swept".
+    s4 = f'lis-web-20261107-160920-{dead}'
+    held = open(os.path.join(sub, s4 + '.env'), 'w', newline='\n')
+    try:
+        held.write('SWEEP_PROBE=do-not-print\n')
+        held.flush()
+        rc, out, err = run_wrapper(['-LisWeb', '-p', 'hi'], wrapper, work, env)
+        check('sweep: a locked stale file prints "could not remove", never "swept", and the '
+              'launch proceeds',
+              rc == 7 and os.path.exists(os.path.join(sub, s4 + '.env'))
+              and f'claude-local: could not remove stale env file {s4}.env (launcher pid '
+                  f'{dead} gone; docker rm -f {s4})' in err.splitlines()
+              and f'swept stale env file {s4}.env' not in err, f'{rc} {err[-300:]}')
+    finally:
+        held.close()
+        os.remove(os.path.join(sub, s4 + '.env'))
+
+
 CLAUDE_STUB = r'''
 $out = Join-Path (Split-Path -Parent $PSCommandPath) 'stub-env.json'
 $seen = [ordered]@{ token_is_placeholder = $env:ANTHROPIC_AUTH_TOKEN -eq 'test-placeholder'
@@ -750,6 +1108,8 @@ def main():
                   os.environ.get('LIS_CONTAINER') == '1'
                   and WRAPPER == '/lis/scripts/claude-local.ps1', WRAPPER)
             test_web_runs()
+            test_web_auto()
+            test_statusline()
             test_refusals()
             test_inner_server()
             test_inner_key(tmp)
@@ -759,6 +1119,8 @@ def main():
                   f'{rc} {err}')
     else:
         test_image_pin()
+        test_automode_file()
+        test_statusline()
         # Temp trees under <repo>/logs (gitignored): the launcher refuses mounts inside the
         # user profile, which holds %TEMP%. The docker stub lives under %TEMP% (the seam
         # accepts nothing else).
@@ -773,10 +1135,23 @@ def main():
                 tmp = os.path.realpath(tmp)
                 with open(os.path.join(stub_dir, 'docker-stub.ps1'), 'w') as f:
                     f.write(DOCKER_STUB)
-                lis, wrapper, work = make_tree(os.path.join(tmp, 'refusals'))
-                test_refusals(wrapper, work)
-                test_host_launcher(os.path.join(tmp, 'launcher'), stub_dir)
-                test_terminal(os.path.join(tmp, 'terminal'), stub_dir)
+                # The launcher's temp root is the stub's directory: its env files and the
+                # stale-file sweep (W-16) never meet the real %TEMP%.
+                saved = {k: os.environ.get(k) for k in ('TEMP', 'TMP')}
+                os.environ['TEMP'] = os.environ['TMP'] = stub_dir
+                try:
+                    lis, wrapper, work = make_tree(os.path.join(tmp, 'refusals'))
+                    test_refusals(wrapper, work)
+                    test_host_launcher(os.path.join(tmp, 'launcher'), stub_dir)
+                    test_terminal(os.path.join(tmp, 'terminal'), stub_dir)
+                    test_host_auto(os.path.join(tmp, 'auto'), stub_dir)
+                    test_sweep(os.path.join(tmp, 'sweep'), stub_dir)
+                finally:
+                    for k, v in saved.items():
+                        if v is None:
+                            os.environ.pop(k, None)
+                        else:
+                            os.environ[k] = v
         run_inner()
     print(f'{len(FAILS)} failed' if FAILS else 'all passed')
     return 1 if FAILS else 0

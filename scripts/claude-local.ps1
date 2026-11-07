@@ -102,8 +102,21 @@
   record) is fresh every run. Ctrl+C reaches claude in the container as a key (claude's
   own handling; UNVERIFIED through docker's console); when docker returns or the
   wrapper is interrupted, the finally block force-removes the container. Closing the
-  console window (CTRL_CLOSE_EVENT) may end pwsh before the finally block runs, leaving
-  the container running and the env file in the temp root (UNVERIFIED). Refused
+  console window with the X (CTRL_CLOSE_EVENT) ends pwsh before the finally block runs
+  (observed 2026-11-07, ledger W-16): docker events recorded SIGTERM to the container,
+  which --rm then removed (the sender is inferred), but the env file stayed in the temp
+  root. So every launch, after the image check and before its own env file is written,
+  sweeps each lis-web-<stamp>-<pid>.env (ASCII digits) in the temp root whose pid is no
+  running process: the file is deleted unread; then `docker inspect -f
+  '{{.State.Running}}' lis-web-<stamp>-<pid>` decides: `true` (pwsh gone but docker.exe
+  alive, a live console session) leaves the container, anything else runs `docker rm -f
+  lis-web-<stamp>-<pid>` with its output discarded. stderr gets "claude-local: swept
+  stale env file <name> (launcher pid <pid> gone; docker rm -f <container>)", with
+  "container <container> is still running and was left" in place of the rm, and "could
+  not remove stale env file" in place of "swept" when the file is still there (locked).
+  A file whose pid is alive is left (another session; a pid reused by an unrelated
+  process keeps a stale file until that process ends), and -LisPrintArgs sweeps
+  nothing. Refused
   before any output: without -LisWeb, inside the container, with -LisTask longrun (the
   relaunch supervisor works on -p runs only), with -p, --print or --output-format; and
   when stdin or stdout is redirected (it needs a console), which -LisPrintArgs skips
@@ -132,7 +145,7 @@
   WebFetch and WebSearch stay denied (web_read replaces WebFetch); they deny Edit (Write
   included) of //opt/lis-web/** (the server's code; the file system also denies it, the
   copy is root-owned) and of <repo>/logs/web-calls.log, and pin
-  permissions.defaultMode to default (the work tree's
+  permissions.defaultMode to default (auto under -LisWebAuto, below; the work tree's
   project or local settings could otherwise set auto; the --settings file wins). No
   --allowedTools is added, and the lean --tools list is unchanged (it does not hide MCP
   tools: live proof 2026-11-05). The policy gains one sentence: lis-web results are
@@ -141,10 +154,28 @@
   config JSON, after the settings JSON. -LisWeb works with and without -LisTask. Refused with
   -LisWeb, before anything runs (on the host and inside): -LisFull, -LisNoGuard,
   -LisUserScope (user settings can set permissions.defaultMode auto), a caller
-  --permission-mode auto or --permission-mode=auto, any case (a web session never runs
-  under the auto-mode classifier, whose fallback judge is the local model), any
+  --permission-mode auto or --permission-mode=auto, any case (a web session runs under
+  the auto-mode classifier, whose fallback judge is the local model, only through
+  -LisWebAuto), any
   --mcp-config (the wrapper owns it) and an --allowedTools/--allowed-tools value naming
   WebFetch, WebSearch or an MCP tool (mcp__); a prompt is not checked.
+  The defaultMode pin sets the default only: Shift+Tab reaches auto mode at runtime
+  (observed 2026-11-07, ledger W-13). So every -LisWeb session's per-run settings carry
+  the autoMode object of config/automode-web.json (allow, soft_deny and environment
+  rules written for the container), inert until the mode is auto; the wrapper throws
+  when that file is missing or its allow or soft_deny array lacks the literal
+  "$defaults" (an array without it replaces Claude Code's built-in rules). On the host
+  the file is checked before docker runs.
+  -LisWebAuto (with -LisWeb only; ledger W-13, an operator decision that reopens S-B2;
+  off by default) sets permissions.defaultMode to auto instead of default and adds the
+  banner line "auto mode: ON (-LisWebAuto; ledger S-B2 reopened by the operator)".
+  Refused without -LisWeb and with -p, --print or --output-format (the classifier is for
+  an attended session, not an unattended run); --permission-mode auto and -LisUserScope
+  stay refused with it, so the settings pin is the one path. The classifier runs on the
+  local model (S-B2). The switch passes to the container's wrapper.
+  Status line (ledger W-15): the fresh home has none, so every -LisWeb session's per-run
+  settings set statusLine to the command `node /lis/scripts/statusline.mjs` (model and
+  context use, read-only in the container); host runs keep the operator's own.
   Portability (the container is Linux): the temp root is $env:TEMP, or
   [IO.Path]::GetTempPath() where it is unset; paths are built with Join-Path; and an
   absolute path becomes a rule root as //c/Users/<name> on Windows or //home/lis on
@@ -157,7 +188,8 @@
   Read(~/...) rules into absolute home paths and denies Edit on this repo's guard files
   (scripts/hooks, the serve/stop/watchdog and task scripts, this file, config, bin,
   .gitignore, .gitattributes, logs/api-key and the logs/.stop-requested-<port> files,
-  and the three scripts/tests files the guard hook exempts from its content scan) by
+  the three scripts/tests files the guard hook exempts from its content scan, and
+  scripts/statusline.mjs, which every web session runs as its status line, W-15) by
   absolute path, and Edit (Write included) of the two pin
   sources serve.ps1 trusts (scripts/install.ps1, models/manifest.json; ledger S-B3).
   The hook denies critical writes, also inside interpreter and ssh payloads,
@@ -290,7 +322,7 @@
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The script options, -LisContextTokens N, -LisFull, -LisNoGuard,
-  -LisNoLoopGuard, -LisStrictSlot, -LisUserScope, -LisWeb, -LisTerminal, -LisTask NAME,
+  -LisNoLoopGuard, -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisTask NAME,
   -LisRelaunchMax N and -LisPrintArgs, are taken out of $args here.
   -LisContextTokens defaults to 114688: the default server ctx of 131072 (ruling 14)
   minus CLAUDE_CODE_MAX_OUTPUT_TOKENS 16384, so a prompt at Claude Code's limit plus a
@@ -332,7 +364,7 @@ $tempRoot = if ($env:TEMP) { $env:TEMP } else { [IO.Path]::GetTempPath() }
 # -LisContextTokens N, -LisContextTokens:N (any case). In-process, PowerShell hands
 # -LisContextTokens:N over as '-LisContextTokens:' followed by N, so an empty inline
 # value takes the next token. The switches -LisFull, -LisNoGuard, -LisNoLoopGuard,
-# -LisStrictSlot, -LisUserScope, -LisWeb, -LisTerminal and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
+# -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
 # '-LisFull:' followed by a [bool]). All checks run before any env change.
 $LisContextTokens = 114688
 $LisFull = $false
@@ -341,6 +373,7 @@ $LisNoLoopGuard = $false
 $LisStrictSlot = $false
 $LisUserScope = $false
 $LisWeb = $false
+$LisWebAuto = $false
 $LisTerminal = $false
 $LisTask = $null
 $LisRelaunchMax = $null
@@ -351,7 +384,7 @@ $seenSwitch = @{}
 # The $args positions of -LisWeb, -LisTerminal and -LisPrintArgs (values included): the
 # host launcher passes every other token to the container's wrapper (docstring).
 $launcherOnly = [Collections.Generic.HashSet[int]]::new()
-$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisTerminal|LisPrintArgs)(:(.*))?\z'
+$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisWebAuto|LisTerminal|LisPrintArgs)(:(.*))?\z'
 # pwsh -File passes -X:true|false as '-X' followed by a [bool] but -X:0 as '-X' followed
 # by the string '0', the same as '-X 0'. Only the process command line keeps the colon,
 # so when this script is the -File target ($MyInvocation.Line is empty) check it there.
@@ -432,7 +465,8 @@ for ($j = 0; $j -lt $args.Count; $j++) {
     $LisContextTokens = $n
 }
 # -LisWeb (docstring): the wrapper owns the MCP config and the web tool permissions, every
-# guard stays on and the auto-mode classifier never judges a web session. Checked before
+# guard stays on and the auto-mode classifier never judges a web session (unless
+# -LisWebAuto, below, which goes through the settings pin alone). Checked before
 # any output, and before the -LisTask checks so each refusal names -LisWeb.
 if ($LisWeb) {
     if ($LisFull) {
@@ -469,6 +503,36 @@ if ($LisWeb) {
     if ($inContainer -and -not (Test-Path -LiteralPath $lisWebServer -PathType Leaf)) {
         throw ("-LisWeb runs the lis-web MCP server, and '$lisWebServer' is missing from this " +
             'image. Rebuild it on the host: pwsh -NoProfile -File scripts/web-image.ps1')
+    }
+}
+# -LisWebAuto (docstring, ledger W-13): auto mode for an attended web session, opt-in. The
+# refusals above stay; the settings pin below is the one path. Checked before any output.
+if ($LisWebAuto) {
+    if (-not $LisWeb) {
+        throw '-LisWebAuto needs -LisWeb: it turns on auto mode for a web session only.'
+    }
+    foreach ($a in $claudeArgs) {
+        if (("$a" -cin '-p', '--print') -or "$a" -match '^--output-format(=|$)') {
+            throw ("-LisWebAuto cannot be combined with '$a': the auto-mode classifier is for an " +
+                'attended session, not a print-mode run.')
+        }
+    }
+}
+# The web autoMode rules (docstring, ledger W-13), in every -LisWeb session: Shift+Tab
+# reaches auto mode at runtime despite the defaultMode pin, so the toggle gets these rules
+# instead of the built-in ones alone. Inert until the mode is auto.
+$autoMode = $null
+if ($LisWeb) {
+    $autoSrc = Join-Path $PSScriptRoot '..' 'config' 'automode-web.json'
+    $autoMode = Get-Content -LiteralPath $autoSrc -Raw | ConvertFrom-Json -AsHashtable
+    foreach ($kind in 'allow', 'soft_deny') {
+        $v = $autoMode[$kind]
+        $lead = $v -is [array] -and $v.Count -and $v[0] -is [string] -and $v[0] -ceq '$defaults'
+        if (-not $lead) {
+            throw ("-LisWeb: the $kind array of '$autoSrc' lacks a leading `"`$defaults`" (it " +
+                "must start with it); an autoMode array without it replaces Claude Code's " +
+                'built-in rules.')
+        }
     }
 }
 # -LisTerminal (docstring): the host launcher's interactive container session. Checked
@@ -693,6 +757,36 @@ if ($LisWeb -and -not $inContainer) {
         throw ("-LisWeb runs the session in the $lisWebImage container, and that image is missing " +
             '(or docker is not running). Build it: pwsh -NoProfile -File ' +
             (Join-Path $repo 'scripts' 'web-image.ps1'))
+    }
+    # Closing the console window (CTRL_CLOSE_EVENT, observed 2026-11-07, ledger W-16) ends
+    # pwsh before the finally block below and the env file stays (docker events recorded
+    # SIGTERM to the container and its --rm removal). Before this run's own file is
+    # written, sweep each lis-web-<stamp>-<pid>.env whose launcher pid is gone (a live pid
+    # is another session): delete it unread (docker read it at start), then remove that
+    # exact container name unless docker says it is still running (pwsh gone, docker.exe
+    # alive: a live console session, left alone). ASCII digits only: .NET \d takes any
+    # Unicode digit.
+    $staleEnv = Get-ChildItem -LiteralPath $tempRoot -File -Filter 'lis-web-*.env' `
+        -ErrorAction Ignore
+    foreach ($f in @($staleEnv)) {
+        if ($f.Name -cnotmatch '^(lis-web-[0-9]{8}-[0-9]{6}-([0-9]{1,9}))\.env$') { continue }
+        $oldName, $oldPid = $Matches[1], 0
+        if (-not [int]::TryParse($Matches[2], [ref]$oldPid)) { continue }
+        if (Get-Process -Id $oldPid -ErrorAction Ignore) { continue }
+        Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Ignore
+        $gone = -not (Test-Path -LiteralPath $f.FullName)
+        $state = ''
+        try { $state = "$(& $dockerExe inspect -f '{{.State.Running}}' $oldName 2> $null)".Trim() }
+        catch { $state = '' }
+        if ($state -ceq 'true') {
+            $what = "container $oldName is still running and was left"
+        } else {
+            try { & $dockerExe rm -f $oldName *> $null } catch { }
+            $what = "docker rm -f $oldName"
+        }
+        $head = if ($gone) { 'swept stale env file' } else { 'could not remove stale env file' }
+        [Console]::Error.WriteLine(
+            "claude-local: $head $($f.Name) (launcher pid $oldPid gone; $what)")
     }
     $null = New-Item -ItemType Directory -Path (Join-Path $runDir 'logs'), (Join-Path $runDir 'home')
     if ($hasEnv) { [IO.File]::WriteAllBytes($emptyFile, [byte[]]@()) }
@@ -949,6 +1043,10 @@ function Write-LisBanner {
     if ($LisWeb) {
         $e.WriteLine("claude-local: web: lis-web ($($webTools.Count) tools) via $lisWebServer")
         $e.WriteLine("claude-local: lis-web log: $webLog")
+        if ($LisWebAuto) {
+            $e.WriteLine('claude-local: auto mode: ON (-LisWebAuto; ledger S-B2 reopened by ' +
+                'the operator)')
+        }
     }
     if (-not $LisTask) { $e.WriteLine('claude-local: profile: none'); return }
     $guardState = if ($LisNoGuard) { 'off' } elseif ($LisNoLoopGuard) { 'on, loop-guard off' } else { 'on' }
@@ -998,7 +1096,8 @@ try {
         'scripts/watchdog.ps1', 'scripts/register-watchdog.ps1', 'config/**', 'bin/**', '.gitignore',
         '.gitattributes', 'logs/api-key', 'logs/.stop-requested*', 'scripts/tests/resilience_test.py',
         'scripts/tests/claude_settings_test.py', 'scripts/tests/install_verify_test.py',
-        'scripts/tests/lisweb_test.py' | ForEach-Object { "Edit($repoRule/$_)" })
+        'scripts/tests/lisweb_test.py', 'scripts/statusline.mjs' |
+        ForEach-Object { "Edit($repoRule/$_)" })
     # serve.ps1 trusts these two as pin sources (zip/exe/dll and GGUF sha256s; ledger S-B3).
     $cfg.permissions['deny'] = @($cfg.permissions['deny']) +
         @('scripts/install.ps1', 'models/manifest.json' |
@@ -1009,12 +1108,18 @@ try {
     # -LisWeb (docstring): exactly the five lis-web tools; WebFetch and WebSearch stay denied.
     # The server's code (root-owned in the image as well) and its call log, by absolute path;
     # defaultMode is pinned so the work tree's project or local settings cannot set auto
-    # (flag settings win).
+    # (flag settings win); -LisWebAuto pins auto. The checked autoMode rules go in every web
+    # session: the pin sets the default only, and Shift+Tab still reaches auto (W-13).
     if ($LisWeb) {
         $cfg.permissions['allow'] = @($cfg.permissions['allow']) + $webTools
         $cfg.permissions['deny'] = @($cfg.permissions['deny']) +
             @('Edit(//opt/lis-web/**)', "Edit($repoRule/logs/web-calls.log)")
-        $cfg.permissions['defaultMode'] = 'default'
+        $cfg.permissions['defaultMode'] = if ($LisWebAuto) { 'auto' } else { 'default' }
+        $cfg['autoMode'] = $autoMode
+        # The fresh home has no status line (W-15): model and context use, read-only at /lis.
+        $cfg['statusLine'] = [ordered]@{
+            type = 'command'; command = 'node /lis/scripts/statusline.mjs'
+        }
     }
     if ($LisTask -and $profiles[$LisTask].deny) {
         $cfg.permissions['deny'] = @($cfg.permissions['deny']) + $profiles[$LisTask].deny

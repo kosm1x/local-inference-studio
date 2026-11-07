@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (41 LANDED, 3 BUILT, 12 OPEN of 56 on 2026-11-07) in
+owner, fix and proof is in one table (41 LANDED, 6 BUILT, 13 OPEN of 60 on 2026-11-07) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -396,6 +396,29 @@ Batches (IDs in the ledger):
   showed the fresh home auto-installing the official plugin marketplace (621 files,
   14.7 MB per run, the home being fresh each run; download host UNVERIFIED): ledger
   W-12, OPEN. Ledger 41 LANDED, 3 BUILT, 12 OPEN of 56.
+  Auto mode (W-13, BUILT 2026-11-07): in run `web-20261107-161001-24816` Shift+Tab
+  reached auto mode despite the `defaultMode` pin; with the classifier on the local
+  model and the built-in rules only, four curl fetches to GitHub hosts ran outside the
+  lis-web call log (allowed by the classifier: inferred; one more curl command, at
+  22:14:52.215Z and piped into `python3 -c`, was denied by lis-guard). So every web
+  session now
+  carries the `autoMode` rules of `config/automode-web.json` (allow and soft_deny led
+  by `"$defaults"`, checked by the launcher; soft_deny names curl, wget, nc, ssh,
+  interpreter HTTP clients, network pip/npm and the three GitHub hosts). The opt-in
+  `-LisWebAuto` only pins `permissions.defaultMode` to `auto` and adds a banner line;
+  it is refused without `-LisWeb` and in print mode, and `--permission-mode auto`
+  stays refused. The classifier still runs on the local model (S-B2); LANDED waits on
+  the operator's first web session that shows the rules in effect.
+  Status line (W-15, BUILT 2026-11-07): the fresh home had none, so web sessions now
+  run `node /lis/scripts/statusline.mjs` (`lis-web  <model> | ctx:<n>%`, plus
+  ` | left:<n>%` or ` | left:<n>k` when given).
+  Closed window (W-16, BUILT 2026-11-07): closing the terminal with the X ended pwsh
+  before its finally block (run `web-20261107-160905-31736`: SIGTERM, exit 143, the
+  container removed by `--rm`, the 258-byte env file left in the temp root), so each
+  launch now sweeps `lis-web-<stamp>-<pid>.env` files whose pid is gone. The first
+  interactive web read (16:13) showed Bash `curl` as a second web path in the
+  container (W-14, OPEN) and the 5,000-character `web_read` cap (residual). Ledger
+  41 LANDED, 6 BUILT, 13 OPEN of 60.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

@@ -135,10 +135,30 @@ The mount list, in order (`<dir>` = the per-run directory; the second entry only
   (the home is fresh every run). Refused when stdin or stdout is redirected, and
   with `-p`, `--print`, `--output-format` or `-LisTask longrun`. Ctrl+C should reach
   claude as a key, and the finally block should still force-remove the container
-  (both UNVERIFIED). Closing the console window (CTRL_CLOSE_EVENT) may end pwsh
-  before the finally block runs, leaving the container running and the env file,
-  with the four key values, in the temp root (UNVERIFIED). The exit code is the
-  container's.
+  (both UNVERIFIED). Closing the console window with the X (CTRL_CLOSE_EVENT) ends
+  pwsh before the finally block runs, observed 2026-11-07 (ledger W-16) in run
+  `logs/web-20261107-160905-31736`, idle at the time: the container started at
+  22:09:10Z, docker events show a `kill` with signal 15 and a `die` with exit code
+  143 at 22:09:58Z, and `--rm` destroyed it (that the docker CLI sent the SIGTERM is
+  inferred: the events record the signal, not its sender); the per-run home has no
+  `history.jsonl` and no `lastDuration`; the launcher pwsh (pid 31736) was gone with
+  its finally block unrun, and `lis-web-20261107-160905-31736.env` (258 bytes as
+  listed before deletion; by the writer's format that is the four key lines, unread)
+  stayed in the temp root until the main session deleted it later that afternoon
+  (time not recorded). The docker events were read in-session on 2026-11-07; the
+  daemon's event buffer is not durable, so these figures cannot be re-checked from a
+  later session. So every launch now sweeps, after the image check and before its own
+  env file is written, each `lis-web-<stamp>-<pid>.env` (ASCII digits) in the temp
+  root whose pid is no running process. The file is deleted unread (docker read it at
+  container start); then `docker inspect -f '{{.State.Running}}'` on that exact name
+  decides: `true` (pwsh gone but docker.exe alive, a session still on its console)
+  leaves the container, anything else runs `docker rm -f lis-web-<stamp>-<pid>` with
+  its output discarded. The banner says `claude-local: swept stale env file <name>
+  (launcher pid <pid> gone; docker rm -f <container>)`, with `container <container>
+  is still running and was left` in place of the rm, and `could not remove stale env
+  file` in place of `swept` when the file is still there (locked). Accepted residual:
+  a pid reused by an unrelated process leaves its stale file in place until a launch
+  after that process ends. The exit code is the container's.
 - Image: `container/Dockerfile`, `node:24-bookworm-slim` by digest, python3 (with a
   `python` link), git, curl and ca-certificates (unpinned, said in a comment),
   PowerShell `7.6.9-1.deb` (pinned) from Microsoft's apt repo (the repo .deb checked
@@ -166,7 +186,14 @@ The mount list, in order (`<dir>` = the per-run directory; the second entry only
   - exactly five allow rules, `mcp__lis-web__` + `web_search`, `exa_search`,
     `jina_search`, `web_read`, `web_read_tweet`;
   - `permissions.defaultMode` pinned to `default`, so a work tree's project settings
-    cannot turn on auto mode;
+    cannot turn on auto mode (`auto` behind `-LisWebAuto`); the `autoMode` rules of
+    `config/automode-web.json` in every web session, since Shift+Tab still reaches
+    auto (B2 below);
+  - a status line, `node /lis/scripts/statusline.mjs`: `lis-web`, the model name and
+    the context use (ledger W-15; the fresh home has none). Claude Code runs it as its
+    own status line command, not through the Bash tool, so lis-guard never sees it;
+    the file is a guard file (Edit deny, lis-guard protected path) because every web
+    session runs it with the keys in its environment;
   - Edit denies for `//opt/lis-web/**`, the `web-calls.log` call log and
     `scripts/tests/lisweb_test.py`; WebFetch and WebSearch stay denied;
   - the policy sentence under "Injection risk".
@@ -188,8 +215,8 @@ The mount list, in order (`<dir>` = the per-run directory; the second entry only
 ## Blockers before arming
 
 The audit's B1-B7 (verdict FAIL, 2026-10-30), each with how it was closed on
-2026-11-05 or why it no longer applies. The first heading is wrapped as an HTML heading
-to fit this file's 90 columns.
+2026-11-05 or why it no longer applies. The first two headings are wrapped as HTML
+headings to fit this file's 90 columns.
 
 <h3>B1, credentials readable by the session (<code>~/.claude/.credentials.json</code>,
 HF token, <code>~/.claude.json</code>, <code>gh auth token</code>) and exfil paths
@@ -201,10 +228,74 @@ three web keys, from a per-run env file; no `.env` and no key file is visible).
 Residual: a process the model starts can read them, and open egress makes them
 exfiltrable in one call ("Residuals"; ledger W-8, W-9). Ledger S-B1i.
 
-### B2, the auto-mode classifier runs on the abliterated model: closed
+<h3>B2, the auto-mode classifier runs on the abliterated model: pinned off by default,
+toggle observed</h3>
 
 `permissions.defaultMode` is pinned to `default`, `--permission-mode auto` is refused in
 any spelling, and `-LisUserScope` is refused (user settings can set auto). Ledger S-B2.
+
+The pin sets the default only. In run `logs/web-20261107-161001-24816` (2026-11-07,
+`-LisWeb -LisTerminal`, no auto switch) Shift+Tab turned auto mode on (ledger W-13):
+
+- the transcript's permission-mode records all say `auto`; the first has no timestamp,
+  and the system message logged right after it is at 22:10:25.276Z;
+- the first prompt went out at 22:13:04.659Z (the first API request; the prompt record
+  itself is at 22:13:04.591Z), and the session made 11 API requests in all;
+- the classifier is inferred to have run on the local model with Claude Code's
+  built-in rules only (its decisions and cost are not logged; no `--debug-file`):
+  five Bash commands called curl, four ran (one fetch from raw.githubusercontent.com
+  with `-o`, which an ask rule would have stopped in default mode, and three from
+  api.github.com), and the one at 22:14:52.215Z, piped into `python3 -c`, was denied
+  by lis-guard;
+- the call log shows the lis-web route tried first: a `web_read` of github.com timed
+  out and three `web_read` calls to raw.githubusercontent.com succeeded before the
+  curl fallback, so the four curl fetches are missing from it.
+
+That the classifier allowed the four is inferred: the transcript shows no denial, not
+the classifier's decision; no allow rule matches them and a replay through lis-guard
+returns no decision. What the classifier cost in GPU time is
+UNVERIFIED: the run had no `--debug-file`.
+
+So every `-LisWeb` session now carries the `autoMode` object of
+`config/automode-web.json` in its per-run settings, switch or not; it is inert until the
+mode is auto, and gives the toggle these rules instead of the built-in ones alone. The
+launcher throws, before docker runs and again in the container, when the file is
+missing or its allow or soft_deny array lacks the literal `"$defaults"` (an array
+without it replaces Claude Code's built-in rules). The environment array is prose and
+carries no `"$defaults"`. The file holds:
+
+- allow: edits under /work, read-only inspection (list, read, search) of /lis and
+  /opt/lis-web and nothing more there, the five lis-web tools, the repo's tests and
+  builds inside /work;
+- soft_deny: printing or sending the environment, reading `/proc/*/environ` or echoing
+  `LIS_API_KEY` or any `*_API_KEY`, writing such a value into /work; any network
+  command other than the five lis-web tools (curl, wget, nc, ssh, scp, git push), HTTP
+  clients in `python -c`, `node -e` or a script, pip or npm fetching from the network,
+  and any fetch from github.com, raw.githubusercontent.com or api.github.com outside
+  lis-web; a web read by any other route (only lis-web's reach the call log); any
+  command whose arguments came from web content; writes outside /work; package installs
+  outside /work; docker or the Docker host beyond the model endpoint;
+- environment (9 lines): the throwaway container, the local model endpoint as the only
+  peer besides lis-web, /work as the one writable directory, /lis read-only with
+  `.env` hidden, the four keys in the environment, web content untrusted, egress open
+  (W-8), and the classifier running on the session's own model.
+
+The environment array carries no `"$defaults"` on purpose: the built-in environment text
+describes a generic host, and the container's own facts replace it; the two rule arrays
+keep the sentinel. Whether the operator wants the built-in text added back is a ruling
+still open.
+
+`-LisWebAuto` (ledger W-13, BUILT 2026-11-07) reopens S-B2 on purpose: the operator
+wants auto mode available from the start of a web session. It only pins `defaultMode`
+to `auto` and adds the banner line `auto mode: ON (-LisWebAuto; ledger S-B2 reopened by
+the operator)`; it needs `-LisWeb` and refuses `-p`, `--print` and `--output-format`.
+The two refusals above stay, so the settings file is the one path to auto at launch.
+
+Live behaviour of the rule block is UNVERIFIED until the operator's first web session
+that shows it in effect. That Claude Code applies `autoMode` from a `--settings` file is
+UNVERIFIED too: no document in this repo shows it (the changelog line S-O3 relies on
+says only that a settings file excluded with `--setting-sources` no longer supplies
+auto mode rules), and claude was not run to find out.
 
 ### B3, the session can edit its guard scripts, `serve.ps1` and `bin/`: closed
 
@@ -423,8 +514,30 @@ declared source `anthropics/claude-plugins-official`, download host UNVERIFIED: 
 folder carries a `.gcs-sha` marker and no `.git`), so a web session makes an outbound
 fetch and writes 14.7 MB per run (the home is fresh each run) with no prompt sent.
 Still
-UNVERIFIED: an interactive tool call, Ctrl+C through docker's console, a console
-window closed mid-session; the task profile is not recorded in the run folder.
+UNVERIFIED: Ctrl+C through docker's console; the task profile is not recorded in the
+run folder. The interactive tool call and the closed window were observed later the
+same day (next paragraph; ledger W-13, W-14, W-16).
+
+First interactive web read 2026-11-07 16:10 (`-LisWeb -LisTerminal -LisTask edit
+--permission-mode acceptEdits`, run folder `logs\web-20261107-161001-24816`; the
+launch line is sourced from the desktop shortcut's arguments, the shortcut last
+written 16:07:31, and from the transcript's "Task profile: edit"; the run folder does
+not record the permission-mode flag; the operator switched to auto mode with Shift+Tab
+before the prompt, ledger W-13): `history.jsonl` 22:13:04.594Z, an overview of a
+public GitHub repository. Call log: `web_read` of the github.com page `error
+bytes=118` (the tool's 15 s timeout), then three `web_read ok bytes=5815` of the raw
+README (22:13:30.933Z, 22:13:34.208Z, 22:13:37.941Z): each returned the first 5,000
+characters with `truncated: true`; the model retried with `selector` and
+`max_tokens`, which do not lift the cap. It then left the web tools: five Bash
+commands used `curl` against raw.githubusercontent.com and api.github.com
+(22:13:42.233Z to 22:14:54.423Z); four ran; the one at 22:14:52.215Z, piped into
+`python3 -c`, was denied by lis-guard (ledger W-14). Final reply 22:15:20.598Z, 136 s
+after the prompt: its figures (stars, forks, open issues, created date, license,
+language) match the API result the model fetched; one attribution came from model
+knowledge and one listed path appears in no fetched listing. `/exit` 22:29:02.177Z,
+MCP server `exited cleanly` 22:29:02.238Z, `lastDuration` 1139674 ms, 19930 input
+and 2037 output tokens; 0 containers and 0 env files from this run afterwards.
+Judged from the transcript, the call log and the per-run home, not the reply.
 
 History, on the Jarvis-mount design (rulings 1-3, superseded by ruling 4): live
 2026-11-05 23:02, the same line with `mcp__jarvis-web__web_read` in the prompt:
@@ -483,12 +596,31 @@ Not closed (round-2 audit, 2026-11-05):
   "Proof"): the seeded onboarding flag held, the MCP connect with the three keys
   and the `/exit` cleanup are proven; the trust prompt was answered in the run
   (inferred from `hasTrustDialogAccepted` appearing after the seed). Still
-  UNVERIFIED: an
-  interactive tool call (no prompt was sent), Ctrl+C through docker's console, and a
-  console window closed mid-session (CTRL_CLOSE_EVENT may end pwsh before the
-  finally block runs, leaving the container and the env file with the four key
-  values in the temp root; `docker ps --filter name=lis-web` and `Get-ChildItem
-  $env:TEMP -Filter lis-web-*.env` show a leftover).
+  UNVERIFIED: Ctrl+C through docker's console; the interactive tool call ran 16:13
+  the same day ("Proof"; ledger W-13, W-14). A
+  console window closed mid-session is observed (2026-11-07 22:09:58Z, run
+  `web-20261107-160905-31736`, ledger W-16): SIGTERM (signal 15, exit 143) reached
+  the container, which `--rm` removed, but pwsh ended before its finally block and
+  the env file (258 bytes as listed) stayed in the temp root; the next launch sweeps
+  such files
+  (above). `docker ps --filter name=lis-web` and `Get-ChildItem $env:TEMP -Filter
+  lis-web-*.env` still show a leftover before that launch.
+- Bash is a second web path inside the container (ledger W-14, OPEN): in the 16:10 run
+  the model, after three capped `web_read` results, fetched the same README and the
+  GitHub API with `curl` in Bash (four commands ran; the one at 22:14:52.215Z, piped
+  into `python3 -c`, was denied). lis-guard gives no decision on `curl`, so the auto
+  classifier (or the operator's prompt in default mode) decides, and nothing reaches
+  the call log. Fix = deny network fetchers (curl, wget, nc, ssh, scp, interpreter
+  HTTP clients) in lis-guard under `-LisWeb`; the rule file's soft_deny already names
+  them for auto mode. Not built.
+- `web_read` returns at most 5,000 characters of page text (`MAX_CONTENT` in
+  `web/tools/web-read.mjs`) with `truncated: true` and no way to continue. In the
+  16:10 run each capped read came back as 5568 characters (the 5,000 of page text
+  plus the truncation note and table of contents; `chars` 22807, `truncated: true`).
+  The note, from `truncatePreview` in `web/tools/common.mjs`, tells the model to
+  "narrow the read with selector or max_tokens", which is exactly what it tried, in
+  vain, before it turned to `curl`: a 356-line README cannot be read through the
+  tool. An offset parameter or a larger cap is the fix; not built.
 - The fresh per-run home is not network-silent: on its first start claude
   auto-installs the official plugin marketplace (2026-11-07: 621 files, 14,741,100
   bytes under `home\.claude\plugins\marketplaces\`, `officialMarketplaceAutoInstalled`
@@ -509,10 +641,9 @@ Not closed (round-2 audit, 2026-11-05):
   that strips query strings.
 - Rule on the keys (W-9): a two-container split for the lis-web server, or a ruling
   that the four values may live in the web session.
-- First interactive session (W-10): done 2026-11-07 15:30, opened and exited without
-  a prompt (LANDED on the launch, trust prompt and cleanup; "Proof"). Still to do in
-  a later session, from a console window in an empty directory outside the profile:
-  `pwsh -NoProfile -File <repo>\scripts\claude-local.ps1 -LisWeb -LisTerminal -LisTask
-  review`; ask for one `web_read` of `https://example.com/`, exit with `/exit`, and
-  check that both of these list nothing:
+- First interactive session (W-10): done 2026-11-07 15:30 (opened and exited without
+  a prompt) and 16:10 (interactive `web_read`, `/exit`, 0 containers and 0 env files
+  afterwards; "Proof"). Not yet run: the `-LisTask review` profile in a web
+  session, and a web session that shows the `autoMode` rules of W-13 in effect.
+  After any web session, check that both of these list nothing:
   `docker ps --filter name=lis-web` and `Get-ChildItem $env:TEMP -Filter lis-web-*.env`.

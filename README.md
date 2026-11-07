@@ -129,6 +129,8 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
 - [docs/evaluation-2026-10-24.md](docs/evaluation-2026-10-24.md) — the two repos the operator asked about (both REFERENCE ONLY) and the orcarouter HF org
 - [docs/landscape-2026-10-24.md](docs/landscape-2026-10-24.md) — Claude Code wiring, backends, model candidates, gotchas
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phases P0-P6
+- [docs/start-lines.md](docs/start-lines.md) - every launch line (server, host
+  profiles, web container) with its use case, pros, cons and warnings
 - [docs/uploader-rule.md](docs/uploader-rule.md) — GGUF uploader per model (ruling 35)
 - [docs/web-access.md](docs/web-access.md) - web read/search for the local model,
   ARMED 2026-11-05: `-LisWeb` runs the session in the lis-web container with Jarvis's

@@ -239,8 +239,8 @@ owner, fix and proof is in one table (38 LANDED, 5 BUILT, 11 OPEN of 54 on 2026-
   still accepted outside web sessions and the classifier still runs there (the S-B2
   ruling of 2026-11-05 covers web sessions).
 - Web access prep: ARMED 2026-11-05 (`-LisWeb`; [docs/web-access.md](web-access.md)).
-  Next: the three search keys copied into `<repo>\.env` (operator, ruling 2026-11-06),
-  the egress and key-split rulings (W-8, W-9).
+  Keys imported by the operator 2026-11-06 23:5x; all three search tools proven live
+  (W-4 LANDED). Next: the egress and key-split rulings (W-8, W-9).
 - Counts on disk (T-8): at the audit `bench/results/` held 10 rung-2 (long-fix) sets and
   23 ladder `.jsonl` streams, not the 13 sets and ~35 sessions of the audit brief. On
   2026-11-04 it holds 21 long-fix sets (10 of 2026-10-26, 11 of 2026-11-04) and 40
@@ -386,8 +386,8 @@ Batches (IDs in the ledger):
   2026-11-05 23:02 a `-LisWeb -LisTask review -p` session read `https://example.com/`
   through `web_read` (rc 0, 2 turns, 8220 ms, no permission denial); `--tools` does
   not hide MCP tools; the re-run on the folded launcher at 23:34 passed the same way
-  (2 turns, 2412 ms, 0 env files and 0 containers left). Open: the search tools
-  are keyless until the operator adds keys to the Jarvis `.env`; container egress is
+  (2 turns, 2412 ms, 0 env files and 0 containers left). Open then: the search
+  tools were keyless (keys imported 2026-11-06, W-4 LANDED); container egress is
   open (W-8) and the keys share the session's environment (W-9), both operator
   rulings; docs/web-access.md.
   `-LisTerminal` (W-10, BUILT 2026-11-06): `docker run -it`; a live run is UNVERIFIED.
@@ -403,7 +403,10 @@ Batches (IDs in the ledger):
   siblings visible through the repo mount, both fixed, round 2 confirmed. The
   Jarvis-route text above is history. Live proof 2026-11-06 23:40: rc 0,
   `Example Domain`, 2 turns, 2059 ms, no denial, five tools listed, 0 env files and 0
-  containers left (web-access.md "Proof"). The key import is the operator's.
+  containers left (web-access.md "Proof"). Keys imported by the operator at 23:5x;
+  keyed proofs 23:58 (`web_search`, 4910 ms) and 23:59 (`exa_search` + `jina_search`,
+  3 turns, 7104 ms), each returning a titled result, server stderr `missing: none`,
+  cleanup 0/0: W-4 LANDED, ledger 40 LANDED, 4 BUILT, 11 OPEN of 55.
 - Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
   cost of the user-scope load (the orientation hook re-injected at every compaction and
   the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the

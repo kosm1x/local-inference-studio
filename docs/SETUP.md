@@ -590,7 +590,9 @@ run ends; the wrapper inside takes the server key from `LIS_API_KEY`. The four v
 in the session's environment: `env`, `printenv` and `/proc/self/environ` are
 lis-guard-denied, but `echo $NAME` and a recursive grep of `/proc/1` print them
 (ledger W-9). With no web
-key present the three search tools fail and `web_read` works keyless. Live proof
+key present the three search tools fail and `web_read` works keyless; with the
+keys imported (2026-11-06 23:5x) all three searches returned titled results
+(docs/web-access.md "Proof"). Live proof
 2026-11-05 on the earlier Jarvis-mount design: a `-LisWeb -LisTask review -p` session
 read `https://example.com/` through `web_read` (rc 0, 2 turns; before the round-2
 audit folds above); on the lis-web server 2026-11-06 23:40: rc 0, `Example Domain`,

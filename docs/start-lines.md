@@ -214,10 +214,10 @@ Shared warnings for every web line:
   working directory, this repo minus `.env`, the per-run home and logs, and the four
   env values (the three key names and the server key), which
   `echo $NAME` prints (ledger W-9). Nothing else of yours is mounted.
-- The search tools fail until BRAVE_SEARCH_API_KEY, EXA_API_KEY and JINA_API_KEY are
-  in `<repo>\.env` (gitignored; the operator copies the three `KEY=VALUE` lines in,
-  ledger W-4); `web_read` is keyless and proven live on lis-web; `web_read_tweet` is
-  keyless too (UNVERIFIED live).
+- The search tools need BRAVE_SEARCH_API_KEY, EXA_API_KEY and JINA_API_KEY in
+  `<repo>\.env` (gitignored; the operator copies the three `KEY=VALUE` lines in);
+  all three proven live 2026-11-06 23:5x (ledger W-4); `web_read` is keyless and
+  proven live; `web_read_tweet` is keyless too (UNVERIFIED live).
 - The launcher refuses to start while any `.env*` file other than `.env` and
   `.env.example` sits at the repo root (`.env.local`, `.env.bak`): move it out.
 - Pass `--debug-file` as a relative name (`debug.log`); a Windows path becomes one
@@ -254,7 +254,7 @@ Get-ChildItem $env:TEMP -Filter lis-web-*.env
 - What: the review profile inside the container, batch.
 - Pros: no Edit or Write tool, and the policy forbids writes by other means (Bash
   stays; lis-guard denies only critical writes); what it can leak is what it can read.
-- Cons: the search tools are keyless until the operator adds the keys.
+- Cons: the search tools fail without the three keys in `<repo>\.env`.
 
 ### `claude-local.ps1 -LisWeb -LisTask edit -p "<prompt>"`
 

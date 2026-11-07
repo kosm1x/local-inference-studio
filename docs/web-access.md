@@ -58,10 +58,10 @@ internet, with the least new surface.
   `npm ci --prefix web` once). Lockfile `web/package-lock.json`
   (`@modelcontextprotocol/sdk` 1.32.2, `zod` 4.6.7); `web/node_modules/` is gitignored.
 - Keys: `<repo>\.env` (gitignored), the three names only. No Jarvis `.env` exists on
-  this PC; the keys live in the Jarvis `.env` on the host where Jarvis runs, and
-  copying them over is the operator's step ("Operator actions"; the session's read of
-  that file was denied by the auto-mode classifier). Until then the three search tools
-  return an error naming the missing key; `web_read` works.
+  this PC; the keys lived in the Jarvis `.env` on the host where Jarvis runs, and the
+  operator copied them over on 2026-11-06 (the session's read of that file was denied
+  by the auto-mode classifier; keyed proofs under "Proof"). Without the file the
+  three search tools return an error naming the missing key; `web_read` works.
 - This repo: `scripts/claude-local.ps1 -LisWeb` (docs/SETUP.md, "Web sessions"),
   `container/Dockerfile`, `.dockerignore`, `scripts/web-image.ps1`; tests in
   `scripts/tests/lisweb_test.py`.
@@ -305,7 +305,7 @@ replaced all three.
   `scripts/web-access.example.mcp.json` holds this server and is loaded only when
   passed with `--mcp-config` (never by `-LisWeb`, which refuses a caller `--mcp-config`).
 - Search, as proposed then: SearXNG on 127.0.0.1, or Brave/Tavily MCP with a key.
-  Replaced by `web_search`, `exa_search` and `jina_search` (lis-web; keys = operator).
+  Replaced by `web_search`, `exa_search` and `jina_search` (lis-web; keyed 2026-11-06).
 
 ## Injection risk
 
@@ -387,6 +387,24 @@ was discarded.)
   audit folds to the launcher (case-sensitive parser, `.env*` refusal), gave the same
   result in 7612 ms.
 
+Keyed, after the operator imported the three keys into `<repo>\.env` (23:58 and
+23:59, same directory and flags, `--max-turns 4` then `6`):
+
+- `web_search` (Brave), query `llama.cpp llama-server`: rc 0, `success`, 2 turns,
+  4910 ms, no denial; result `llama.cpp/tools/server/README.md at master -
+  ggml-org/llama.cpp - GitHub` (the title's middle dots written as `-`); call log
+  `web_search ok bytes=2428`; the server's
+  stderr line reads `lis-web: keys present: BRAVE_SEARCH_API_KEY, EXA_API_KEY,
+  JINA_API_KEY; missing: none`.
+- `jina_search` (`llama.cpp quantization IQ3_XXS`) and `exa_search` (`ggml gguf file
+  format`), in that order, in one session: rc 0, `success`, 3 turns, 7104 ms, no denial; the reply
+  named `docs/gguf.md` and `Regressions on IQ3_XXS over time - Issue #5856` (same
+  dot); call
+  log `jina_search ok bytes=1636` and `exa_search ok bytes=812`.
+- Both runs: 0 `lis-web-*.env` files and 0 `lis-web` containers afterwards. The
+  session could not read `<repo>\.env` itself (every `.env*` read is denied), so
+  the key names come from the server's stderr line, never from the file.
+
 History, on the Jarvis-mount design (rulings 1-3, superseded by ruling 4): live
 2026-11-05 23:02, the same line with `mcp__jarvis-web__web_read` in the prompt:
 
@@ -435,8 +453,8 @@ Not closed (round-2 audit, 2026-11-05):
 - The whole LIS repo except `.env` is readable inside, read-only: `.git/config` holds
   only the public remote URL (no helper, no token); `models/`, `bin/` and bench
   transcripts are readable and hold no secrets.
-- The search tools are keyless until the operator copies the three keys into
-  `<repo>\.env` (ruling 4; ledger W-4).
+- The search tools need the three keys in `<repo>\.env` (ruling 4; ledger W-4,
+  LANDED 2026-11-06 on the keyed proofs above).
 - The server's secret filter is a speed bump: URL-encoding, base64, splitting across
   calls and keyless shapes (the server's own 64-hex key among them) pass it. The real
   control is what the container holds.
@@ -451,9 +469,9 @@ Not closed (round-2 audit, 2026-11-05):
 ## Operator actions
 
 - Build the image: `pwsh -NoProfile -File scripts\web-image.ps1`.
-- Import the keys (ruling 4): copy the three `KEY=VALUE` lines (`BRAVE_SEARCH_API_KEY`,
-  `EXA_API_KEY`, `JINA_API_KEY`, any subset) from the Jarvis `.env` into `<repo>\.env`
-  (gitignored); the server reports which are present at start.
+- Keys (ruling 4): done 2026-11-06, the three `KEY=VALUE` lines are in `<repo>\.env`
+  (gitignored; W-4 LANDED). On a new machine copy them again; any subset works and
+  the server reports which are present at start.
 - Rebuild the image when the claude-code version or anything under `web/` changes.
 - Rule on the egress control (W-8): an egress allow-list for the container or a proxy
   that strips query strings.

@@ -647,3 +647,13 @@ Not closed (round-2 audit, 2026-11-05):
   session, and a web session that shows the `autoMode` rules of W-13 in effect.
   After any web session, check that both of these list nothing:
   `docker ps --filter name=lis-web` and `Get-ChildItem $env:TEMP -Filter lis-web-*.env`.
+- Web rows waiting on a live run (BUILT 2026-11-07): W-13 lands on a web session
+  whose transcript shows an `autoMode` rule in effect (a `permission-mode` record
+  with `auto` plus a decision that names one of the file's lines); W-15 on a
+  session where the `lis-web  <model> | ctx:<n>%` line is visible; W-16 on a launch
+  whose banner reports a swept file. To test the opt-in start in auto mode, add
+  `-LisWebAuto` after `-LisTerminal` on the launch line (it reopens S-B2: the
+  classifier runs on the local model; UNVERIFIED live).
+- Next build (W-14, session): deny `curl`, `wget`, `nc`, `ssh`, `scp` and
+  interpreter HTTP clients in lis-guard under `-LisWeb`, so web reads go through
+  the five lis-web tools only.

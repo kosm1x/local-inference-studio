@@ -317,6 +317,14 @@ Get-ChildItem $env:TEMP -Filter lis-web-*.env
   prompt was answered in the run (inferred; the dialog itself is not logged). No
   prompt was sent. The first interactive tool call ran 2026-11-07 16:13 (web-access.md
   "Proof"; ledger W-13, W-14).
+- Desktop shortcut (operator, 2026-11-07, works): target
+  `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe`, arguments `-d <workdir> pwsh
+  -NoProfile -File <repo>\scripts\claude-local.ps1 -LisWeb -LisTerminal -LisTask edit
+  --permission-mode acceptEdits`, start in `<workdir>` (an empty directory outside
+  the profile). Windows Terminal gives the font size; a bare `pwsh.exe` target opens
+  conhost, where auto mode stays off by design (S-B2) and `acceptEdits` passes
+  through. The tab closes on `/exit`; closing with the X leaves the key file to the
+  next launch's sweep (W-16).
 - Heads-up: on start the fresh home auto-installs the official plugin marketplace
   (declared source `anthropics/claude-plugins-official`; the download host is
   UNVERIFIED: a `.gcs-sha` marker, no `.git`) into the run folder, 621 files and

@@ -275,12 +275,22 @@ Get-ChildItem $env:TEMP -Filter lis-web-*.env
 ### `claude-local.ps1 -LisWeb -LisTerminal -LisTask review`
 
 - Use when: hands-on web research in conversation: you steer, it reads and searches,
-  nothing is written. The first such run is the live proof for ledger W-10.
+  nothing is written. The 2026-11-07 run was the live proof for ledger W-10 (LANDED).
 - What: docker gets `-it`; the per-run home is seeded so Claude Code skips onboarding.
   That seed is designed to skip the "Security notes" prompt-injection screen too,
   which is why the policy sentence carries the warning instead. The folder trust
-  prompt is not seeded and may appear every run, because the home is fresh. All of
-  this is UNVERIFIED live: no interactive container session has run yet.
+  prompt is not seeded and may appear every run, because the home is fresh. Live
+  2026-11-07 15:30 (ledger W-10 LANDED): the session came up on the seeded home,
+  the lis-web server connected with all three keys, `/exit` left 0 containers and
+  0 env files; `hasTrustDialogAccepted` appears only after the seed, so the trust
+  prompt was answered in the run (inferred; the dialog itself is not logged). No
+  prompt was sent, so an interactive tool call is
+  still UNVERIFIED (web-access.md "Residuals").
+- Heads-up: on start the fresh home auto-installs the official plugin marketplace
+  (declared source `anthropics/claude-plugins-official`; the download host is
+  UNVERIFIED: a `.gcs-sha` marker, no `.git`) into the run folder, 621 files and
+  14.7 MB on 2026-11-07, with no prompt sent (ledger W-12). Claude itself fetches
+  on a fresh home before the model does anything.
 - Cons: needs a real console window. Refused when stdin or stdout is redirected, with
   `-p`, `--print`, `--output-format` or `-LisTask longrun`.
 - Warning (UNVERIFIED): Ctrl+C should reach claude as a keystroke and the wrapper

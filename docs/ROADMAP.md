@@ -224,7 +224,7 @@ to the MTP-default ruling alongside the A/B.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (40 LANDED, 4 BUILT, 11 OPEN of 55 on 2026-11-07) in
+owner, fix and proof is in one table (41 LANDED, 3 BUILT, 12 OPEN of 56 on 2026-11-07) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -390,7 +390,12 @@ Batches (IDs in the ledger):
   tools were keyless (keys imported 2026-11-06, W-4 LANDED); container egress is
   open (W-8) and the keys share the session's environment (W-9), both operator
   rulings; docs/web-access.md.
-  `-LisTerminal` (W-10, BUILT 2026-11-06): `docker run -it`; a live run is UNVERIFIED.
+  `-LisTerminal` (W-10, LANDED 2026-11-07): `docker run -it`; the first interactive
+  run 15:30 came up on the seeded home, connected the lis-web server with the three
+  keys and exited clean (63258 ms, no prompt sent; web-access.md "Proof"). It also
+  showed the fresh home auto-installing the official plugin marketplace (621 files,
+  14.7 MB per run, the home being fresh each run; download host UNVERIFIED): ledger
+  W-12, OPEN. Ledger 41 LANDED, 3 BUILT, 12 OPEN of 56.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

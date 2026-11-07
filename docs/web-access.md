@@ -405,6 +405,27 @@ Keyed, after the operator imported the three keys into `<repo>\.env` (23:58 and
   session could not read `<repo>\.env` itself (every `.env*` read is denied), so
   the key names come from the server's stderr line, never from the file.
 
+First interactive run 2026-11-07 15:30 (`-LisWeb -LisTerminal`, run folder
+`logs\web-20261107-153029-25144`): claude started at 21:30:36.805Z on the seeded
+home (the seed backup holds only `hasCompletedOnboarding` and `theme`), the lis-web
+server connected 29.5 s later (`Successfully connected (transport: stdio) in 427ms`,
+stderr `keys present: BRAVE_SEARCH_API_KEY, EXA_API_KEY, JINA_API_KEY; missing:
+none`), `/exit` at 21:31:39.928Z, MCP server `exited cleanly` at 21:31:40.003Z;
+`lastDuration` 63258 ms, `hasTrustDialogAccepted` true for `/work` (not in the seed,
+so the trust prompt was answered in the run; inferred, the dialog is not logged),
+0 input and 0 output tokens, no transcript file and no `web-calls.log`: the operator
+opened the session and left. Afterwards 0 `lis-web` containers and 0
+`lis-web-*.env` files (this session's host-side check at 15:32:52, not in the run
+folder). New finding (ledger W-12): the fresh home auto-installed the official
+plugin marketplace (`officialMarketplaceAutoInstalled` true, `lastUpdated`
+21:31:13.189Z, 621 files, 14,741,100 bytes under `home\.claude\plugins\marketplaces\`;
+declared source `anthropics/claude-plugins-official`, download host UNVERIFIED: the
+folder carries a `.gcs-sha` marker and no `.git`), so a web session makes an outbound
+fetch and writes 14.7 MB per run (the home is fresh each run) with no prompt sent.
+Still
+UNVERIFIED: an interactive tool call, Ctrl+C through docker's console, a console
+window closed mid-session; the task profile is not recorded in the run folder.
+
 History, on the Jarvis-mount design (rulings 1-3, superseded by ruling 4): live
 2026-11-05 23:02, the same line with `mcp__jarvis-web__web_read` in the prompt:
 
@@ -458,13 +479,24 @@ Not closed (round-2 audit, 2026-11-05):
 - The server's secret filter is a speed bump: URL-encoding, base64, splitting across
   calls and keyless shapes (the server's own 64-hex key among them) pass it. The real
   control is what the container holds.
-- `-LisTerminal` (2026-11-06) has no live interactive run yet: the skipped
-  onboarding, the trust prompt and Ctrl+C through docker's console are UNVERIFIED
-  until the operator's first session, and so is a console window closed mid-session
-  (CTRL_CLOSE_EVENT may end pwsh before the finally block runs, leaving the container
-  and the env file with the four key values in the temp root; `docker ps --filter
-  name=lis-web` and `Get-ChildItem $env:TEMP -Filter lis-web-*.env` show a leftover).
-  Ledger W-10.
+- `-LisTerminal` ran live 2026-11-07 15:30 (ledger W-10 LANDED, readout under
+  "Proof"): the seeded onboarding flag held, the MCP connect with the three keys
+  and the `/exit` cleanup are proven; the trust prompt was answered in the run
+  (inferred from `hasTrustDialogAccepted` appearing after the seed). Still
+  UNVERIFIED: an
+  interactive tool call (no prompt was sent), Ctrl+C through docker's console, and a
+  console window closed mid-session (CTRL_CLOSE_EVENT may end pwsh before the
+  finally block runs, leaving the container and the env file with the four key
+  values in the temp root; `docker ps --filter name=lis-web` and `Get-ChildItem
+  $env:TEMP -Filter lis-web-*.env` show a leftover).
+- The fresh per-run home is not network-silent: on its first start claude
+  auto-installs the official plugin marketplace (2026-11-07: 621 files, 14,741,100
+  bytes under `home\.claude\plugins\marketplaces\`, `officialMarketplaceAutoInstalled`
+  true; declared source `anthropics/claude-plugins-official`, download host
+  UNVERIFIED: `.gcs-sha` marker, no `.git`). That is an outbound fetch and 14.7 MB
+  written per run, the home being fresh each run, with no prompt sent. Ledger W-12
+  (OPEN): seeding `officialMarketplaceAutoInstallAttempted` in the home's
+  `.claude.json` should skip it (UNVERIFIED).
 
 ## Operator actions
 
@@ -477,8 +509,10 @@ Not closed (round-2 audit, 2026-11-05):
   that strips query strings.
 - Rule on the keys (W-9): a two-container split for the lis-web server, or a ruling
   that the four values may live in the web session.
-- First interactive session (W-10): from a console window in an empty directory
-  outside the profile, `pwsh -NoProfile -File <repo>\scripts\claude-local.ps1 -LisWeb
-  -LisTerminal -LisTask review`; ask for one `web_read` of `https://example.com/`,
-  exit with `/exit`, then check that both of these list nothing:
+- First interactive session (W-10): done 2026-11-07 15:30, opened and exited without
+  a prompt (LANDED on the launch, trust prompt and cleanup; "Proof"). Still to do in
+  a later session, from a console window in an empty directory outside the profile:
+  `pwsh -NoProfile -File <repo>\scripts\claude-local.ps1 -LisWeb -LisTerminal -LisTask
+  review`; ask for one `web_read` of `https://example.com/`, exit with `/exit`, and
+  check that both of these list nothing:
   `docker ps --filter name=lis-web` and `Get-ChildItem $env:TEMP -Filter lis-web-*.env`.

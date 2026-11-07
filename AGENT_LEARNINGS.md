@@ -26,11 +26,7 @@
 
 ## 2026-10-24 — Phase 3d: agentic-loop comparison
 - **Mistake:** started 3-rep loops on Saluki and GSQ-RCO without checking that their chat template accepts Claude Code's message order; every rep burned about 3 min on 11 HTTP 500 retries (`raise_exception('System message must be at the beginning.')`). → Before a long loop on a new GGUF, run one `-v` request and read the converted role order (the operator's SessionStart hook output arrives as a second, non-leading system message), or POST it to `/apply-template`.
-- **Mistake:** the loop fixture had a `package.json`; the operator's `~/.bashrc` runs `fnm env --use-on-cd`, so any `cd <dir> && node ...` inside Claude Code's Bash tool failed in `fnm use` and one rep timed out at 30 min while debugging fnm. → A fixture carries no `package.json`, `.nvmrc` or `.node-version`; `node --test` discovers `test/*.test.js` alone.
 - **Avoid:** under `pwsh -File`, an argument value that starts with `-` and contains `:` (`-ExtraArgLine "--chat-template-file Z:/x"`) is parsed as a `-name:value` token and fails with "Missing an argument for parameter". Pass it as ONE token `"-ExtraArgLine:<value>"`.
-
-## 2026-10-24 — Live monitoring of the Orca default
-- **Mistake:** reported the running context size by summing prompt-in and tokens-out per turn (said ~67K); the server's own `stop processing: n_tokens` line peaked at 45,417. → Read the server's count; the sum ignores compaction and parallel conversations.
 
 ## 2026-10-25 — First real session on 65K+MTP+lean (PC recon, two runs compared)
 - **Avoid:** auto permission mode on the local model: the classifier call (own system prompt + whole transcript, ~36K tokens) consumed 2x the GPU time of the work, timed out 9 times, denied 2 calls, and the detours inflated the context to the compaction threshold.
@@ -51,16 +47,10 @@
 - **Better:** a hook `deny` whose reason says "not retryable; report it to the operator" ends the `-p` retry loop after one attempt (V13), where a bare ask-rule denial is retried to `--max-turns` (V7).
 - **Better:** the debug log names every permission path: `classifier_request_started/finished ... outcome=`, `tool_dispatch_start ... permissionDecisionMs=` and `Hook ... returned permissionDecision:`; the bench reads them instead of guessing from the server log.
 
-## 2026-10-25 — RUN 4 (rules + lis-guard): permission layer fixed, report still 7/14
-- **Mistake (the local model's, logged for the policy text):** RUN 4 trusted a leftover probe script in the cwd (`repo-sweep.sh`, written by RUN 2 with a Docker path that never exists) and reported "Docker Desktop is not installed"; a direct `Test-Path` would have shown the binary. -> A recon never cites a script it did not write this session without reading it first; stale helpers in a cwd are inputs to verify, not facts.
-- **Mistake (the model's):** chose `Get-PhysicalDisk` over `Get-Volume`, so the report lists six drive models with no letters or free space and misses J and K at 2-3 % free; GPU and the llama-server process omitted for the third run in a row. -> A fixed recon checklist in the prompt or policy is the next lever; the harness is no longer the cause (0 classifier requests, 0 timeouts, 162 s).
-- **Better:** 16 Bash calls, 15 allowed by lis-guard in 91-119 ms each and 1 by rule; zero classifier calls; wall 162 s vs 342 s (RUN 3) and ~53 min (RUN 2). The allow-list premise held exactly as Phase 0 measured it.
-
 ## 2026-10-25 — lis-guard audit R1: FAIL (25+ false allows)
 - **Mistake:** the hook's read-only grammar was a VERB list with "any arguments" for most verbs; `uniq a OUT`, `tree -o`, `sort -uo`, `nvidia-smi -f`, `wmic ... delete`, `date --set`, curl `-D/--cookie-jar`, ssh `-o ProxyCommand=` and PowerShell `% Delete` / `. $f` / `.$m()` all got `allow`. A safety allow-list is per-verb ARGUMENT shapes, never verb names -> the check that catches it: for every allowed verb ask "which of its options write a file, run a program or change state", and probe each one before the first live run.
 - **Mistake:** my own-review commit ADDED `uniq`, `tree`, `rg` as "read-only verbs" without reading their man pages; `rg --pre` runs a program, `uniq` and `tree -o` write files. -> No verb enters the allow list without its write/exec options enumerated in the same commit.
 - **Mistake:** docs said "no decision goes to the classifier"; it goes to the ALLOW RULES first, so a hook pass + a broad prefix rule (`git branch*`, `curl -s http://127.0.0.1:*`, `Get-*`) = unjudged write. -> Trace the full decision chain (hook -> deny rules -> ask rules -> allow rules -> classifier) before writing one sentence about where a case lands.
-- **Mistake:** 9 of 22 mutants survived: every guard without a pinning test. -> Mutation RED first (standing rule) applies to every branch of a safety hook, not just the headline ones.
 - **Mistake:** a 200 KB read cap followed by `allow` let a 10 MB script with a trailing `rm -rf` through. -> A cap on a judged input yields NO DECISION, never the permissive verdict ([[tool-result-cap-is-a-design-constraint]]).
 - **Avoid:** quadratic regex spans (`[^;|]*` before a literal) in a hook with a 10 s timeout; a 96 KB padded command took 17 s and the timeout turns a deny into a pass.
 - **Better:** audit by attack table + mutation BEFORE the first interactive run, not in parallel with it; the operator ran Live C under the unaudited hook (disclosed as such, read-only task).
@@ -152,3 +142,14 @@
   saying so. -> Mark every altered character in a quoted string.
 - **Better:** two sessions, three search calls, judged from JSON `subtype`,
   `permission_denials`, the call log and the cleanup counts, never from the reply.
+
+## 2026-11-07 - W-10 interactive run, auto-mode wizard review (c45)
+- **Better:** an interactive run with no `-p` JSON is judged from the per-run home:
+  `.claude.json` (`lastDuration`, token counts, `hasTrustDialogAccepted`), the MCP
+  log and the absence of a transcript said "no prompt sent".
+- **Mistake:** read "nothing from your profile" as network-silent; claude's first
+  start on a fresh home fetched a 14.7 MB plugin marketplace. -> List what the tool
+  itself fetches before calling a container's network traffic the model's.
+- **Avoid:** keeping a setup wizard's allow lines unread: the `/auto-mode` wizard
+  wrote a blanket allow straight against an existing soft_deny. Read each line
+  against the deny list before it stays.

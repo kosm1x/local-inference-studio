@@ -3537,8 +3537,11 @@ def main():
                   'bench/ladder/tests/bait_test.py', 'bench/ladder/tests/blocked_test.py',
                   'bench/ladder/tests/gen_bait_test.py',
                   # operator-run: docker build of the lis-web image, and the -LisWeb test whose
-                  # in-container half runs docker run and names the Jarvis .env mount
-                  'scripts/web-image.ps1', 'scripts/tests/lisweb_test.py'}
+                  # in-container half runs docker run and writes a dummy .env
+                  'scripts/web-image.ps1', 'scripts/tests/lisweb_test.py',
+                  # the lis-web exa_search tool: a real POST to api.exa.ai; the session
+                  # reaches it only through the MCP server, never through Bash
+                  'web/tools/exa-search.mjs'}
     root = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
     lead = {'ps1': 'pwsh -NoProfile -File ', 'sh': 'bash ', 'py': 'python -I ', 'js': 'node ', 'mjs': 'node '}
     denied = set()

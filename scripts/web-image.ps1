@@ -5,17 +5,16 @@
 .DESCRIPTION
   Operator-run (operator ruling 2026-11-05: web-enabled sessions run in a container with no
   access to the operator's home folder). Builds container/Dockerfile with this repo as the
-  build context and the Jarvis checkout as the BuildKit context `jarvis` (only its
-  package.json and package-lock.json are read, for npm ci), and tags the image
+  build context (`docker build -f container/Dockerfile -t lis-web:<version> .`, run from
+  the repo root; .dockerignore keeps bin/, models/, logs/, bench/results/,
+  web/node_modules/ and .env out of it; the image copies only web/, the lis-web MCP
+  server, whose npm ci reads web/package-lock.json), and tags the image
   lis-web:<version>, the version being the claude-code version the Dockerfile pins
   (@anthropic-ai/claude-code@X.Y.Z). It changes nothing but Docker's image store: no file
-  in this repo or the Jarvis checkout is written. The build pulls the base image by digest,
-  PowerShell from Microsoft's apt repo and the npm packages (several minutes the first
-  time). Prints the image id, the base image digest from the Dockerfile and the size, and
-  exits non-zero when the build fails.
-  -JarvisDir PATH: the agent-controller checkout (default: agent-controller beside this
-  repo, $PSScriptRoot\..\..\agent-controller); it must hold package.json and
-  package-lock.json.
+  in this repo is written. The build pulls the base image by digest, PowerShell from
+  Microsoft's apt repo and the npm packages (several minutes the first time). Prints the
+  image id, the base image digest from the Dockerfile and the size, and exits non-zero
+  when the build fails.
   -Check: only report whether the image exists (exit 0 when it does, 1 when not); builds
   nothing.
 .EXAMPLE
@@ -24,7 +23,6 @@
   pwsh -NoProfile -File scripts/web-image.ps1 -Check
 #>
 param(
-    [string]$JarvisDir,
     [switch]$Check
 )
 $ErrorActionPreference = 'Stop'
@@ -64,15 +62,16 @@ if ($Check) {
     exit 1
 }
 
-$jarvis = if ($JarvisDir) { [IO.Path]::GetFullPath($JarvisDir, (Get-Location).ProviderPath) }
-    else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..' '..' 'agent-controller')) }
-foreach ($f in 'package.json', 'package-lock.json') {
-    if (-not (Test-Path -LiteralPath (Join-Path $jarvis $f) -PathType Leaf)) {
-        throw "-JarvisDir '$jarvis' has no $f (the agent-controller checkout is needed for npm ci)."
+foreach ($f in 'package.json', 'package-lock.json', 'server.mjs') {
+    if (-not (Test-Path -LiteralPath (Join-Path $repo 'web' $f) -PathType Leaf)) {
+        throw "$(Join-Path $repo 'web') has no $f (the lis-web MCP server the image copies in)."
     }
 }
-"web-image: building $image from $dockerfile (base $base, jarvis context $jarvis)"
-& docker build -f $dockerfile --build-context "jarvis=$jarvis" -t $image $repo
+"web-image: building $image from $dockerfile (base $base, context $repo)"
+# From the repo root, so the context is `.` and .dockerignore applies.
+Push-Location -LiteralPath $repo
+try { & docker build -f container/Dockerfile -t $image . }
+finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { throw "docker build failed (exit $LASTEXITCODE); $image is unchanged." }
 $img = Get-LisImage $image
 if (-not $img) { throw "docker build reported success but $image is not in the image store." }

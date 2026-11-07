@@ -51,8 +51,10 @@ Conventions:
 - Use when: you need the GPU for something else, you are swapping models, or you want a
   clean restart.
 - What: stops the listener on 8080 only if its process name is llama-server, writes a
-  stop marker so `serve.ps1` does not restart it, and logs "stopped PID" (that line
-  is UNVERIFIED live until the next operator stop, ledger R-W5).
+  stop marker so `serve.ps1` does not restart it. Under the scheduled task the log
+  then shows `llama-server exited -1` and `not restarting: [stop.ps1] stop requested`;
+  the "stopped PID" line lands only when no `serve.ps1` holds the log (live
+  2026-11-06, ledger R-W5).
 - Cons: every open session loses its backend mid-turn.
 - Heads-up: `-WhatIf` prints what it would stop. Operator-only: an agent session never
   runs it on its own.
@@ -196,27 +198,35 @@ back unless `-LisFull` or `-LisUserScope` loads it.
 ## With web access (the lis-web container)
 
 Web sessions never start claude on the host: `-LisWeb` runs it inside `lis-web:2.1.318`
-with your working directory read-write at /work, this repo read-only at /lis, the Jarvis
-source read-only, a fresh per-run home at /home/lis and nothing from your profile. The
-session gets five tools (`mcp__jarvis-web__web_search`, `exa_search`, `jina_search`,
-`web_read`, `web_read_tweet`) and a policy sentence that web content is untrusted.
-WebFetch and WebSearch stay denied.
+with your working directory read-write at /work, this repo read-only at /lis (its
+`.env` hidden behind an empty read-only file), a fresh per-run home at /home/lis and
+nothing from your profile. The web tools are this repo's own `lis-web` server (`web/`,
+copied into the image at /opt/lis-web; operator ruling 2026-11-06), independent of the
+Jarvis checkout. The session gets five tools (`mcp__lis-web__web_search`,
+`exa_search`, `jina_search`, `web_read`, `web_read_tweet`) and a policy sentence that
+web content is untrusted. WebFetch and WebSearch stay denied. Proven live on the
+lis-web server 2026-11-06 23:40 (docs/web-access.md "Proof").
 
 Shared warnings for every web line:
 
 - Egress is open. A prompt-injected model can send anything readable inside the
   container to an attacker in one `web_read` call (ledger W-8). Readable means: your
-  working directory, this repo, the Jarvis `src` and `tsconfig.json`, the per-run home
-  and logs, and the four env values (the three key names and the server key), which
+  working directory, this repo minus `.env`, the per-run home and logs, and the four
+  env values (the three key names and the server key), which
   `echo $NAME` prints (ledger W-9). Nothing else of yours is mounted.
 - The search tools fail until BRAVE_SEARCH_API_KEY, EXA_API_KEY and JINA_API_KEY are
-  in the Jarvis checkout's `.env` (ledger W-4); `web_read` is keyless and proven live;
-  `web_read_tweet` is keyless too (UNVERIFIED live).
+  in `<repo>\.env` (gitignored; the operator copies the three `KEY=VALUE` lines in,
+  ledger W-4); `web_read` is keyless and proven live on lis-web; `web_read_tweet` is
+  keyless too (UNVERIFIED live).
+- The launcher refuses to start while any `.env*` file other than `.env` and
+  `.env.example` sits at the repo root (`.env.local`, `.env.bak`): move it out.
+- Pass `--debug-file` as a relative name (`debug.log`); a Windows path becomes one
+  mangled file name inside the container.
 - The working directory must be a path on a local drive outside (and not above) your
-  profile, this repo and the Jarvis checkout; junctions, subst drives, UNC paths and
+  profile and this repo; junctions, subst drives, UNC paths and
   paths holding a comma or a double quote are refused.
-- Per-run logs land in `<repo>\logs\web-<stamp>\logs\` (the jarvis-web call log is one
-  host-only line per call); the transcript is under `...\home\.claude\`.
+- Per-run logs land in `<repo>\logs\web-<stamp>\logs\` (the call log `web-calls.log`
+  is one host-only line per call); the transcript is under `...\home\.claude\`.
 - After any web session both of these should list nothing; if either lists something,
   `docker rm -f <id>` and delete the file:
 
@@ -228,12 +238,13 @@ Get-ChildItem $env:TEMP -Filter lis-web-*.env
 ### `web-image.ps1`
 
 - Use when: before the first web session, and again after a Claude Code upgrade or a
-  change to Jarvis's lockfile. `-Check` only reports whether the image exists.
-- What: builds `lis-web:2.1.318` from `container/Dockerfile`: node:24-bookworm-slim
-  by digest, PowerShell pinned, Claude Code 2.1.318 verified by sha512 before install,
-  Jarvis's dependencies from its lockfile. About 2 GB.
-- Heads-up: the Jarvis lockfile reports npm audit findings at build time; those are
-  Jarvis's dependencies, not this repo's.
+  change under `web/`. `-Check` only reports whether the image exists.
+- What: builds `lis-web:2.1.318` from `container/Dockerfile` with the repo root as the
+  context (`.dockerignore` keeps `.git`, `bin`, `models`, `logs`, `bench/results`,
+  `web/node_modules` and `.env` out): node:24-bookworm-slim by digest, PowerShell
+  pinned, Claude Code 2.1.318 verified by sha512 before install, the lis-web server
+  from `web/` with `npm ci --omit=dev` from `web/package-lock.json`. About 1.36 GB.
+- Heads-up: no parameter names another checkout; the build reads only this repo.
 
 ### `claude-local.ps1 -LisWeb -LisTask review -p "<prompt>"`
 

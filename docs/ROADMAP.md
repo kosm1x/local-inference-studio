@@ -231,16 +231,16 @@ owner, fix and proof is in one table (38 LANDED, 5 BUILT, 11 OPEN of 54 on 2026-
 - Trustworthiness: FAIL for unsupervised long tasks; PASS WITH WARNINGS for short
   test-gated ones read at STATUS and After.
 - Security: FAIL for enabling web fetch at the audit (blockers B1-B7). 2026-11-05: web
-  access ARMED through the Jarvis MCP route in the lis-web container; WebFetch and
-  WebSearch stay denied; residuals: open container egress (W-8), the keys in the
-  session's environment (W-9).
+  access ARMED through an MCP route in the lis-web container (since 2026-11-06 this
+  repo's own `lis-web` server, W-11); WebFetch and WebSearch stay denied; residuals:
+  open container egress (W-8), the keys in the session's environment (W-9).
   S-O3 drops the user `autoMode` rules: without `--permission-mode auto` a lean `-p`
   session denies what no rule or hook allows; a caller's `--permission-mode auto` is
   still accepted outside web sessions and the classifier still runs there (the S-B2
   ruling of 2026-11-05 covers web sessions).
 - Web access prep: ARMED 2026-11-05 (`-LisWeb`; [docs/web-access.md](web-access.md)).
-  Next: search keys in the Jarvis `.env` (operator), the egress and key-split rulings
-  (W-8, W-9).
+  Next: the three search keys copied into `<repo>\.env` (operator, ruling 2026-11-06),
+  the egress and key-split rulings (W-8, W-9).
 - Counts on disk (T-8): at the audit `bench/results/` held 10 rung-2 (long-fix) sets and
   23 ladder `.jsonl` streams, not the 13 sets and ~35 sessions of the audit brief. On
   2026-11-04 it holds 21 long-fix sets (10 of 2026-10-26, 11 of 2026-11-04) and 40
@@ -391,6 +391,19 @@ Batches (IDs in the ledger):
   open (W-8) and the keys share the session's environment (W-9), both operator
   rulings; docs/web-access.md.
   `-LisTerminal` (W-10, BUILT 2026-11-06): `docker run -it`; a live run is UNVERIFIED.
+  Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
+  agent-controller independent of it. They are not sensitive keys, just import the .env
+  from Jarvis' repo and make it local." The five tools are ported into `web/` (the
+  `lis-web` stdio server, plain ESM, no Playwright fallback, no eviction writer),
+  copied into the image at `/opt/lis-web`; no Jarvis mount or build context; the keys
+  come from `<repo>\.env`, hidden inside behind an empty read-only file. Image rebuilt
+  2026-11-06, about 1.36 GB. Tests: web 48/48, lisweb_test 81 host + 95 container
+  checks; mutants red in every round (implementer 10 then 7, auditor 9 then 4,
+  overlapping sets); round 1 found the env parser case-insensitive and `.env.*`
+  siblings visible through the repo mount, both fixed, round 2 confirmed. The
+  Jarvis-route text above is history. Live proof 2026-11-06 23:40: rc 0,
+  `Example Domain`, 2 turns, 2059 ms, no denial, five tools listed, 0 env files and 0
+  containers left (web-access.md "Proof"). The key import is the operator's.
 - Finding 2026-11-04 (ruling needed, not in the ledger): ruling (19) weighed the context
   cost of the user-scope load (the orientation hook re-injected at every compaction and
   the user-scope CLAUDE.md plus rules file, 14,582 chars of file text) and kept the
@@ -2687,8 +2700,8 @@ only: it is an Anthropic server-side tool that cannot work against the local ser
 WebFetch fetches and converts the page in Claude Code, then runs the prompt over it in
 a separate model call; only the hostname goes to api.anthropic.com (the domain
 preflight). That the extraction call goes to the configured local endpoint is
-UNVERIFIED: the docs do not say. It stays denied; since 2026-11-05 web sessions use the
-Jarvis MCP route instead (docs/web-access.md).
+UNVERIFIED: the docs do not say. It stays denied; since 2026-11-05 web sessions use an
+MCP route instead, since 2026-11-06 the repo's own lis-web server (docs/web-access.md).
 Corrected 2026-11-04, ledger W-1).
 VERIFIED from the `system/init` event of `--output-format stream-json --verbose`,
 run through `scripts/claude-local.ps1` from a throwaway git repo:

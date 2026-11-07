@@ -16,14 +16,12 @@
 - A permission allow prefix for a command that takes file-valued options cannot be made safe by a hook that reads tokens before the shell expands them; allow such commands only through the hook's own recogniser, never a glob rule.
 - A hook that allows commands gives no decision on any segment with a shell expansion (`$`, backtick, unquoted `{}`/`*?[]`/`~`), and every verb handler AND the env-prefix filter are allow-lists; no grammar over expansions survives audit (6 rounds, 2026-10-25).
 - Grade a run by its artefact against a fixed fact checklist, never by server health.
+- A ranking needs every contender to have a number on the same fixture (10-24 3d).
 
 ## 2026-10-24 — P3 to P5: bench matrix, Saluki/GSQ-RCO/Orca, vLLM spike
 - **Mistake:** a subagent committed with an Opus trailer and a WSL username in the ROADMAP. → Brief states the exact trailer; audit checks for usernames.
 - **Better:** fit questions get answered by the `-lv 4` placement lines (layers on GPU, CPU_Mapped MiB, KV MiB, free MiB) captured in the same run as the numbers.
 - **Better:** the GSQ-RCO MTP head runs on stock llama.cpp `--spec-type draft-mtp`; test MTP at the context where the model fits all-GPU, since its ~1.3 GB cost otherwise spills layers and hides the speed-up.
-
-## 2026-10-24 — Phase 3c: Qwen3.8-27B-Uncensored GGUF
-- **Better:** a background poll (port 8081, `pgrep vllm` in WSL, `memory.used`) that also accepts "llama-server back on :8080" as the other agent's done signal ended the GPU wait without guessing.
 
 ## 2026-10-24 — Phase 3d: agentic-loop comparison
 - **Mistake:** started 3-rep loops on Saluki and GSQ-RCO without checking that their chat template accepts Claude Code's message order; every rep burned about 3 min on 11 HTTP 500 retries (`raise_exception('System message must be at the beginning.')`). → Before a long loop on a new GGUF, run one `-v` request and read the converted role order (the operator's SessionStart hook output arrives as a second, non-leading system message), or POST it to `/apply-template`.
@@ -33,9 +31,6 @@
 ## 2026-10-24 — Ruling 6 cutover (Orca IQ3_XXS default)
 - **Mistake:** template detection compared a non-normalised path; `GetFullPath` ran only on relative inputs, so an absolute forward-slash `-Model` skipped `--chat-template-file` (HTTP 500 under Claude Code) (audit catch). → Normalise every path before any prefix test.
 - **Better:** the logon task log runs at verbosity 3 and carries no placement lines; capture fit with ONE `-lv 4` start on :8081 after stopping the task server (two 27B servers cannot share the card), then restart the task.
-
-## 2026-10-24 — Session close (orchestration)
-- **Mistake:** the Phase 3d summary's "fastest on both fixtures" passed the orchestrator's read before the audit caught that only one contender finished on the old fixture. → Rankings need every contender to have a number on the same fixture.
 
 ## 2026-10-24 — Live monitoring of the Orca default
 - **Mistake:** reported the running context size by summing prompt-in and tokens-out per turn (said ~67K); the server's own `stop processing: n_tokens` line peaked at 45,417. → Read the server's count; the sum ignores compaction and parallel conversations.
@@ -147,3 +142,13 @@
   shapes pass it); what the container mounts is the control.
 - **Better:** prove the Docker host route from inside a container before planning host
   network changes; `host.docker.internal:8080` worked and saved an admin portproxy.
+
+## 2026-11-06 - lis-web: web tools ported out of the Jarvis checkout
+- **Mistake:** the Jarvis-mount design left the private Jarvis source readable in the
+  container; an audit of a doc surfaced it. -> List what each mount exposes, by owner.
+- **Better:** the operator ruled to decouple; the fix was a port into `web/`, not a
+  mount tweak: no foreign source, build context or `.env` path is left in the launcher.
+- **Mistake:** `--debug-file Z:\...\x.log` under `-LisWeb` wrote one file named after
+  the whole path into /work. -> Container runs take relative names for file flags.
+- **Mistake:** a doc fold quoted a wall time and a build-context size no artifact holds;
+  the auditor caught both. -> Every figure in a doc names the file it was read from.

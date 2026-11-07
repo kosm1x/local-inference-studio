@@ -31,5 +31,7 @@ Constraints for agents working in this repo:
   `python -I scripts/tests/claude_settings_test.py`,
   `python -I scripts/tests/install_verify_test.py`,
   `python -I scripts/tests/lisweb_test.py` (its container half needs Docker and the
-  lis-web image) and
+  lis-web image),
+  `node --test web/test/*.test.mjs` (the lis-web MCP server; needs
+  `npm ci --prefix web` once) and
   `node --test bench/loop/fixture/test/text.test.js` (3 fail by design).

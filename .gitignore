@@ -6,6 +6,8 @@ models/*
 .cache/
 bench/results/*.json
 .env
+.env.*
+!.env.example
 logs/*
 !logs/.gitkeep
 bench/results/*.log
@@ -18,3 +20,4 @@ bench/results/*/
 __pycache__/
 lis-facts-*.md
 *.transcript.jsonl
+web/node_modules/

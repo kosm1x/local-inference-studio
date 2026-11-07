@@ -133,8 +133,12 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
   profiles, web container) with its use case, pros, cons and warnings
 - [docs/uploader-rule.md](docs/uploader-rule.md) — GGUF uploader per model (ruling 35)
 - [docs/web-access.md](docs/web-access.md) - web read/search for the local model,
-  ARMED 2026-11-05: `-LisWeb` runs the session in the lis-web container with Jarvis's
-  web tools over MCP; WebFetch and WebSearch stay denied; open egress is a residual
+  ARMED 2026-11-05: `-LisWeb` runs the session in the lis-web container with this
+  repo's own web tools over MCP (`web/`, ruling 2026-11-06, proven live the same
+  day); WebFetch and WebSearch stay denied; open egress is a residual
+- [web/README.md](web/README.md) - the `lis-web` stdio MCP server (five tools: Brave,
+  Exa and Jina search, the Jina reader, fxtwitter), its keys from `<repo>\.env` and
+  its tests (`node --test web/test/*.test.mjs`)
 - [config/models.md](config/models.md) — tracked model candidates
 - [config/claude-settings.json](config/claude-settings.json) — `--settings` overlay used
   by `claude-local.ps1` (model + subagent model = `local`, auto-compact window 131072,
@@ -153,8 +157,9 @@ previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`)
   at the end; `-LisPrintArgs` prints the claude arguments and settings JSON without
   launching (docs/SETUP.md step 8)
 - [scripts/web-image.ps1](scripts/web-image.ps1) - builds the `lis-web:2.1.318` image
-  from `container/Dockerfile` that `claude-local.ps1 -LisWeb` runs web sessions in
-  (operator-run; docs/web-access.md)
+  from `container/Dockerfile` (context: this repo, `.dockerignore` applied; it copies
+  in only `web/`) that `claude-local.ps1 -LisWeb` runs web sessions in (operator-run;
+  docs/web-access.md)
 - [scripts/hooks/loop-guard.py](scripts/hooks/loop-guard.py) - PreToolUse hook on every
   tool that denies a call identical to 3 or more of the session's last 12 counted calls,
   the loop seen in 5 of the 8 bench/compact runs (2026-10-26), 4 of which it held until

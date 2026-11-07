@@ -1,0 +1,13 @@
+# The lis-web build context is this repo (scripts/web-image.ps1); the Dockerfile copies only
+# web/package.json, web/package-lock.json, web/server.mjs and web/tools/. Kept out:
+# binaries, models, logs (logs/api-key), bench results, the web keys and node_modules.
+.git/
+bin/
+models/
+logs/
+bench/results/
+web/node_modules/
+.env
+.env.*
+!.env.example
+**/__pycache__/

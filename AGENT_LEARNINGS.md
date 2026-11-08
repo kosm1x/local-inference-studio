@@ -31,11 +31,9 @@
 - `date` runs before every timestamp written anywhere, memory files included; a
   commit is stamped from `git log`, never from recall (11-04: two guessed times).
 
-## 2026-10-25 — First real session on 65K+MTP+lean (PC recon, two runs compared)
+## 2026-10-25 — PC recon runs 1 to 3 (65K+MTP+lean, then ruling 14 back to 131K)
 - **Avoid:** letting auto-compact fire mid-task on a 65,536 window: it triggered at ~36K; the model's own summary turned "J 135/4657, K 328/14902" into "mostly free" and the final report was written from the summary.
 - **Better:** report-producing tasks write facts to a file as they go; the raw tool output is the only thing compaction cannot be trusted to keep.
-
-## 2026-10-25 — Ruling 14: revert to 131K, RUN 3 of the PC recon
 - **Mistake:** the RUN 2 verdict named compaction as the whole cause and auto mode as the fix; RUN 3 (131K, no compaction, one classifier timeout) was still incomplete: 6 of 8 volumes missing, GPU "not checked". -> Grade every run against a fixed checklist of the facts the task must contain (every volume, GPU, CPU, RAM, OS, toolchain, services) before naming a cause.
 - **Mistake:** RUN 3 lost all three drive queries for three different reasons: one classifier timeout, one bash expansion of an unescaped `$_` inside `powershell -Command "..."`, one PowerShell precedence error (`-f $_.Size/1GB, ...`) hidden by `2>/dev/null`; the model fell back to `df` on C and Z. The first write-up blamed `$_` for both executed failures (audit catch). -> Read each failed call's result separately before naming one cause; a policy fix for `$_` covers one of the two.
 - **Mistake:** wrote "compacted at about 36K" from the monitor's last n_tokens; the transcript's `compact_boundary.preTokens` says 39,098. -> Compaction size comes from the transcript metadata, not from the last server line before it.
@@ -149,3 +147,15 @@
 - **Mistake:** the commit-message column check ran in the same command as the
   commit, so six 73-75 column lines shipped in c46. -> A check gates the commit
   (`&&` on its exit code or a separate step), it does not merely print.
+
+## 2026-11-08 - engine research, upgrade held, PR 30966, isolation assessment (c48)
+- **Mistake:** `cd "$TMPDIR" 2>/dev/null || cd <scratch dir>` wrote a diff to whichever
+  directory won; the next `sed` on the scratch path failed. -> One absolute scratch
+  path per write, never a `cd` fallback chain.
+- **Better:** a research report marks every figure M (card, date, source) or E, names
+  the weaker arm of each comparison (the EXL3 blog's llama.cpp side ran Q3_K_M with a
+  separate draft, slower than this repo), computes the bandwidth ceiling before any
+  install, and states an upgrade's gain class first (fixes vs speed): told "fixes, no
+  IQ3_XXS decode gain", the operator HELD b12198 in one line.
+- **Avoid:** rating a boundary by its documented residuals alone; walk the host-side
+  surfaces too (every loopback port behind `host.docker.internal`, a real work dir).

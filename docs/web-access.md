@@ -629,6 +629,14 @@ Not closed (round-2 audit, 2026-11-05):
   written per run, the home being fresh each run, with no prompt sent. Ledger W-12
   (OPEN): seeding `officialMarketplaceAutoInstallAttempted` in the home's
   `.claude.json` should skip it (UNVERIFIED).
+- Assessment 2026-11-08 (not ledger rows; UNVERIFIED on this host):
+  `host.docker.internal` forwards every loopback port of the host, not only 8080, so
+  any other service bound to 127.0.0.1 (a dev server, a WSL service, an exposed Docker
+  API) is reachable from an injected session; a work directory that is a real project
+  is a persistence surface (a planted `package.json` script or editor task runs later
+  on the host; the shortcut's empty scratch directory avoids it); the container's own
+  layer is writable (`--read-only` plus the existing tmpfs would close it; `--rm`
+  limits it to the run).
 
 ## Operator actions
 

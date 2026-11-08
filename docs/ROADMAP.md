@@ -135,6 +135,8 @@ harness fixes (39). Still OPEN:
   main-server ctx or `-ub` change; router mode or a proxy; the GGUF download and its
   license; arming `CLAUDE_CODE_AUTO_MODE_MODEL` only after the 24-command bench. The
   study ranks "not now" first.
+- Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
+  2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4
   misbehaves); P2 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` value; P6 the context-for-MTP trade
   for other models.
@@ -220,6 +222,57 @@ its own 65536-budget reps (against the arm B mean of 1,181 s), so on this fixtur
 fits in 131072, the compaction overhead outweighed MTP's decode gain (n=1); on a task that
 would compact even at 131072 the A/B figures apply. n=1, UNVERIFIED beyond this rep. Input
 to the MTP-default ruling alongside the A/B.
+
+## Engine research 2026-11-08
+
+Question: is any local engine faster than llama-server b11868 for the default model on
+this card? Report of record: `reports/Fastest local inference engines.md` in the
+umbrella checkout (outside this repo; five research notes beside it). Findings:
+
+- Decode is bandwidth-bound: 11.5 GB of weights over a quoted 672 GB/s (low-authority
+  figure, UNVERIFIED) gives a ceiling near 58 tok/s; the 45 tok/s baseline is about
+  77% of it. No engine swap can add more than 20 to 30% without speculation.
+- Only ExLlamaV3 1.6.6 has a measured lead on a 4070 Ti SUPER (Linux container, EXL3
+  1.5.0): 103 vs 80 tok/s with MTP on code, 41 to 43 vs 36 to 38 without, 13.6 vs
+  15.4 GB VRAM at 16K with MTP. Its llama.cpp arm ran Q3_K_M with a separate draft
+  file and q8_0 KV, slower than this repo's own baseline, so the no-MTP figure is a
+  tie. TabbyAPI serves no `/v1/messages`, so it needs a proxy or text-generation-webui's
+  endpoint (UNVERIFIED with Claude Code). Windows figures: none.
+- Mainline b11868 to b12198 (2026-11-08) changes no IQ3_XXS decode kernel; it brings
+  the MTP state restore around checkpoints (PR 30141), the quantized-KV state copy fix
+  (PR 30541: 1/32 copied with q4_0 KV), ref-counted checkpoints (PR 30137) and the
+  `draft-mtp,ngram-mod` corruption fix on GDN models (PR 31350). Fixes, not speed.
+- ik_llama.cpp (no official Windows binary; its Docker image has the Anthropic API)
+  and KoboldCpp 1.124.2 (Anthropic API since 1.115.1, no MTP in its notes) sit at
+  parity for a dense model. vLLM 0.32 and SGLang serve `/v1/messages` natively but do
+  not hold a 27B at 64K on 16 GB (this repo's vLLM run reached about 6K). TensorRT-LLM,
+  NIM, Aphrodite, Foundry Local, llamafile (b10441) and MLC-LLM are ruled out.
+- Levers untested here: `draft-mtp,ngram-mod` (safe only from PR 31350), draft KV
+  `-ctkd/-ctvd`, `--spec-draft-n-ubatch`, `--spec-draft-p-min 0.75`, the DFlash2
+  drafter. On prebuilt CUDA zips the K and V types must match (issue 31213).
+
+Ruling 2026-11-08 (operator): the b12198 upgrade is HELD. It is cheap and low-risk but
+buys no decode on its own; it becomes worth doing with the spec sweep (experiment 2)
+or before any `ngram-mod` run. Experiment order (report): 1 upgrade and rerun the
+baseline rows; 2 spec sweep at 65K; 3 MTP context ceiling; 4 DFlash2; 5 ExLlamaV3 +
+TabbyAPI on Windows; 6 Claude Code fit for EXL3 only if 5 wins by more than 15%;
+7 ik_llama.cpp in Docker; 8 secondary models; 9 vLLM negative control.
+
+PR 30966 (llama.cpp, merged 2026-11-07, `e95426f`) reviewed the same day:
+`--moe-cache-cpu-share F` computes a share of MoE expert-cache misses on the CPU;
+sound, irrelevant to the dense default, relevant only to a P4 host-expert setup.
+
+Build rating 2026-11-08 (1 to 10, hardware-adjusted): decode speed 8, engine choice 9,
+harness fit 9, safety 8, measurement 9, agentic quality 5, operability 7, docs 7. The
+limit is a 27B at 3 bpw on 16 GB plus the classifier cost (S-B2); the open build is
+W-14.
+
+Container isolation assessment 2026-11-08: host and user data 9 of 10 (no capability,
+no privilege escalation, repo read-only, `.env` masked, home never mounted, keys never
+on disk inside); session secrets 5 of 10 until W-8 or W-9 (the four keys are readable
+by an injected model and egress is open). Three surfaces added to web-access.md
+"Residuals": host loopback beyond port 8080, a real work directory as a persistence
+surface, no read-only root filesystem.
 
 ## Audits 2026-10-30
 

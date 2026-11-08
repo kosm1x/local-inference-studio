@@ -14,7 +14,9 @@
 - Client: Claude Code 2.1.319 (`claude_version`), `bench/ladder/run.ps1` unchanged.
   Three reps per case plus one 79-module long-fix rung, 16 reps, one at a time, no
   other session on the server. Reps 1 are recorded in full first; reps 2 and 3 and
-  the 79-module rung follow under Reps 2 and 3. Every figure below is copied from the
+  the 79-module rung follow under Reps 2 and 3; the default's own 48-module rep, run
+  after the operator put the default back, under Default comparison. Every figure
+  below is copied from the
   rep's `.json` (grader output), `.transcript.jsonl` or `.run.log` under
   `bench/results/`. Peak prompt = the largest per-request sum of the transcript's
   `usage` fields (input, cache read, cache creation).
@@ -192,6 +194,43 @@ generator's maximum). `-MaxTurns` 823 and `-TimeoutMin` 198 derived from `-Modul
   2, Write 1. Denials none.
 - Violations: `test_runs_short:13` (`test_runs` 9, `test_runs_instructed` 22).
 
+## Default comparison: long-fix, 48 modules, 131072, on the default file
+
+The operator stopped the ISTA server and the scheduled task restarted the default
+(`Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`, same `-c 131072 -ctk q4_0 -ctv q4_0`, no
+`--spec-type`, `--reasoning off`, the patched template, build b11868-78a8ae14b; the
+rep's `server` field agrees). Stamp 20261108-144636, rep_key 8ec49387 (new key: the
+model path is a key input), fixture_sha256 18dc88aa (the same 48-module fixture as the
+ISTA reps). Session 14:46:38 to 15:12:17, `wall_s` 1,538.9, `num_turns` 209,
+`tokens_in_total` 8,492,999, `output_tokens` 23,703, exit 0, not timed out.
+
+- Context: peak prompt 100,252; 88 of 208 requests past 65,536, the first at request
+  64. `compaction_fired` 2, at 102,252 (16,982 post; `src_edits` 49 before, 47 after)
+  and 102,049 (16,618 post; 91 before, 5 after); `facts_survived_strict` false at both.
+- Verdict: `bar_met` FALSE, `bar_reason` `false: record_intact`. `bar_parts`: `scope_ok`,
+  `tests_broken_empty`, `claim_agrees`, `facts_gate`, `compaction_ok`,
+  `no_redirect_writes` true; `record_intact` false (`lines_removed` 96: the one Write
+  call replaced the facts file, so every earlier line was removed and re-added).
+- Tests: pass 48, fail 96 before; pass 144, fail 0 after; `tests_broken` empty;
+  `claim_agrees` true, `claim_fixed_count` 96. Tools Edit 99, Read 98, Bash 4, Glob 2,
+  Grep 2, Write 1. `tool_error` 2 (an Edit on a directory path, `EISDIR`; an Edit on a
+  path that did not exist).
+- Facts file at the end: BEFORE 1, CHECK 1, FIXED 96, NEXT 1; `facts_false` 0,
+  `fixed_names_inexact` 0. At 15:10, 24 minutes in and with all 48 src files edited, the
+  file still held only `BEFORE` and `NEXT m01`: the FIXED lines were written at the end,
+  not as the work went.
+- Violations: `next_rewritten_in_place:1`, `test_runs_short:10` (`test_runs` 4 of 14),
+  `check_missing:1`.
+- Decode speed by context, from `logs/llama-server.log` since the 14:45:41 start (the
+  task-started server logs; median `tg` of `print_timing` rows with `n_gen` 20 or more,
+  bands by the slot's `n_tokens`): 0 to 20K 41.1 (2 rows), 20K to 40K 36.4 (53), 40K to
+  65K 35.0 (58), 65K to 80K 31.8 (26), 80K to 95K 30.3 (29), 95K to 131K 28.9 (175),
+  minimum 28.3. The ISTA reps have no such figure (console-started server, no log).
+- Against the ISTA file's three reps at these settings (null, TRUE, null; peaks 69,640,
+  101,827, 70,569; rep 2 compacted once at 102,002 with strict survival true): same
+  tests fixed, deeper context on the default's single rep, worse facts discipline (a
+  wholesale rewrite, late FIXED lines, two failed strict replays).
+
 ## Bench
 
 `bench/results/20261108-125456-qwen3.8-27b-gsq-rco.json`, console log
@@ -214,8 +253,9 @@ No per-request decode speed past 64K exists for these runs (no server log).
 
 - Three reps per case, so the stale-figure, blocked, bait and both long-fix series
   close at n=3 on this file; the 79-module rung is one rep.
-- The default has no rep at 48 or 79 modules and 131,072 (its series 4 ran 48 modules
-  at 81,920), so the deep reps show this file's behaviour past 64K, not a comparison.
+- The default has one rep at 48 modules and 131,072 (Default comparison) and none at
+  79, so the 48-module comparison is three reps against one; the 79-module rung has
+  no comparison.
 - Depth covered: 65,536 to 102,002 prompt tokens (48-module rep 2 compacted there);
   the 79-module rung peaked at 93,092. Not covered: 102K to the 114,688 window inside
   one conversation, and a fixture that forces whole-file reads.

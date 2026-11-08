@@ -138,6 +138,12 @@ harness fixes (39). Still OPEN:
 - Model test queue (Survey 2026-11-08 above): recommend queue 1 (ISTA stock file, on
   disk, no download) at 131,072 with a rung past 64K, then 2 as its control; every
   download (IQ3_S, Swift-1.5 after its licence is read, Groot) is the operator's call.
+  Launch line for test 1 (the server start is the operator's): `pwsh scripts\serve.ps1 -Model models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf -KvType q4_0 -ChatTemplateFile config\chat-templates\qwen3.8-27b.jinja`.
+  `-KvType q4_0` is required: serve.ps1 gives any non-default model q8_0 KV, and at
+  131,072 with q8_0 this file measured 61 of 66 layers on the GPU at 26.4 tok/s
+  (config/models.md); with q4_0 KV and MTP off (serve.ps1 adds MTP only for the
+  default) an all-GPU fit is expected but UNVERIFIED. The SETUP.md example for this
+  file uses `-Ctx 65536`, where q8_0 fits; raising its context trips the rule.
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
   2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4

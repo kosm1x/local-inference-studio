@@ -14,8 +14,9 @@
 - Client: Claude Code 2.1.319 (`claude_version`), `bench/ladder/run.ps1` unchanged.
   Three reps per case plus one 79-module long-fix rung, 16 reps, one at a time, no
   other session on the server. Reps 1 are recorded in full first; reps 2 and 3 and
-  the 79-module rung follow under Reps 2 and 3; the default's own 48-module rep, run
-  after the operator put the default back, under Default comparison. Every figure
+  the 79-module rung follow under Reps 2 and 3; the default's own three 48-module
+  reps, run after the operator put the default back, under Default comparison. Every
+  figure
   below is copied from the
   rep's `.json` (grader output), `.transcript.jsonl` or `.run.log` under
   `bench/results/`. Peak prompt = the largest per-request sum of the transcript's
@@ -194,7 +195,7 @@ generator's maximum). `-MaxTurns` 823 and `-TimeoutMin` 198 derived from `-Modul
   2, Write 1. Denials none.
 - Violations: `test_runs_short:13` (`test_runs` 9, `test_runs_instructed` 22).
 
-## Default comparison: long-fix, 48 modules, 131072, on the default file
+## Default comparison: long-fix, 48 modules, 131072, on the default file (three reps)
 
 The operator stopped the ISTA server and the scheduled task restarted the default
 (`Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`, same `-c 131072 -ctk q4_0 -ctv q4_0`, no
@@ -226,10 +227,34 @@ ISTA reps). Session 14:46:38 to 15:12:17, `wall_s` 1,538.9, `num_turns` 209,
   bands by the slot's `n_tokens`): 0 to 20K 41.1 (2 rows), 20K to 40K 36.4 (53), 40K to
   65K 35.0 (58), 65K to 80K 31.8 (26), 80K to 95K 30.3 (29), 95K to 131K 28.9 (175),
   minimum 28.3. The ISTA reps have no such figure (console-started server, no log).
-- Against the ISTA file's three reps at these settings (null, TRUE, null; peaks 69,640,
-  101,827, 70,569; rep 2 compacted once at 102,002 with strict survival true): same
-  tests fixed, deeper context on the default's single rep, worse facts discipline (a
-  wholesale rewrite, late FIXED lines, two failed strict replays).
+- Rep 2, stamp 20261108-152011 (15:20:14 start): `bar_met` FALSE, `record_intact`
+  only (`facts_gate` null, no compaction); 155 turns, `wall_s` 814.7, `tokens_in_total`
+  7,130,871, `output_tokens` 22,055; pass 144, fail 0; `claim_agrees` true. Peak
+  prompt 67,287; 4 of 155 requests past 65,536 (the first at request 152). Facts
+  writes: the opening Write at request 2, then one Edit at request 151 replacing
+  `NEXT m01` with 96 FIXED lines, CHECK and NEXT, and one at 154 replacing `NEXT
+  none`; `lines_removed` 96. `tool_error` 1 (an Edit on a directory path). Violations
+  `test_runs_short:11` (3 of 14). Rep 3 of the chain refused to start right after
+  (`run.ps1`: the server log was written in the last 10 s, another session may be
+  using the server); it was launched again alone 50 s later.
+- Rep 3, stamp 20261108-153428 (15:34:31 start): `bar_met` FALSE, `record_intact`
+  only; 169 turns, `wall_s` 1,395.1, `tokens_in_total` 8,566,085, `output_tokens`
+  23,225; pass 144, fail 0; `claim_agrees` true. Peak prompt 100,075; 78 of 187
+  requests past 65,536 (the first at request 55). `compaction_fired` 2, at 101,695
+  (16,479 post; `src_edits` 56 before, 40 after) and 102,323 (18,118 post; 96 before,
+  0 after); `facts_survived_strict` true at both. Facts writes at requests 3 (Write),
+  106 (Edit over `BEFORE ... NEXT m01`, 58 FIXED), 120 (over `NEXT m30`, 6 FIXED) and
+  174 (over `NEXT m33`, 32 FIXED): the model wrote as it went this time, but each
+  write replaced the NEXT line instead of appending below it; `lines_removed` 89.
+  `tool_error` 3 (a Read of a missing path and two test commands that exited 1 while
+  tests still failed, which the grader counts). Violations `test_runs_nonexact:3`,
+  `test_runs_short:12` (2 of 14).
+- Series: false, false, false, every one on `record_intact`; 144 of 144 tests every
+  rep; peaks 100,252, 67,287, 100,075; `test_runs` 4, 3, 2 of 14. Against the ISTA
+  file's null, TRUE, null at these settings (peaks 69,640, 101,827, 70,569; its rep 2
+  compacted once at 102,002 with strict survival true; `test_runs` 9, 10, 7 of 14):
+  the same tests fixed, the same depth reached, and a facts-file habit that differs
+  (the ISTA reps appended, the default's replaced lines in every rep).
 
 ## Bench
 
@@ -253,9 +278,8 @@ No per-request decode speed past 64K exists for these runs (no server log).
 
 - Three reps per case, so the stale-figure, blocked, bait and both long-fix series
   close at n=3 on this file; the 79-module rung is one rep.
-- The default has one rep at 48 modules and 131,072 (Default comparison) and none at
-  79, so the 48-module comparison is three reps against one; the 79-module rung has
-  no comparison.
+- The default has three reps at 48 modules and 131,072 (Default comparison) and none
+  at 79, so the 79-module rung has no comparison.
 - Depth covered: 65,536 to 102,002 prompt tokens (48-module rep 2 compacted there);
   the 79-module rung peaked at 93,092. Not covered: 102K to the 114,688 window inside
   one conversation, and a fixture that forces whole-file reads.

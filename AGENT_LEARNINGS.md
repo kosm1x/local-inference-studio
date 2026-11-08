@@ -149,7 +149,7 @@
 - **Better:** delete with the consumers in mind: manifest pruned, `-VerifyModels` 4 of
   4, tests green, doc rows keep their figures with "deleted <date>" in the file cell.
 
-## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c53)
+## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c54)
 - **Mistake:** the "past 64K" rung was launched at the ladder's 81920 budget, which caps
   the window at 65,536 (the rep peaked at 49,092); a side note caught it, and the
   48-module rep at 131,072 did pass 64K. -> Prove a context axis from the transcript's
@@ -164,3 +164,6 @@
   may appear and must stay open; it was closed twice and the server died with it, with
   no exit line in the log. -> Name the window in the handed line; a stop with no
   `llama-server exited` line means the wrapper was killed, not a crash.
+- **Avoid:** chaining ladder reps back to back against a task-started server: `run.ps1`
+  refuses when the server log changed in the last 10 s, so rep 3 never ran. Sleep 15 s
+  between reps when the server logs to file.

@@ -135,6 +135,9 @@ harness fixes (39). Still OPEN:
   main-server ctx or `-ub` change; router mode or a proxy; the GGUF download and its
   license; arming `CLAUDE_CODE_AUTO_MODE_MODEL` only after the 24-command bench. The
   study ranks "not now" first.
+- Model test queue (Survey 2026-11-08 above): recommend queue 1 (ISTA stock file, on
+  disk, no download) at 131,072 with a rung past 64K, then 2 as its control; every
+  download (IQ3_S, Swift-1.5 after its licence is read, Groot) is the operator's call.
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
   2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4
@@ -599,6 +602,52 @@ the setting) and confirming that EXPO is on for the RAM (UNVERIFIED here).
 
 Decision 2026-10-31 (operator): keep the current default and continue hardening it on
 the next session; the arms above wait.
+
+### Survey 2026-11-08 and local files
+
+Second web research pass (nothing downloaded or run; report of record
+`reports/Local coder model HF survey November.md` in the umbrella checkout, four notes
+beside it). Direction 2026-11-08 (operator): testing the harness and the model is the
+priority; the research ran alongside. Findings:
+
+- No vendor shipped a coder that fits this box between 2026-10-15 and 2026-11-08; the
+  Qwen line's newest LLM is still Qwen3.8-Flash-Next (2026-08-24). The field is
+  Qwen3.8-27B variants plus one new all-GPU MoE.
+- Header-only read of the GGUF tensor tables on disk (M, this session, no model
+  loaded): the ISTA GSQ-RCO IQ3_XXS file holds eight 1-bit tensors (`ffn_gate` blocks 0
+  and 1, `ffn_up` block 0, `attn_k` block 3, `attn_v` block 11, three `attn_gate`); a
+  community port traced a collapse past 64K to that FFN pattern. The default is a
+  uniform IQ3_XXS mix with no 1-bit tensor and a 0.451 GB Q8_0 MTP head, which is why
+  it is larger. Any test of the ISTA file needs a rung past 64K of context.
+- Harness side: the two-system-message template rejection is unfixed upstream at
+  b12198 (llama.cpp 27107, discussion 27281), so the patched template stays; no
+  controlled abliterated-versus-stock comparison exists anywhere yet.
+- The only 3-bit Qwen3.8-27B file with published quality above IQ3_XXS that still fits
+  is ISTA GSQ-RCO IQ3_S (11.77 GB; wikitext PPL 7.07 vs 7.05 BF16, ISTA's own figures,
+  UNVERIFIED). gemma-4-26B-A4B is the only MoE whose 4-bit file stays all-GPU, and it
+  measured 1,964 MiB on the CPU here (Phase 3).
+
+Test queue (131,072, thinking off, MTP off, matched K and V types; fits are estimates,
+UNVERIFIED unless the row says measured): 1 ISTA stock GSQ-RCO IQ3_XXS-mtp, on disk,
+isolates the abliteration; 2 ISTA GSQ-RCO IQ3_S, precision control for 1; 3 Swift-1.5-
+Qwen3.8-27B GSQ-RCO IQ3_XXS (10.09 GB; the only fine-tune with a same-harness five-seed
+gain, Terminal-Bench 2.1 69.2 to 72.1, vendor; licence unread); 4 Groot-19B-A3B Q4_K_M
+(11.66 GB; Qwen3.6-35B-A3B with half its experts pruned, b11868 loads it; vendor figures
+in thinking mode); 5 Qwopus3.8-27B-Flash-V2; 6 RentedNoodle's Uncensored GSQ-RCO port;
+7 Terminal-RSI-27B (its base scores 17.5 points under Swift's on the same bench, so the
+harness differs); 8 a huihui abliterated build, only if 1 differs from the default; 9
+Flint after a template pre-check (no thinking switch); 10 Xing4.0-29B-A4B, blocked by
+the pinned build (needs b12129). Not worth a slot: DavidAU IQ2_M (HOLD stays; repo
+unchanged since 2026-10-17, card warns on tool calling below Q4_K_M, "735-882" is
+ARC-C/ARC-E only), every abliterated build reporting only KL and refusals, files over
+13 GB, Nanbeige4.3-33B (every layer full attention, about 7.9 GB of KV at 131,072).
+
+Local files 2026-11-08 (operator): deleted unsloth `Qwen3.8-27B-UD-Q3_K_XL`, Saluki
+IQ2-mix (licence CC BY-NC 4.0 since 2026-11-05), gemma-4-26B-A4B UD-IQ4_XS and
+GLM-4.7-Flash UD-Q3_K_XL (about 45 GB; `models/` 86 to 41 GB). Kept: the default,
+the ISTA file (queue 1), Uncensored IQ2_XXS and gpt-oss-20b MXFP4 as fallbacks.
+`models/manifest.json` lists the four; `install.ps1 -VerifyModels` passed 4 of 4;
+`config/models.md` keeps the deleted rows' measurements.
 
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 

@@ -1584,7 +1584,7 @@ find the necessary environment variables to replace the Node version"). Drop
 pwsh scripts\stop.ps1
 pwsh scripts\serve.ps1 -Model models\gpt-oss-20b\gpt-oss-20b-MXFP4.gguf -KvType q4_0
 pwsh scripts\serve.ps1 -Model models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf -Ctx 65536 -ChatTemplateFile config\chat-templates\qwen3.8-27b.jinja
-pwsh -File scripts\serve.ps1 -Model models\saluki-27b\Underdog-Saluki-27B-1.0-IQ2-mix.gguf "-ExtraArgLine:--chat-template-file Z:/repos/kosm1x/local-inference-studio/config/chat-templates/qwen3.8-27b.jinja"
+pwsh -File scripts\serve.ps1 -Model models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf "-ExtraArgLine:--chat-template-file Z:/repos/kosm1x/local-inference-studio/config/chat-templates/qwen3.8-27b.jinja"
 ```
 
 Download a file first (names and sizes in `config\models.md`). Under `pwsh -File`, a

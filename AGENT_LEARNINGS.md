@@ -146,8 +146,14 @@
 - **Mistake:** the aggregating script grouped tensors by a kind allow-list and dropped
   `attn_k`/`attn_v`, so its summary could not show the claim it was meant to check.
   -> Verify a derived claim with a per-item listing, never a second aggregate.
-- **Mistake:** a script with backslash paths went through a quoted Bash heredoc and
-  lost them (standing rule, 4th hit). -> Write tool, every time, no exceptions.
 - **Better:** delete with the consumers in mind: manifest pruned, `-VerifyModels` 4 of
-  4, the two tests that read them green, doc rows keep their measurements with
-  "deleted <date>" in the file cell, the one dead example path repointed.
+  4, tests green, doc rows keep their figures with "deleted <date>" in the file cell.
+
+## 2026-11-08 - model test 1 on the ISTA file, five ladder reps, bench (c51)
+- **Mistake:** the "past 64K" rung was launched at the ladder's 81920 budget, which caps
+  the window at 65,536 (the rep peaked at 49,092); a side note caught it, and the
+  48-module rep at 131,072 did pass 64K. -> Prove a context axis from the transcript's
+  peak prompt tokens, never from the budget figure.
+- **Mistake:** a monitor filter on `relaunch` matched the wrapper banner on every poll,
+  and the first bench run went to `tail` with no saved log (standing rule 7). -> Test a
+  filter on the quiet state before arming it; `tee` every bench run, cite the logged one.

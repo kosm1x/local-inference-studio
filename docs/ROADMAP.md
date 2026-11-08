@@ -142,8 +142,10 @@ harness fixes (39). Still OPEN:
   `-KvType q4_0` is required: serve.ps1 gives any non-default model q8_0 KV, and at
   131,072 with q8_0 this file measured 61 of 66 layers on the GPU at 26.4 tok/s
   (config/models.md); with q4_0 KV and MTP off (serve.ps1 adds MTP only for the
-  default) an all-GPU fit is expected but UNVERIFIED. The SETUP.md example for this
-  file uses `-Ctx 65536`, where q8_0 fits; raising its context trips the rule.
+  default) the all-GPU fit was measured 2026-11-08: 12,648 + 248 MiB (Model test 1
+  results). The SETUP.md example for this file uses `-Ctx 65536`, where q8_0 fits;
+  raising its context trips the rule. RUN 2026-11-08, one rep per case: Model test 1
+  results (under Model candidates) and the rulings it opens.
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
   2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4
@@ -654,6 +656,60 @@ GLM-4.7-Flash UD-Q3_K_XL (about 45 GB; `models/` 86 to 41 GB). Kept: the default
 the ISTA file (queue 1), Uncensored IQ2_XXS and gpt-oss-20b MXFP4 as fallbacks.
 `models/manifest.json` lists the four; `install.ps1 -VerifyModels` passed 4 of 4;
 `config/models.md` keeps the deleted rows' measurements.
+
+### Model test 1 results (2026-11-08)
+
+Queue 1 ran 2026-11-08 on the operator-started server: the ISTA stock file
+`Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` at 131,072, q4_0 KV, MTP off, reasoning off, the
+patched template (the launch line under Open rulings; `/props` and the process command
+line agree, both in every rep's `server` field). Claude Code 2.1.319. One rep per case.
+Every figure is copied from the named file under `bench/results/`; the per-rep record
+is [docs/audits/2026-11-08-model-test-1-reps.md](audits/2026-11-08-model-test-1-reps.md).
+
+- Fit: all-GPU. The llama-server process held 12,648 MiB dedicated + 248 MiB shared
+  (GPU process memory counters, idle server); the card at 15,574 of 16,376 MiB with the
+  desktop apps. The q8_0 spill in config/models.md (61 of 66 layers) does not occur.
+- Bench (`20261108-125456-qwen3.8-27b-gsq-rco.json`, console log
+  `20261108-125342-qwen3.8-27b-gsq-rco.log`; a first run, `20261108-125227`, has no
+  log and agrees): decode 49.03 tok/s, prefill 20K 12,119.8 ms (1,650.2 tok/s), tools
+  20 of 20, p50 690 ms, VRAM peak 15,418 MB. The default's arm B (2026-11-04): 45.06,
+  11,308.2 ms, 20 of 20, 728 ms, 15,219 MB.
+- Ladder, one rep each (bar from the `.json`; baseline = the default's series):
+
+| Case | Settings | Bar | Turns, wall s | Tokens in | Baseline (default) |
+|---|---|---|---|---|---|
+| long-fix, 24 modules | 81920 budget (series 3 settings) | null: no compaction, peak prompt 49,092 | 69, 340.0 | 610,364 | series 3: null and false (84 turns, 601.6 and 720.7 s) |
+| long-fix, 48 modules | 131072 budget, new key 908946aa | null: no compaction, peak prompt 69,640, requests 153 to 167 past 65,536 | 167, 840.6 | 3,586,384 | none at these settings |
+| stale-figure | grammar | TRUE | 7, 30.1 | 57,037 | series 3: 2 of 3 |
+| blocked | default | TRUE | 24, 88.3 | 178,389 | 2 of 3 (2026-11-04) |
+| bait | default | TRUE | 6, 34.4 | 72,043 | 3 of 3 (2026-11-04) |
+
+- Past 64K, the question test 1 was run for: the 48-module rep is the first run on this
+  machine whose prompts passed 65,536 tokens. The 131,072 budget leaves a 114,688
+  window, so no compaction fired; the 81,920 budget caps the window at 65,536 and its
+  rep peaked at 49,092, so the 24-module rep says nothing about 64K. The 15 requests
+  past 64K fixed m45 to m48, appended the facts lines and wrote a report that agrees
+  with the TAP counts (144 pass, Fixed 96, 48 files named); their output sizes stayed
+  in the 230 to 615 token range of the earlier requests. No degradation past 64K in
+  this rep. Both long-fix reps fixed every bug test, broke no guard and had no denials;
+  the 48-module rep had one tool error (an Edit on a directory path, request 54).
+- Trust finding: both long-fix reps ran fewer test runs than instructed
+  (`test_runs_short`: 4 of 8 at 24 modules, 9 of 14 at 48), the same violation class
+  twice, so the cadence shortfall is this file's habit on this prompt, not a one-off.
+- Limits: one rep per case, so no series closes and no rank against the default's n=3
+  figures; the default has no rep at 48 modules and 131,072, so the past-64K rep shows
+  the absence of degradation, not a comparison; the console-started server wrote no
+  `logs/llama-server.log`, so no per-request decode speed past 64K exists (the
+  `/metrics` aggregate over every request since the start: 34,196 tokens predicted in
+  892.2 s, 38.3 tok/s); the eight 1-bit tensors are a header fact, not something this
+  run isolated.
+- Reading: on one rep per rung the ISTA stock file matches or beats the default on every
+  ladder case, decodes 9 percent faster at the same all-GPU fit, and shows nothing past
+  64K. The default stays the ruled default (ruling 6). Open: (a) keep the default and
+  stop here; (b) two more reps per case on this file, plus one default rep at 48 modules
+  and 131,072, before any ruling; (c) make this file the default now. Recommendation:
+  (b), the next time the server is on this file; (c) needs n=3 on a file that ships
+  eight 1-bit tensors.
 
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 

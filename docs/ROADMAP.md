@@ -143,12 +143,15 @@ harness fixes (39). Still OPEN:
   131,072 with q8_0 this file measured 61 of 66 layers on the GPU at 26.4 tok/s
   (config/models.md); with q4_0 KV and MTP off (serve.ps1 adds MTP only for the
   default) the all-GPU fit was measured 2026-11-08: 12,648 + 248 MiB (Model test 1
-  results). Until 2026-11-08 the SETUP.md example for this file used `-Ctx 65536`,
-  where q8_0 fits, and raising its context tripped the rule. RUN 2026-11-08, three
-  reps per case plus a
+  results). The SETUP.md example for this file uses `-Ctx 65536`, where q8_0 fits;
+  raising its context trips the rule. RUN 2026-11-08, three reps per case plus a
   79-module rung: Model test 1 results (under Model candidates) and the rulings it opens.
-  RULED 2026-11-08 (c): the GSQ-RCO file is the default from this commit; the pinned
-  launch line is now what `pwsh scripts/serve.ps1` runs with no arguments.
+  RULED 2026-11-08 (c), then SUPERSEDED the same day by a further ruling to revert: the
+  GSQ-RCO file is the stock (not abliterated) Qwen3.8-27B, and the operator needs the
+  abliterated file's uncensored property. Neither file's refusal behaviour has been
+  measured here (see the Limits bullet in Model test 1). The Uncensored IQ3_XXS
+  file is the default again (ruling 6 stands); the GSQ-RCO file stays on disk as the
+  measured candidate and `-Model` runs it with the template applied automatically.
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
   2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4
@@ -733,7 +736,9 @@ copied from the named file under `bench/results/`; the per-rep record is
   per-request decode speed past 64K is unknown (the default's is above); the eight
   1-bit tensors are a header fact, not something these
   runs isolated; 48-module rep 3 had four tool errors (a Read of a missing path, three
-  Edits on a directory path), all before its 64K crossing.
+  Edits on a directory path), all before its 64K crossing. The ladder has no refusal
+  case; neither file's behaviour on prompts the stock model declines was measured. The
+  Uncensored file's refusal removal is UNVERIFIED (config/models.md).
 - Reading at n=3: the ISTA stock file beats the default on blocked (3 vs 2 of 3) and
   long-fix at 24 modules (2 TRUE vs 0), trails it on stale-figure (1 vs 2 of 3) and
   bait (2 vs 3 of 3), and every short-case miss is the same report-format slip (text
@@ -749,13 +754,16 @@ copied from the named file under `bench/results/`; the per-rep record is
   build: serve.ps1 default path, manifest, SETUP.md, the README fit table).
   Recommendation: (c), with (b)'s two checks run on it afterwards; the residual is the
   79-module facts-format slip, which has no default comparison.
-  RULED 2026-11-08: (c). Built in this commit (serve.ps1 default path and template
-  rule, manifest default flag, README, SETUP.md, config/models.md, uploader-rule.md,
-  resilience_test).
-  The running server keeps the file it was started with; the next start by the
-  scheduled task, the watchdog or `pwsh scripts/serve.ps1` serves the new default.
-  Still owed on the new default: the whole-file-read fixture and the `STATUS:` slip
-  screen of the Uncensored file's short-case reps.
+  RULED 2026-11-08: (c), built as c55, then reverted the same day on a further ruling
+  (not one of the three letters above): the ISTA file is the stock (not abliterated)
+  model, and the operator requires the abliterated file's uncensored property, which
+  the ladder does not test (refusal behaviour UNVERIFIED on both files, see Limits).
+  The trust-ladder reading above stands. Kept
+  from c55: the template rule for both Qwen3.8-27B folders and the install_verify
+  checks that pin the serve.ps1 default. Owed before any future switch: a refusal
+  fixture in the ladder, so both files are measured on the property that decided this
+  ruling, plus the whole-file-read fixture and the `STATUS:` slip screen of the
+  Uncensored file's short-case reps.
 
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 

@@ -174,3 +174,10 @@
   luck. -> Any replacement text with a backslash goes through the Edit tool.
 - **Better:** `install_verify_test.py` already cross-checks the manifest `default`
   flag against the serve.ps1 `-Model` default; run it after any default change.
+- **Mistake:** the ruling text and the plain-language recommendation to the operator
+  never stated that the ISTA file is the STOCK (not abliterated) model while the ruled
+  default is abliterated; the operator asked and reverted the same day. -> List every
+  property of the current default that the candidate does not share, before
+  recommending a switch. Also: the chat offered options (a)(b)(c) that differed from
+  the ROADMAP's lettered options; the operator's letter must never be copied into a
+  doc whose letters mean something else.

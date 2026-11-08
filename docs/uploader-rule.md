@@ -31,8 +31,7 @@ uploader one.
 
 Local files, each followed by the HF repo it came from.
 
-1. `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (the default
-   until 2026-11-08)
+1. `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (the default)
    <- orcarouter/Qwen3.8-27B-Uncensored-GGUF
 2. `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` <- same repo
 3. Qwen3.6-35B-A3B UD-IQ3_XXS (HF hub cache, served with `-hf`)
@@ -42,8 +41,8 @@ Local files, each followed by the HF repo it came from.
    <- unsloth/gemma-4-26B-A4B-it-GGUF
 6. `models/glm-4.7-flash/GLM-4.7-Flash-UD-Q3_K_XL.gguf` <- unsloth/GLM-4.7-Flash-GGUF
 7. `models/gpt-oss-20b/gpt-oss-20b-MXFP4.gguf` <- ggml-org/gpt-oss-20b-GGUF
-8. `models/qwen3.8-27b-gsq-rco/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` (the default from
-   2026-11-08) <- ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF
+8. `models/qwen3.8-27b-gsq-rco/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf`
+   <- ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF
 9. `models/saluki-27b/Underdog-Saluki-27B-1.0-IQ2-mix.gguf`
    <- ConwayResearch/Underdog-Saluki-27B-1.0 (header `quantized_by`: ISTA DASLab)
 
@@ -94,12 +93,11 @@ one tool-call failure the repo recorded is the template one above.
 
 ## Effect
 
-No model changes uploader. The default stayed
+No model changes uploader. The default stays
 `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (orcarouter); no
-download is needed. Since 2026-11-08 (Model test 1 ruling (c) in ROADMAP.md) the
-default is file 8, the finetune author's own GGUF (ISTA DASLab), so the rule holds.
+download is needed.
 
-Bartowski alternative for file 1 (the default until 2026-11-08), NOT proposed:
+Bartowski alternative for the default, NOT proposed:
 `bartowski/orcarouter_Qwen3.8-27B-Uncensored-GGUF` IQ3_XXS is 12,626,774,272 B (HF
 API, UNVERIFIED here), +989 MB (about 943 MiB) over file 1. Against the 1,630 MiB left
 free at 131072 / q4_0 that leaves about 690 MiB (estimate, UNVERIFIED, untested).
@@ -116,5 +114,5 @@ download.
   this repo has not run.
 - The loop fixture showing a difference attributable to the quant (KLD or a repeated
   tool-argument error), not to the template or the parser (#20837 is still open).
-- For file 1: the operator wanting a published calibration set; the candidate is
+- For the default: the operator wanting a published calibration set; the candidate is
   then the Bartowski requant, after a fit check at 131072 / q4_0 and an MTP layer check.

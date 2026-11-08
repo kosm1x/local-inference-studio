@@ -3,10 +3,9 @@
 .SYNOPSIS
   Run llama-server (Anthropic /v1/messages on 127.0.0.1) from bin/.
 .DESCRIPTION
-  Default command line (Model test 1 ruling (c) of 2026-11-08 in docs/ROADMAP.md, on top
-  of rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12's 65536 + MTP): the
-  local ISTA DASLab Qwen3.8-27B GSQ-RCO IQ3_XXS-mtp file (the default until then was the
-  orcarouter Qwen3.8-27B-Uncensored IQ3_XXS) at -c 131072 with q4_0 KV,
+  Default command line (rulings 6 and 14 in docs/ROADMAP.md; ruling 14 of 2026-10-25
+  reverted ruling 12's 65536 + MTP): the local orcarouter Qwen3.8-27B-Uncensored
+  IQ3_XXS at -c 131072 with q4_0 KV,
   --chat-template-file config/chat-templates/qwen3.8-27b.jinja and no MTP,
   plus -fa on, -np 1,
   Qwen sampling, --host/--port, --reasoning-format auto, --reasoning off, --api-key-file
@@ -76,23 +75,16 @@
   Hugging Face "repo:quant" (passed as -hf, downloaded on first run) or a local .gguf
   path (passed as -m; relative to the repo root; a missing file throws). -KvType
   defaults to q4_0 for the default model file only and to q8_0 for any other -Model
-  (the KV the other rows were benched with); an explicit -KvType always wins. The
-  former default (models/qwen3.8-27b-uncensored/...-IQ3_XXS.gguf) now gets q8_0 too:
-  config/models.md measured it all-GPU with q8_0 KV at 65536 (66/66 layers) but not at
-  131072 (58/66 layers), so at the default -Ctx pass -KvType q4_0 for its old setup.
+  (the KV the other rows were benched with); an explicit -KvType always wins.
   -ChatTemplateFile (relative to the repo root) is passed as --chat-template-file; it
   defaults to config/chat-templates/qwen3.8-27b.jinja when the model is under
   models/qwen3.8-27b-gsq-rco or models/qwen3.8-27b-uncensored (both GGUFs embed the
   same template, which rejects Claude Code's second system message with HTTP 500).
   MTP (--spec-type draft-mtp --spec-draft-n-max 2) is added for the default model file
-  only, at -Ctx 65536 or below, unless -NoMtp; any other -Model runs without it. For
-  the GSQ-RCO file config/models.md measured at 65536 a fit with q8_0 KV (66/66 layers,
-  with or without MTP) and decode 83.7 tok/s with MTP (draft-mtp, n-max 2) against 48.8
-  without, so `-Ctx 65536` turns it on (with q4_0 KV, the default's KV; that pairing
-  and the ladder behaviour with MTP on are UNVERIFIED: no ladder rep ran with MTP). The
-  default (no -Ctx, 131072) skips it silently; an explicit -Ctx above 65536 skips it
-  with a warning (pass -NoMtp to silence it): at 131072 with q4_0 KV and MTP this file
-  measured 64/66 layers on the GPU (Phase 3d).
+  only, at -Ctx 65536 or below, unless -NoMtp; any other -Model runs without it. It fits
+  all-GPU at 65536 with q4_0 KV (Phase 3e), so `-Ctx 65536` turns it on. The default
+  (no -Ctx, 131072) skips it silently; an explicit -Ctx above 65536 skips it with a
+  warning (pass -NoMtp to silence it), since MTP there is expected to push layers to CPU.
   -ExtraArgs (string[]) is passed through verbatim, one element per argument, so a
   value with spaces stays whole; use it from inside pwsh. `pwsh -File` hands
   -ExtraArgs 'a','b' over as the single string "a,b", so from `pwsh -File` use
@@ -119,7 +111,7 @@
   LastBootUpTime), path, size, mtime and manifest sha256, it is not hashed; otherwise a
   size or sha256 mismatch refuses the start with both values and a match writes that
   marker (none when the boot time cannot be read, so the next run hashes again).
-  Hashing the old default 11.6 GB file took 20 s cold and 8.9 s from the OS file cache on
+  Hashing the default 11.6 GB file took 20 s cold and 8.9 s from the OS file cache on
   the reference machine (2026-11-04); restarts in the loop never rehash, and a later
   serve.ps1 in the same boot (the watchdog's) takes the marker. A file not in the
   manifest, or an -hf model, warns and goes on. -SkipModelVerify skips the model hash
@@ -152,7 +144,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Model = 'models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf',
+    [string]$Model = 'models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf',
     [int]$Ctx = 131072,
     [int]$Port = 8080,
     [int]$NCpuMoe = 0,
@@ -234,7 +226,7 @@ try {
         $Model = [IO.Path]::GetFullPath($Model, $repoRoot)
         if (-not (Test-Path -LiteralPath $Model -PathType Leaf)) { throw "Model file not found: $Model" }
     }
-    $defaultModel = [IO.Path]::GetFullPath('models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf', $repoRoot)
+    $defaultModel = [IO.Path]::GetFullPath('models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf', $repoRoot)
     if (-not $PSBoundParameters.ContainsKey('KvType') -and $Model -ne $defaultModel) { $KvType = 'q8_0' }
     if (-not $ChatTemplateFile -and $source -eq '-m' -and
         (@('models\qwen3.8-27b-gsq-rco', 'models\qwen3.8-27b-uncensored') | Where-Object {
@@ -320,7 +312,7 @@ try {
         'ok', $ok
     }
     # At most once per boot: a marker with this boot time, path, size, mtime and manifest
-    # sha256 skips the hash (the former default file took 20 s on the reference machine).
+    # sha256 skips the hash (the default file took 20 s on the reference machine).
     function Test-ModelHash([string]$Path, [string]$Manifest, [string]$Root, [string]$Marker) {
         $entry = $null
         if (Test-Path -LiteralPath $Manifest -PathType Leaf) {
@@ -393,7 +385,7 @@ try {
     if ($ChatTemplateFile) { $cmdArgs += '--chat-template-file', $ChatTemplateFile }
     if ($Model -eq $defaultModel -and -not $NoMtp) {
         if ($Ctx -gt 65536) {
-            if ($PSBoundParameters.ContainsKey('Ctx')) { Write-Warning 'MTP skipped: only measured to fit all-GPU up to -Ctx 65536 (config/models.md, GSQ-RCO row: 66/66 layers with q8_0 KV and MTP); pass -NoMtp to silence' }
+            if ($PSBoundParameters.ContainsKey('Ctx')) { Write-Warning 'MTP skipped: only measured to fit all-GPU up to -Ctx 65536 (Phase 3e); pass -NoMtp to silence' }
         } else {
             $cmdArgs += '--spec-type', 'draft-mtp', '--spec-draft-n-max', '2'
         }

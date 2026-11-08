@@ -167,3 +167,10 @@
 - **Avoid:** chaining ladder reps back to back against a task-started server: `run.ps1`
   refuses when the server log changed in the last 10 s, so rep 3 never ran. Sleep 15 s
   between reps when the server logs to file.
+
+## 2026-11-08 - default switch to the ISTA GSQ-RCO file (ruling (c))
+- **Mistake:** a table-row edit holding Windows paths went through a Bash heredoc
+  into Python; Python warned on `\q` escapes. The result happened to be right, by
+  luck. -> Any replacement text with a backslash goes through the Edit tool.
+- **Better:** `install_verify_test.py` already cross-checks the manifest `default`
+  flag against the serve.ps1 `-Model` default; run it after any default change.

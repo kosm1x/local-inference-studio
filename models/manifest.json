@@ -7,8 +7,7 @@
       "revision": "34e7cb013d66af05f668fe8a37087585de2e85f0",
       "file": "Qwen3.8-27B-Uncensored-IQ3_XXS.gguf",
       "size": 11637692000,
-      "sha256": "0d91ad7b2c57f545a030b1d391375a5f9a822423b90923d91cf744e717e80d03",
-      "default": true
+      "sha256": "0d91ad7b2c57f545a030b1d391375a5f9a822423b90923d91cf744e717e80d03"
     },
     {
       "path": "models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ2_XXS.gguf",
@@ -24,7 +23,8 @@
       "revision": "d562806dbafae37109975e970aae91b43e73b440",
       "file": "Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf",
       "size": 10442827840,
-      "sha256": "63f29a2189a6b4cc31f81e093d3856ad293a5583114439f41ae1ed7af4093262"
+      "sha256": "63f29a2189a6b4cc31f81e093d3856ad293a5583114439f41ae1ed7af4093262",
+      "default": true
     },
     {
       "path": "models/gpt-oss-20b/gpt-oss-20b-MXFP4.gguf",

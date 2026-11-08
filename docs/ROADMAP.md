@@ -143,9 +143,12 @@ harness fixes (39). Still OPEN:
   131,072 with q8_0 this file measured 61 of 66 layers on the GPU at 26.4 tok/s
   (config/models.md); with q4_0 KV and MTP off (serve.ps1 adds MTP only for the
   default) the all-GPU fit was measured 2026-11-08: 12,648 + 248 MiB (Model test 1
-  results). The SETUP.md example for this file uses `-Ctx 65536`, where q8_0 fits;
-  raising its context trips the rule. RUN 2026-11-08, three reps per case plus a
+  results). Until 2026-11-08 the SETUP.md example for this file used `-Ctx 65536`,
+  where q8_0 fits, and raising its context tripped the rule. RUN 2026-11-08, three
+  reps per case plus a
   79-module rung: Model test 1 results (under Model candidates) and the rulings it opens.
+  RULED 2026-11-08 (c): the GSQ-RCO file is the default from this commit; the pinned
+  launch line is now what `pwsh scripts/serve.ps1` runs with no arguments.
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
   2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4
@@ -746,6 +749,13 @@ copied from the named file under `bench/results/`; the per-rep record is
   build: serve.ps1 default path, manifest, SETUP.md, the README fit table).
   Recommendation: (c), with (b)'s two checks run on it afterwards; the residual is the
   79-module facts-format slip, which has no default comparison.
+  RULED 2026-11-08: (c). Built in this commit (serve.ps1 default path and template
+  rule, manifest default flag, README, SETUP.md, config/models.md, uploader-rule.md,
+  resilience_test).
+  The running server keeps the file it was started with; the next start by the
+  scheduled task, the watchdog or `pwsh scripts/serve.ps1` serves the new default.
+  Still owed on the new default: the whole-file-read fixture and the `STATUS:` slip
+  screen of the Uncensored file's short-case reps.
 
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 

@@ -425,6 +425,21 @@ def serve_checks(root, check):
         want(r.returncode != 0 and '-Web keeps the server log' in r.stdout + r.stderr,
              'serve -Web: -ExtraArgs -lv 5 must be refused', r.returncode, r.stdout + r.stderr)
 
+    # The patched chat template is applied under the two Qwen3.8-27B folders only
+    with tempfile.TemporaryDirectory() as tmp:
+        t = serve_tree(tmp, root)
+        os.makedirs(os.path.join(t, 'config', 'chat-templates'))
+        open(os.path.join(t, 'config', 'chat-templates', 'qwen3.8-27b.jinja'), 'w').close()
+        for d, tpl in (('qwen3.8-27b-gsq-rco', True), ('qwen3.8-27b-uncensored', True),
+                       ('gpt-oss-20b', False)):
+            os.makedirs(os.path.join(t, 'models', d))
+            open(os.path.join(t, 'models', d, 'x.gguf'), 'w').close()
+            rc, out = pwsh_file(os.path.join(t, 'scripts', 'serve.ps1'), '-Port', str(free_port()),
+                                '-Model', f'models\\{d}\\x.gguf', '-PrintArgs')
+            has = '--chat-template-file ' in out and 'qwen3.8-27b.jinja' in out
+            want(rc == 0 and has == tpl, f'serve -PrintArgs: the template must '
+                 f'{"" if tpl else "not "}apply under models\\{d}', rc, out)
+
 
 def main():
     args = sys.argv[1:]
@@ -469,6 +484,9 @@ def main():
     check(len(defaults) == 1, f'expected exactly one default entry, got {len(defaults)}')
     serve = open(os.path.join(root, 'scripts', 'serve.ps1'), encoding='utf-8').read()
     m = re.search(r"\[string\]\$Model\s*=\s*'([^']+)'", serve)
+    dm = re.search(r"\$defaultModel\s*=\s*\[IO\.Path\]::GetFullPath\('([^']+)'", serve)
+    check(bool(m and dm) and dm.group(1) == m.group(1),
+          f'serve.ps1 $defaultModel {dm and dm.group(1)} is not the -Model default {m and m.group(1)}')
     if defaults and m:
         check(defaults[0]['path'] == m.group(1).replace('\\', '/'),
               f'default entry {defaults[0]["path"]} is not serve.ps1 default {m.group(1)}')

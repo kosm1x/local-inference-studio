@@ -1,7 +1,8 @@
 # Setup from zero
 
 This guide takes a Windows 11 PC with an NVIDIA GPU from nothing to Claude Code
-running against a local `llama-server` with the default model (Orca
+running against a local `llama-server` with the default model (ISTA DASLab
+Qwen3.8-27B GSQ-RCO IQ3_XXS-mtp since 2026-11-08; before that Orca
 Qwen3.8-27B-Uncensored IQ3_XXS). It uses `Z:\repos\kosm1x\local-inference-studio` as
 the repo path. If you clone somewhere else, replace that path everywhere.
 
@@ -14,7 +15,7 @@ otherwise. Items marked UNVERIFIED were not checked on the reference machine.
   machine: RTX 4070 Ti SUPER 16 GB, driver 617.42; smaller cards are UNVERIFIED).
 - About 15 GB of disk for the default model and 1.3 GB for `bin\` (measured).
 - PowerShell 7, Git, Node.js, the Claude Code CLI, and a Hugging Face account for the
-  gated default model.
+  gated former default model only (the default's repo is ungated).
 
 Not needed: LM Studio, Ollama, the CUDA toolkit, cmake or any compiler. llama.cpp comes
 from a prebuilt release zip.
@@ -98,23 +99,37 @@ and the menu labels may differ by driver version (both UNVERIFIED).
 
 ## 4. Get the default model
 
-The default is `Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` from the gated Hugging Face repo
-`orcarouter/Qwen3.8-27B-Uncensored-GGUF`, 11,637,692,000 bytes. No script downloads it.
-Accept the terms on the model page at huggingface.co, create a read token (Settings,
-Access Tokens), then install the `hf` CLI and log in; it prompts for the token. Never
-paste the token into a file, a commit or a chat.
+The default (since 2026-11-08, Model test 1 ruling (c) in `docs\ROADMAP.md`) is
+`Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` from the Hugging Face repo
+`ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF` (ungated per the HF API read of 2026-10-24),
+10,442,827,840 bytes. No script downloads it. Install the `hf` CLI; it needs no login
+for this repo (UNVERIFIED).
 
 ```powershell
 uv tool install huggingface_hub          # or: pip install -U huggingface_hub
+hf download ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf --local-dir models\qwen3.8-27b-gsq-rco
+(Get-Item models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf).Length
+```
+
+Success: the last line prints `10442827840` (the reference machine's file matches).
+The `hf` CLI is not installed on the reference machine, so the first two lines are
+UNVERIFIED. A different byte count means a partial download; run `hf download` again.
+
+The former default (until 2026-11-08) is `Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` from
+the gated repo `orcarouter/Qwen3.8-27B-Uncensored-GGUF`, 11,637,692,000 bytes. Accept
+the terms on the model page at huggingface.co, create a read token (Settings, Access
+Tokens), then log in with the `hf` CLI; it prompts for the token. Never paste the token
+into a file, a commit or a chat.
+
+```powershell
 hf auth login
 hf download orcarouter/Qwen3.8-27B-Uncensored-GGUF Qwen3.8-27B-Uncensored-IQ3_XXS.gguf --local-dir models\qwen3.8-27b-uncensored
 (Get-Item models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf).Length
 ```
 
-Success: the last line prints `11637692000` (the reference machine's file matches).
-The `hf` CLI is not installed on the reference machine, so the first three lines are
-UNVERIFIED. A 401 or 403 means the terms are not accepted or the token lacks read
-access. A different byte count means a partial download; run `hf download` again.
+Success: `11637692000` (the reference machine's file matches; the first two lines are
+UNVERIFIED). A 401 or 403 means the terms are not accepted or the token lacks read
+access. Serve it as in step 9 (`-Model ... -KvType q4_0` for its former setup).
 
 `models/manifest.json` (the one tracked file under `models\`) pins every GGUF this repo
 uses: Hugging Face repo, the revision (commit) `hf download` fetched, byte size and
@@ -160,7 +175,8 @@ With no parameters it serves the default file on `127.0.0.1:8080` at ctx 131072,
 KV, flash attention on, one slot, `--api-key-file logs\api-key` (a new random key
 written at each start; the scripts that call the server read that file and fall back to
 `local` when it is absent), `--no-webui`, model alias `local`, server
-thinking off (`--reasoning off`), and (for files under `models\qwen3.8-27b-uncensored`)
+thinking off (`--reasoning off`), and (for files under `models\qwen3.8-27b-gsq-rco`
+and `models\qwen3.8-27b-uncensored`)
 `--chat-template-file config\chat-templates\qwen3.8-27b.jinja`; no MTP (ruling 14).
 Thinking off is the default by operator ruling of 2026-10-26: the compaction bench got
 a real summary on every compaction request only with it off (3 of 3, against 2 of 4
@@ -174,7 +190,8 @@ measured only under the older form (one compaction run and ladder test 1).
 MTP (`--spec-type draft-mtp --spec-draft-n-max 2`) is added for the default file only
 at `-Ctx 65536` or below (`-NoMtp` turns it off); an explicit `-Ctx` above 65536 skips
 the flags with a warning so the model stays all-GPU, and `-NoMtp` silences the
-warning.
+warning. For the GSQ-RCO default, MTP at 65536 was measured with q8_0 KV (fits, 83.7
+tok/s, config\models.md); with the q4_0 KV it now gets there it is UNVERIFIED.
 
 ```powershell
 pwsh scripts\serve.ps1
@@ -211,7 +228,7 @@ upgrade is not blocked (add its hashes to `$pinned` after checking them). Other 
 (`llama.dll`, `llama-common.dll`, the ggml and CUDA DLLs) are not checked. Then it
 hashes the model file against
 `models\manifest.json` (`-ModelManifest` names another), at most once per boot: the
-first start after a boot pays the hash, 20 s for the default 11.6 GB file on the
+first start after a boot pays the hash, 20 s for the former default 11.6 GB file on the
 reference machine (cold; 8.9 s when the file was in the OS cache; 2026-11-04), and
 writes `logs\model-verify.json` (boot time, path, size, mtime, SHA256). The checks run
 once per `serve.ps1` run, before its restart loop, so a relaunch after a crash never
@@ -377,7 +394,9 @@ machine). The log is appended, renamed to `.1` past 50 MB, and each run ends wit
 Free VRAM: before each start and each restart serve.ps1 logs `serve.ps1: vram free: <N>
 MiB` (nvidia-smi `memory.free`, one value per GPU), or `serve.ps1: vram free:
 unavailable` when nvidia-smi is missing, fails or hangs past 10 s; the start goes on
-either way. The default model fills nearly the whole card (858 MiB of 16,376 free with
+either way. The default model fills nearly the whole card (the card at 15,574 of
+16,376 MiB with the desktop apps and the GSQ-RCO server idle, 2026-11-08; the former
+default left 858 MiB of 16,376 free with
 it loaded in the resilience audit of 2026-10-30; about 1 GB free with the server idle on
 2026-11-04, 688 MiB while a rep ran), so close other GPU apps (games, video tools,
 browsers with GPU acceleration) before a start: a reload after a crash can fail when
@@ -1574,18 +1593,33 @@ find the necessary environment variables to replace the Node version"). Drop
 - `-Model` is a local `.gguf` path (relative to the repo root) or a Hugging Face
   `repo:quant`, which `llama-server -hf` downloads on first run.
 - KV rule: q4_0 only for the default file, q8_0 for any other `-Model`, unless you pass
-  `-KvType`.
+  `-KvType`. Since 2026-11-08 the former default (Uncensored IQ3_XXS) is such a model:
+  it gets q8_0, which config\models.md measured at 58/66 layers on the GPU at 131072,
+  so pass `-KvType q4_0` for its former setup.
 - Template rule: the Qwen3.8-27B GGUFs (Saluki, GSQ-RCO, Orca) need
   `config\chat-templates\qwen3.8-27b.jinja`, or Claude Code gets HTTP 500 "System
-  message must be at the beginning." Only files under `models\qwen3.8-27b-uncensored`
-  get it on their own; pass it for the others.
+  message must be at the beginning." Only files under `models\qwen3.8-27b-gsq-rco` and
+  `models\qwen3.8-27b-uncensored` get it on their own; pass it for the others.
 
 ```powershell
 pwsh scripts\stop.ps1
 pwsh scripts\serve.ps1 -Model models\gpt-oss-20b\gpt-oss-20b-MXFP4.gguf -KvType q4_0
-pwsh scripts\serve.ps1 -Model models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf -Ctx 65536 -ChatTemplateFile config\chat-templates\qwen3.8-27b.jinja
-pwsh -File scripts\serve.ps1 -Model models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf "-ExtraArgLine:--chat-template-file Z:/repos/kosm1x/local-inference-studio/config/chat-templates/qwen3.8-27b.jinja"
+pwsh scripts\serve.ps1 -Model models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf -KvType q4_0
+pwsh scripts\serve.ps1 -Ctx 65536 -KvType q8_0 -NoMtp
 ```
+
+For a Qwen3.8-27B file outside those two folders, run `pwsh -File scripts\serve.ps1
+-Model` with that file's path, followed by this single token:
+
+```powershell
+"-ExtraArgLine:--chat-template-file Z:/repos/kosm1x/local-inference-studio/config/chat-templates/qwen3.8-27b.jinja"
+```
+
+The GSQ-RCO file is the default since 2026-11-08, so it needs no `-Model`,
+`-ChatTemplateFile` or `-KvType q4_0` any more. Before the switch the examples here ran
+it at `-Ctx 65536` with q8_0 KV and no MTP (the setup config\models.md measured); now
+`-Ctx 65536` alone gives it q4_0 KV and MTP, and the `-Ctx 65536 -KvType q8_0 -NoMtp`
+line above restores the old 65536 setup.
 
 Download a file first (names and sizes in `config\models.md`). Under `pwsh -File`, a
 value that starts with `-` and contains `:` must be the single token
@@ -1596,7 +1630,9 @@ The Scheduled Task: `register-task.ps1` takes no parameters, and its action pass
 `-LogFile`, so the task always serves the `serve.ps1` defaults. To change what it
 serves, edit the `param()` defaults in `scripts\serve.ps1`, or add parameters to the
 `-Argument` string in `register-task.ps1` and re-run it. If you change the `-Model`
-default, also update `$defaultModel` in `serve.ps1`, or the KV rule falls back to q8_0.
+default, also update `$defaultModel` in `serve.ps1`, or the KV rule falls back to q8_0,
+and the `default` flag in `models\manifest.json` (`install_verify_test.py` checks that
+it names the `-Model` default).
 
 ## 10. Benchmarks
 

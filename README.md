@@ -49,20 +49,31 @@ installed, Qwen3.6-35B-A3B UD-IQ3_XXS serves `/v1/messages` with tool_use
 (bench matrix and agentic-loop comparison) done 2026-10-24; the default model is
 ruled (below).
 
-## Default model (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12)
+## Default model (ruled 2026-11-08, Model test 1 (c); before it rulings 6 and 14)
 
 | Model | Local file | Ctx | KV | Chat template | MTP | Decode tok/s | Loop (Phase 3d) |
 |---|---|---|---|---|---|---|---|
-| Orca Qwen3.8-27B-Uncensored IQ3_XXS (abliterated, 11.64 GB) | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` | 131072 | q4_0 | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED | off (ruling 14) | 45.3 (measured, Phase 3d; 81.6 with MTP at 65536, Phase 3e) | 3/3, 0 tool errors, median 8 turns, ~128 s wall (measured at 131072 without MTP, full tool set) |
+| ISTA DASLab Qwen3.8-27B GSQ-RCO IQ3_XXS-mtp (10.44 GB), the default from 2026-11-08 | `models/qwen3.8-27b-gsq-rco/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` | 131072 | q4_0 (now the default; before the switch serve.ps1 gave it q8_0 unless `-KvType q4_0`) | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED (now applied automatically) | off at 131072; now added at `-Ctx 65536` or below (with q4_0 KV there: UNVERIFIED) | 49.03 (measured 2026-11-08, Model test 1; 83.7 with MTP at 65536 and q8_0 KV, config/models.md) | ran only with MTP on: 3/3, median 8 turns, 121.1 s wall (131072, q4_0, 64/66 layers); at this setup see Model test 1 in docs/ROADMAP.md |
+| Orca Qwen3.8-27B-Uncensored IQ3_XXS (abliterated, 11.64 GB), the default until 2026-11-08 | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` | 131072 | q4_0 only with `-KvType q4_0` since the switch (without it q8_0, measured 58/66 layers on the GPU at 131072) | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED (still applied automatically) | off (ruling 14); since the switch never added | 45.3 (measured, Phase 3d; 81.6 with MTP at 65536, Phase 3e) | 3/3, 0 tool errors, median 8 turns, ~128 s wall (measured at 131072 without MTP, full tool set) |
 
-Chosen for accuracy over speed (ruling 6: the only 131072 row with 0 tool errors). At
+The ISTA stock file became the default on 2026-11-08 (operator ruling (c) after Model
+test 1, docs/ROADMAP.md): at n=3 it led the former default on blocked and on both
+long-fix rungs and trailed it on stale-figure and bait by a report-format slip only
+(text after `STATUS:`), at the same all-GPU fit (12,648 + 248 MiB for the process)
+and 9 percent faster decode. Still owed on it: a whole-file-read fixture and the
+`STATUS:` slip screen of the Uncensored file's short-case reps. The rest of this
+section describes the former default.
+
+The former default was chosen for accuracy over speed (ruling 6: the only 131072 row
+with 0 tool errors). At
 131072 all 66 layers and the 2,304 MiB q4_0 KV sit on the GPU with 1,630 MiB left free
 (measured, `-lv 4`). Ruling 12 traded context for MTP (65536, 1.80x bench decode);
 ruling 14 reverted it after a real report-producing session auto-compacted at 39,098
 tokens on the 65536 window and the model's summary rewrote the facts it had read; MTP is
 not blamed, the 65536 window is (one rep per arm; cwd, tool set and interactivity also
 differed between RUN 1 and RUN 2) (docs/ROADMAP.md, ruling 14). `serve.ps1` applies the template automatically for files
-under `models/qwen3.8-27b-uncensored`; MTP is added for the default file only at `-Ctx`
+under `models/qwen3.8-27b-gsq-rco` and `models/qwen3.8-27b-uncensored`; MTP is added
+for the default file only at `-Ctx`
 65536 or below (`-NoMtp` turns it off); without the template Claude Code
 gets HTTP 500 ("System message must be at the beginning."). `claude-local.ps1` sets
 Claude Code's context window to 131072 to match, and (ruling 13) starts every session
@@ -89,12 +100,13 @@ pwsh scripts/smoke.ps1          # /health, /v1/messages tool_use, /count_tokens
 pwsh scripts/claude-local.ps1   # Claude Code pointed at the local server
 ```
 
-`install.ps1` fetches binaries only. The default model is a local file from the gated
-`orcarouter/Qwen3.8-27B-Uncensored-GGUF` repo and is not downloaded by any script; it
-must already be in `models/qwen3.8-27b-uncensored/`. `install.ps1` checks each zip
+`install.ps1` fetches binaries only. The default model is a local file from the
+ungated `ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF` repo and is not downloaded by any script;
+it must already be in `models/qwen3.8-27b-gsq-rco/`. `install.ps1` checks each zip
 against a SHA256 pinned in the script; `serve.ps1` refuses to start when
 `bin/llama-server.exe` or its dll differs from its pin, or the model file from its
-`models/manifest.json` entry (hashed once per boot, about 20 s for the default file);
+`models/manifest.json` entry (hashed once per boot, about 20 s for the 11.6 GB former
+default file; the 10.44 GB default's time is UNVERIFIED);
 see docs/SETUP.md steps 2 and 5. `-Model` also takes a Hugging Face
 `repo:quant`, which `llama-server -hf` downloads on first run into its own cache (the
 previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`).

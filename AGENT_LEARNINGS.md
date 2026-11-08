@@ -149,7 +149,7 @@
 - **Better:** delete with the consumers in mind: manifest pruned, `-VerifyModels` 4 of
   4, tests green, doc rows keep their figures with "deleted <date>" in the file cell.
 
-## 2026-11-08 - model test 1 on the ISTA file, five ladder reps, bench (c51)
+## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51, c52)
 - **Mistake:** the "past 64K" rung was launched at the ladder's 81920 budget, which caps
   the window at 65,536 (the rep peaked at 49,092); a side note caught it, and the
   48-module rep at 131,072 did pass 64K. -> Prove a context axis from the transcript's
@@ -157,3 +157,6 @@
 - **Mistake:** a monitor filter on `relaunch` matched the wrapper banner on every poll,
   and the first bench run went to `tail` with no saved log (standing rule 7). -> Test a
   filter on the quiet state before arming it; `tee` every bench run, cite the logged one.
+- **Mistake:** one rep 6 percent past 64K for 15 short requests was reported as the
+  past-64K result; a side note called it thin, and the next reps reached 93K and 102K.
+  -> State a context axis as the token range covered and the requests past the line.

@@ -320,9 +320,11 @@ Get-ChildItem $env:TEMP -Filter lis-web-*.env
   "Proof"; ledger W-13, W-14).
 - Desktop shortcut (operator, 2026-11-07, works): target
   `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe`, arguments `-d <workdir> pwsh
-  -NoProfile -File <repo>\scripts\claude-local.ps1 -LisWeb -LisTerminal -LisTask edit
-  --permission-mode acceptEdits`, start in `<workdir>` (an empty directory outside
-  the profile). Windows Terminal gives the font size; a bare `pwsh.exe` target opens
+  -NoProfile -File <repo>\scripts\claude-local.ps1 -LisWeb -LisTerminal -LisStartServer
+  -LisTask edit --permission-mode acceptEdits`, start in `<workdir>` (an empty directory
+  outside the profile). `-LisStartServer` starts the server's scheduled task when
+  `/health` is not ok and waits up to 180 s for it (that start path is UNVERIFIED live).
+  Windows Terminal gives the font size; a bare `pwsh.exe` target opens
   conhost, where auto mode stays off by design (S-B2) and `acceptEdits` passes
   through. The tab closes on `/exit`; closing with the X leaves the key file to the
   next launch's sweep (W-16).

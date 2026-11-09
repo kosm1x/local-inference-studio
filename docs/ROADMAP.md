@@ -315,7 +315,7 @@ surface, no read-only root filesystem.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (41 LANDED, 6 BUILT, 13 OPEN of 60 on 2026-11-07) in
+owner, fix and proof is in one table (41 LANDED, 7 BUILT, 13 OPEN of 61 on 2026-11-09) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -510,6 +510,17 @@ Batches (IDs in the ledger):
   interactive web read (16:13) showed Bash `curl` as a second web path in the
   container (W-14, OPEN) and the 5,000-character `web_read` cap (residual). Ledger
   41 LANDED, 6 BUILT, 13 OPEN of 60.
+  Server start from the icon (W-17, BUILT 2026-11-09): the wrapper only ever connected
+  to a running server (`Test-LisServer` throws on a failed `/health` and names the
+  start line; under `-LisWeb` that check runs inside the container, where the task
+  does not exist). The operator asked for the icon to start the server when it is
+  down, so `-LisStartServer` (host only, launcher only: not forwarded to the
+  container, refused inside it, skipped by `-LisPrintArgs`) starts the
+  `LocalInferenceStudio-llama-server` task when `/health` is not ok, unless the task is
+  already Running, and polls `/health` every 2 s for up to 180 s before the per-start
+  key is read (a start after the key read would hand the session a stale key and a
+  401). The desktop shortcut's arguments carry the switch. Without it nothing
+  changes. Ledger 41 LANDED, 7 BUILT, 13 OPEN of 61.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

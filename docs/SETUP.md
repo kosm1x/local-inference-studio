@@ -1459,7 +1459,11 @@ All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The
 wrapper options are `-LisContextTokens N` (default 114688, minimum 1024; set it to the
 server's `-Ctx` when that is smaller), `-LisFull` (refused with web access, above),
 `-LisNoGuard`, `-LisNoLoopGuard`, `-LisUserScope` (user scope on, below),
-`-LisTask NAME`, `-LisRelaunchMax N` (longrun, below) and `-LisPrintArgs`. Success:
+`-LisTask NAME`, `-LisRelaunchMax N` (longrun, below), `-LisStartServer` and
+`-LisPrintArgs`. `-LisStartServer` (host only, skipped by `-LisPrintArgs`): when
+`/health` is not ok, it starts the `LocalInferenceStudio-llama-server` task (unless it
+is already running) and waits up to 180 s for `/health`, before the key is read
+(UNVERIFIED live). Success:
 Claude Code answers and the server log shows the requests. A
 `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
 

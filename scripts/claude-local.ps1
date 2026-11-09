@@ -78,9 +78,9 @@
   above this repo (it is writable at /work, and the session's Edit denials name the
   container paths), or when a path holds a comma or a double quote (docker's --mount
   syntax). The command inside is `pwsh -NoProfile -File /lis/scripts/claude-local.ps1
-  -LisWeb` followed by the caller's arguments in order, minus -LisWeb, -LisTerminal and
-  -LisPrintArgs (a [bool] that pwsh -File split off a switch is joined back:
-  -LisNoLoopGuard:false). The
+  -LisWeb` followed by the caller's arguments in order, minus -LisWeb, -LisTerminal,
+  -LisStartServer and -LisPrintArgs (a [bool] that pwsh -File split off a switch is
+  joined back: -LisNoLoopGuard:false). The
   wrapper exits with the container's exit code, prints "claude-local: container:
   lis-web:2.1.318 (home not mounted; work=<cwd>; logs=<per-run dir>)" (with -LisTerminal
   "lis-web:2.1.318 (terminal) (home not mounted; ...)") to stderr, and
@@ -312,6 +312,21 @@
   a warning to stderr and the session starts anyway (it queues behind the other one),
   unless -LisStrictSlot, which throws instead. A failed /slots call throws (a 401 means
   the key below does not match the running server).
+  -LisStartServer (host only; refused in the lis-web container, where the scheduled task
+  does not exist): after every launcher check and before the key below is read (with
+  -LisWeb, after the image check and before the launcher writes the key into the env
+  file), GET /health on 127.0.0.1:8080; when it is not status ok, start the scheduled
+  task LocalInferenceStudio-llama-server (unless its state is already Running: a loading
+  server or serve.ps1's restart backoff) and poll /health (2 s apart, 10 s per request)
+  for up to 180 s after the first failure, then throw with the last error. It throws at
+  once when the task is not registered (naming pwsh scripts/register-task.ps1), when it
+  is disabled (naming Enable-ScheduledTask) or when Start-ScheduledTask fails. It never
+  stops or restarts anything. serve.ps1 writes a new logs/api-key at every start, so the
+  key is read only after this. A server started from a console that is still loading
+  (503) makes the task's serve.ps1 exit on its per-port mutex or port check before it
+  writes logs/api-key, so no key is overwritten and the wait simply continues.
+  -LisPrintArgs skips it (it starts nothing), and so does a run with the LIS_CLAUDE_EXE
+  or LIS_DOCKER_EXE stub; the plain preflight above still runs afterwards.
   API key: ANTHROPIC_AUTH_TOKEN and the /slots bearer are the first line of logs/api-key
   under this repo, the per-start key scripts/serve.ps1 writes; when that file is missing
   (a server started by an older serve.ps1) the old fixed key `local` is used. In the
@@ -323,7 +338,7 @@
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The script options, -LisContextTokens N, -LisFull, -LisNoGuard,
   -LisNoLoopGuard, -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisTask NAME,
-  -LisRelaunchMax N and -LisPrintArgs, are taken out of $args here.
+  -LisRelaunchMax N, -LisStartServer and -LisPrintArgs, are taken out of $args here.
   -LisContextTokens defaults to 114688: the default server ctx of 131072 (ruling 14)
   minus CLAUDE_CODE_MAX_OUTPUT_TOKENS 16384, so a prompt at Claude Code's limit plus a
   full-length reply still fits the server's window (the server runs without context
@@ -364,7 +379,7 @@ $tempRoot = if ($env:TEMP) { $env:TEMP } else { [IO.Path]::GetTempPath() }
 # -LisContextTokens N, -LisContextTokens:N (any case). In-process, PowerShell hands
 # -LisContextTokens:N over as '-LisContextTokens:' followed by N, so an empty inline
 # value takes the next token. The switches -LisFull, -LisNoGuard, -LisNoLoopGuard,
-# -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
+# -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisStartServer and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
 # '-LisFull:' followed by a [bool]). All checks run before any env change.
 $LisContextTokens = 114688
 $LisFull = $false
@@ -378,13 +393,14 @@ $LisTerminal = $false
 $LisTask = $null
 $LisRelaunchMax = $null
 $LisPrintArgs = $false
+$LisStartServer = $false
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
 $seenSwitch = @{}
-# The $args positions of -LisWeb, -LisTerminal and -LisPrintArgs (values included): the
-# host launcher passes every other token to the container's wrapper (docstring).
+# The $args positions of -LisWeb, -LisTerminal, -LisStartServer and -LisPrintArgs (values
+# included): the host launcher passes every other token to the container's wrapper (docstring).
 $launcherOnly = [Collections.Generic.HashSet[int]]::new()
-$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisWebAuto|LisTerminal|LisPrintArgs)(:(.*))?\z'
+$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisWebAuto|LisTerminal|LisStartServer|LisPrintArgs)(:(.*))?\z'
 # pwsh -File passes -X:true|false as '-X' followed by a [bool] but -X:0 as '-X' followed
 # by the string '0', the same as '-X 0'. Only the process command line keeps the colon,
 # so when this script is the -File target ($MyInvocation.Line is empty) check it there.
@@ -408,7 +424,7 @@ for ($j = 0; $j -lt $args.Count; $j++) {
             # following [bool] is the value; a string after a bare switch is a prompt.
             $on = if ($args[$j + 1] -is [bool]) { $args[++$j] } else { $true }
             Set-Variable -Name $name -Value $on
-            if ($name -in 'LisWeb', 'LisTerminal', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
+            if ($name -in 'LisWeb', 'LisTerminal', 'LisStartServer', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
             continue
         }
         # -X:V, or in-process '-X:' followed by V (a [bool], a string or a number).
@@ -421,7 +437,7 @@ for ($j = 0; $j -lt $args.Count; $j++) {
         if ($v -is [bool]) { $on = $v }
         elseif (-not [bool]::TryParse("$v".TrimStart('$'), [ref]$on)) { throw "-$name value '$v' is not true or false." }
         Set-Variable -Name $name -Value $on
-        if ($name -in 'LisWeb', 'LisTerminal', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
+        if ($name -in 'LisWeb', 'LisTerminal', 'LisStartServer', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
         continue
     }
     # -LisRelaunchMax N, -LisRelaunchMax:N: the session supervisor's bound (0 to 3).
@@ -552,6 +568,12 @@ if ($LisTerminal) {
         }
     }
 }
+# -LisStartServer (docstring): the scheduled task exists on the host only. Checked before
+# any output.
+if ($LisStartServer -and $inContainer) {
+    throw ('-LisStartServer works on the host only: the scheduled task ' +
+        'LocalInferenceStudio-llama-server does not exist in the lis-web container.')
+}
 if ($LisTask) {
     if ($LisFull) { throw "-LisTask cannot be combined with -LisFull: the profile sets --tools and the policy." }
     if ($LisNoGuard) {
@@ -629,6 +651,38 @@ function Get-LisApiKey([string]$KeyFile) {
         if ($k) { return $k }
     }
     return 'local'
+}
+
+# -LisStartServer (docstring): when /health is not ok, start the server's scheduled task
+# (unless it is already Running) and wait for ok. Never stops or restarts anything.
+function Start-LisServerIfDown([string]$BaseUrl, [int]$TimeoutSec) {
+    $taskName = 'LocalInferenceStudio-llama-server'
+    $deadline = $null
+    $last = 'no response'
+    while ($true) {
+        try { if ((Invoke-RestMethod -Uri "$BaseUrl/health" -TimeoutSec 10).status -eq 'ok') { return } }
+        catch { $last = $_.Exception.Message }
+        if (-not $deadline) {
+            $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if (-not $task) {
+                throw ("llama-server at $BaseUrl is not answering /health and the scheduled task " +
+                    "$taskName is not registered. Register it: pwsh scripts/register-task.ps1")
+            }
+            if ("$($task.State)" -eq 'Disabled') { throw "The scheduled task $taskName is disabled. Enable it: Enable-ScheduledTask -TaskName $taskName" }
+            if ("$($task.State)" -ne 'Running') {
+                try { Start-ScheduledTask -TaskName $taskName }
+                catch { throw "claude-local: Start-ScheduledTask $taskName failed: $($_.Exception.Message)" }
+                [Console]::Error.WriteLine("claude-local: server down; started the scheduled task, waiting up to $TimeoutSec s for /health")
+            } else {
+                [Console]::Error.WriteLine("claude-local: server task running, waiting up to $TimeoutSec s for /health")
+            }
+            $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
+        } elseif ([DateTime]::UtcNow -ge $deadline) {
+            throw ("llama-server at $BaseUrl is not answering /health after $TimeoutSec s ($last); check " +
+                'logs/llama-server.log; if the port is held, pwsh scripts/stop.ps1 first.')
+        }
+        Start-Sleep -Seconds 2
+    }
 }
 
 # -LisWeb on the host (docstring): the session runs in the lis-web container, never here.
@@ -719,8 +773,9 @@ if ($LisWeb -and -not $inContainer) {
         '--mount'
         "type=bind,source=$($m[0]),target=$($m[1])" + $(if ($m[2]) { ',readonly' })
     }
-    # The caller's arguments minus -LisWeb, -LisTerminal and -LisPrintArgs, in order. A
-    # [bool] value (pwsh -File hands -X:false over as '-X' and $false) rejoins its switch.
+    # The caller's arguments minus -LisWeb, -LisTerminal, -LisStartServer and -LisPrintArgs,
+    # in order. A [bool] value (pwsh -File hands -X:false over as '-X' and $false) rejoins
+    # its switch.
     $innerArgs = [Collections.Generic.List[string]]::new()
     for ($k = 0; $k -lt $args.Count; $k++) {
         if ($launcherOnly.Contains($k)) { continue }
@@ -758,6 +813,8 @@ if ($LisWeb -and -not $inContainer) {
             '(or docker is not running). Build it: pwsh -NoProfile -File ' +
             (Join-Path $repo 'scripts' 'web-image.ps1'))
     }
+    # -LisStartServer (docstring): after every launcher check, before the key is read below.
+    if ($LisStartServer -and $dockerExe -eq 'docker') { Start-LisServerIfDown 'http://127.0.0.1:8080' 180 }
     # Closing the console window (CTRL_CLOSE_EVENT, observed 2026-11-07, ledger W-16) ends
     # pwsh before the finally block below and the env file stays (docker events recorded
     # SIGTERM to the container and its --rm removal). Before this run's own file is
@@ -906,7 +963,12 @@ if ($inContainer) {
             'env file the -LisWeb launcher passes. Start the session with -LisWeb on the host.')
     }
     Remove-Item -LiteralPath Env:LIS_API_KEY
-} else { $apiKey = Get-LisApiKey (Join-Path $PSScriptRoot '..' 'logs' 'api-key') }
+} else {
+    # -LisStartServer (docstring): before the key is read (serve.ps1 writes a new one at
+    # every start); a stub run never starts the task, as it skips the preflight.
+    if ($LisStartServer -and -not $LisPrintArgs -and $claudeExe -eq 'claude') { Start-LisServerIfDown $baseUrl 180 }
+    $apiKey = Get-LisApiKey (Join-Path $PSScriptRoot '..' 'logs' 'api-key')
+}
 
 $set = [ordered]@{
     ANTHROPIC_BASE_URL                       = $baseUrl

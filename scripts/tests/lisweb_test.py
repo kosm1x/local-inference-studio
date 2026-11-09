@@ -1,4 +1,4 @@
-"""Tests for -LisWeb and -LisTerminal of scripts/claude-local.ps1 (operator rulings
+"""Tests for -LisWeb, -LisTerminal and -LisStartServer of scripts/claude-local.ps1 (operator rulings
 2026-11-05: web access goes through web tools over MCP, and a web-enabled session runs in the
 lis-web container with no access to the operator's home folder; 2026-11-06: the tools are
 this repo's own lis-web server, web/, with the keys in a local <repo>\\.env, independent of
@@ -859,6 +859,74 @@ def test_terminal(root, stub_dir):
           bool(name) and not os.path.exists(env_file_path(name)), name)
 
 
+START_TEXT = ('claude-local: server down; started the scheduled task',
+              'claude-local: server task running', 'waiting up to')
+
+
+def test_start_server(root):
+    """-LisStartServer: launcher-only (never passed inside), skipped by -LisPrintArgs, and
+    listed in the docstring. The down path (a failing /health) is not run here: the base
+    URL is the live server's port, and the test never stops or starts the server."""
+    lis, wrapper, work = make_tree(root)
+    inner = ['-LisTask', 'review', '--max-turns', '6', '-LisNoLoopGuard:false']
+    for flag in ('-LisStartServer', '-LisStartServer:true', '-LisStartServer:false'):
+        caller = ['-LisWeb', flag] + inner
+        rc, out, err = run_wrapper(['-LisPrintArgs'] + caller, wrapper, work)
+        got = docker_args(out) or []
+        name = value_after(got, '--name') or ''
+        m = re.match(r'lis-web-(\d{8}-\d{6}-\d+)\Z', name)
+        run_dir = os.path.join(lis, 'logs', f'web-{m.group(1)}' if m else '?')
+        check(f'start-server: -LisWeb {flag} -LisPrintArgs prints the docker run line, the '
+              'other caller tokens forwarded and no -LisStartServer inside',
+              rc == 0 and bool(m) and got == want_docker(lis, work, name, run_dir, inner)
+              and not [x for x in got if 'LisStartServer' in x],
+              f'{rc} {err}\n{json.dumps(got)}')
+        check(f'start-server: -LisWeb {flag} -LisPrintArgs starts nothing (no wait or start '
+              'line) and writes nothing',
+              not [t for t in START_TEXT if t in out + err] and not os.path.exists(run_dir),
+              err)
+    def norm(x):
+        """Digits out: the per-run file names carry the pid, the settings a start stamp."""
+        return re.sub(r'\d+', 'N', json.dumps(x))
+
+    rc0, argv0, cfg0, _, out0, err0 = print_args(['-LisTask', 'review'])
+    rc, argv, cfg, mcp, out, err = print_args(['-LisStartServer', '-LisTask', 'review'])
+    check('start-server: -LisStartServer -LisPrintArgs (no web) prints the same claude '
+          'arguments and settings as without it, rc 0',
+          rc == rc0 == 0 and argv is not None and cfg is not None and mcp is None
+          and norm(argv) == norm(argv0) and norm(cfg) == norm(cfg0)
+          and not [x for x in argv if 'LisStartServer' in str(x)], f'{rc} {err}')
+    check('start-server: -LisStartServer -LisPrintArgs (no web) starts nothing (no wait or '
+          'start line)', not [t for t in START_TEXT if t in out + err], err)
+    with open(WRAPPER, encoding='utf-8') as f:
+        text = f.read()
+    doc = ' '.join(text.split('#>', 1)[0].split())
+    check('start-server: the docstring lists the switch, says host only, the key-read order, '
+          '-LisPrintArgs skips it and the plain preflight still runs',
+          '-LisRelaunchMax N, -LisStartServer and -LisPrintArgs, are taken out of $args here.'
+          in doc and 'minus -LisWeb, -LisTerminal, -LisStartServer and -LisPrintArgs' in doc
+          and '-LisStartServer (host only; refused in the lis-web container' in doc
+          and 'after every launcher check and before the key below is read' in doc
+          and 'so the key is read only after this.' in doc
+          and '-LisPrintArgs skips it (it starts nothing)' in doc
+          and 'the plain preflight above still runs afterwards' in doc, '')
+    ok, detail = start_order_ok(text)
+    check('start-server: two Start-LisServerIfDown calls, each before the key read of its '
+          'path (-LisWeb: after the image check; plain: after the -LisWeb key read)', ok, detail)
+
+
+def start_order_ok(text):
+    """The wrapper body (after the docstring): the -LisWeb call lies after the image check
+    and before that path's Get-LisApiKey; the plain call after it and before its own."""
+    body = text.split('#>', 1)[1]
+    calls = [m.start() for m in re.finditer(r'Start-LisServerIfDown\s+[\'$]', body)]
+    keys = [m.start() for m in re.finditer(r'Get-LisApiKey \(', body)]
+    image = body.find('that image is missing')
+    ok = (len(calls) == 2 and len(keys) == 2 and image >= 0
+          and image < calls[0] < keys[0] < calls[1] < keys[1])
+    return ok, f'calls={calls} keys={keys} image={image}'
+
+
 def test_host_auto(root, stub_dir):
     """-LisWebAuto on the host: passed inside, refused before docker; the web autoMode file is
     checked before docker on every -LisWeb run, switch or not."""
@@ -1117,6 +1185,13 @@ def main():
             check('container: -LisTerminal (a host switch) is refused inside',
                   rc != 0 and not out.strip() and '-LisTerminal needs -LisWeb, on the host' in err,
                   f'{rc} {err}')
+            for extra in (['-LisStartServer'], ['-LisWeb', '-LisStartServer']):
+                rc, _, _, _, out, err = print_args(extra)
+                check(f'container: {" ".join(extra)} (a host switch) is refused inside, '
+                      'naming the host',
+                      rc != 0 and not out.strip()
+                      and '-LisStartServer works on the host only' in err
+                      and 'claude-local:' not in err, f'{rc} {err}')
     else:
         test_image_pin()
         test_automode_file()
@@ -1144,6 +1219,7 @@ def main():
                     test_refusals(wrapper, work)
                     test_host_launcher(os.path.join(tmp, 'launcher'), stub_dir)
                     test_terminal(os.path.join(tmp, 'terminal'), stub_dir)
+                    test_start_server(os.path.join(tmp, 'start-server'))
                     test_host_auto(os.path.join(tmp, 'auto'), stub_dir)
                     test_sweep(os.path.join(tmp, 'sweep'), stub_dir)
                 finally:

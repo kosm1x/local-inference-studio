@@ -644,7 +644,12 @@ Phase 3d loop fixture passed every contender it ran and cannot separate them):
    ARA (figures in config/models.md). Estimate: 16.5 to 17.1 GB at 131072 with q4_0
    KV, so the first run measures the fit and falls back to -Ctx 81920; bench and loop
    through `scripts/serve.ps1 -Model ... -KvType q4_0` (the embedded Gemma template,
-   no patched file). Bench pending: the server swap is operator-run.
+   no patched file). Bench pending: the server swap is operator-run. A spill to the
+   CPU makes the decode figure incomparable (the 26B-A4B and Q3_K_XL rows show it).
+   Cost of adopting it at 81920: the wrapper's `-LisContextTokens` default (114688, a
+   margin under the server's 131072) would drop to about 71680 and every session
+   would compact earlier; the alternative, i1-IQ2_M (10.92 GB) at 131072, is a 2-bit
+   quant of a dense model (quality UNVERIFIED).
 
 Ruled out for a first round: DeepSeek-V4.1-Flash-1017 (763B MoE; its GGUF card asks for
 128 GB+ RAM and the smallest backbone quant is about 121 GB, read from the Hugging Face

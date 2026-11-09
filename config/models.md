@@ -54,6 +54,8 @@ UD-IQ4_XS and GLM-4.7-Flash UD-Q3_K_XL (experts on the CPU at 131072). Their row
 the measurements. On disk: the default, the GSQ-RCO IQ3_XXS-mtp file (test arm 2),
 and two fallbacks, Uncensored IQ2_XXS and gpt-oss-20b MXFP4. `models/manifest.json`
 lists only these four; `pwsh scripts/install.ps1 -VerifyModels` passed 4 of 4 that day.
+Added the same day: the queue item 6 file (OrcaRouter GSQ-RCO v2.1 row below); the
+manifest then listed five and `-VerifyModels` passed 5 of 5.
 
 | Model | HF repo | Quant | Size | Fits all-GPU? | Decode tok/s | Prefill 20K ms | Ctx target | Status | Local file |
 |---|---|---|---|---|---|---|---|---|---|
@@ -69,6 +71,7 @@ lists only these four; `pwsh scripts/install.ps1 -VerifyModels` passed 4 of 4 th
 | Qwen3.8-27B-Uncensored (abliterated) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) | IQ3_M | 12.8 GB (12768331360 B) | no at 131072 (weights-only estimate: the smaller IQ3_XXS below already misses by 1441 MiB, measured) | - | - | 131072 | fallback | - |
 | Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` (lastModified 2026-10-12) | IQ2_XXS | 8.88 GB (8884504160 B) | yes, measured: `--fit` made no change at 131072 ctx (66/66 layers, full 4352 MiB KV on GPU, 2084 MiB left free; 398 MiB CPU_Mapped) | 55.0 (55.2 at 65536) | 11,369 (11,268 at 65536) | 131072 | benched (Phase 3c; quality and refusal removal UNVERIFIED) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` |
 | Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (lastModified 2026-10-12) | IQ3_XXS | 11.64 GB (11637692000 B) | no at 131072 with q8_0 KV, measured: 58/66 layers on GPU, 1684 MiB CPU_Mapped, 544 MiB of the 4352 MiB KV on CPU (`--fit` cut 1441 MiB); yes at 131072 with q4_0 KV (66/66, 2304 MiB KV, 1630 MiB left free; Phase 3d); yes at 65536 with q8_0 KV (66/66, 2078 MiB left free); yes at 65536 with q4_0 KV + MTP (66/66, 1684 MiB left free; Phase 3e) | 20.2 at 131072 (45.3 with q4_0 KV); 44.6 at 65536 (45.4 with q4_0 KV, 81.6 with q4_0 KV + MTP `draft-mtp` n-max 2, Phase 3e) | 14,750 (11,520 at 65536) | 131072 | DEFAULT (ruling 6: q4_0 KV, template REQUIRED); benched (Phase 3c; quality and refusal removal UNVERIFIED) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` |
+| Qwen3.8-27B OrcaRouter GSQ-RCO v2.1 (orcarouter abliterated base per its card, with MTP layer; see provenance note) | RentedNoodle/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-Uncensored `Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf` (lastModified 2026-11-06) | IQ3_XXS (GSQ-RCO map, 3.04 bpw per card) | 10.38 GB (10382717184 B; sha256 verified against the manifest) | UNVERIFIED layer split (no offload summary at the log level used); whole-card figures at 131072 with q4_0 KV and no MTP, 2026-11-08, nvidia-smi read in the session, not saved: 14,736 of 16,376 MiB idle after load, 15,065 MiB during a 48-module rep | 43.8 at 0 to 20K (ladder log median, not the bench; 37.2 at 40K to 65,536, 31.0 at 80K to 95K) | - | 131072 | ladder n=3 2026-11-08, Model test 2; no bench; refusal removal UNVERIFIED | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf` |
 
 Agentic loop (Phase 3d, `bench/loop/run.ps1`: Claude Code fixes a 3-test Node fixture,
 3 repetitions; median wall s / median turns; table and failure modes in
@@ -106,6 +109,7 @@ GGUF header (read locally from each downloaded file, GGUF v3):
 | qwen3.8-27b | qwen35 | Qwen3.8-27B | 65 | 262144 | - (dense) |
 | saluki-27b | qwen35 | Qwen3.8-27B GSQ-RCO (sic, see provenance note) | 64 (no MTP layer) | 262144 | - (dense) |
 | qwen3.8-27b-gsq-rco | qwen35 | Qwen3.8-27B GSQ-RCO | 65 (incl. MTP, `nextn_predict_layers` 1) | 262144 | - (dense) |
+| qwen3.8-27b-uncensored (OrcaRouter GSQ-RCO v2.1) | qwen35 | Staged_Tmpl (no `general.finetune` or `basename`; 866 tensors) | 65 (incl. MTP, `nextn_predict_layers` 1) | 262144 | - (dense) |
 | qwen3.8-27b-uncensored (IQ2_XXS and IQ3_XXS) | qwen35 | Qwen3.8 27B Abliterated (`general.finetune` abliterated) | 65 (incl. MTP, `nextn_predict_layers` 1) | 262144 | - (dense) |
 | gemma-4-26b-a4b | gemma4 | Gemma-4-26B-A4B-It | 30 | 262144 | 128 / 8 |
 | glm-4.7-flash | deepseek2 | Glm-4.7-Flash | 47 | 202752 | 64 / 4 |
@@ -137,3 +141,30 @@ Selection notes:
   compare with Saluki (2-bit) and GSQ-RCO (3-bit). The card's refusal and retention
   figures are for the FP8 build, not these quants (UNVERIFIED here). Details:
   `bench/summary-2026-10-24.md` (Phase 3c).
+- Qwen3.8-27B OrcaRouter GSQ-RCO v2.1 (queue item 6, survey 2026-11-08, downloaded
+  2026-11-08 at revision `2113bb22c43635fcdaad4b728c914db4c2ec1d3b`, Apache-2.0, not
+  gated; sha256 `ab955b5083d9cdf0bf55c37acdcae359b78756c4544d97960c23d8fca98feb9b`,
+  equal to the LFS etag and the repo's SHA256SUMS.txt). Card, vendor text,
+  UNVERIFIED: a quantization of the OrcaRouter Qwen3.8-27B checkpoint, "not a new
+  fine-tune", with ISTA-DASLab's GSQ/RCO per-tensor allocation map reproduced on that
+  base; v2.1 raised two IQ1 FFN tensors (`ffn_gate` IQ1_S, `ffn_up` IQ1_M) and is 84 MB
+  smaller than v2.0 (which tensors went down: UNVERIFIED); custom imatrix
+  (`quantize.imatrix.file` imatrix_orca_istacorpus.dat, 496 entries, 10 chunks); MTP
+  head present, maker not stated. The header does not name orcarouter
+  (`general.name` 'Staged_Tmpl'). Vendor figures (RTX 5070 Ti, custom builds;
+  UNVERIFIED): 33.7 t/s at 196K q4_0, tool-call JSON 13/14, MTP acceptance 0.91;
+  GPQA-D 75.25, WikiText-2 PPL 6.17 and XSTest over-refusal 0/250 are v2.0 only; no KL
+  or refusal-rate figure for the base. Its embedded chat template is the froggeric
+  v22.5 tool-use template (28,226 chars, md5 starting 5c928b42), not the stock one
+  (md5 `519239a4...`); `serve.ps1` serves it with the patched
+  `config/chat-templates/qwen3.8-27b.jinja` because the file sits under
+  `models/qwen3.8-27b-uncensored`, so its own template is untested. Ladder results:
+  `docs/ROADMAP.md`, Model test 2. The deprecated sibling repo
+  `RentedNoodle/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-Uncensored` is the frozen huihui-line v1.x.
+- Queue item 8, surveyed 2026-11-08, not downloaded:
+  `huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF` (Apache-2.0, not gated, main
+  `1c69098e9c32db6dc06fc48f1d6cc75ad07da89e`), file
+  `...-GSQ-RCO-IQ3_XXS-mtp.gguf`, 10,442,827,296 B, sha256
+  `53fbcda56fae73e1bc2f3222f6939b4cf051fc52c26acc387b4c90f6da7d5c7d`. Card: ISTA's GGUF
+  ablated in place, "only layers 22 to 52 (0-based) have been ablated", "crude,
+  proof-of-concept", no metrics; header `general.finetune` 'abliterated'.

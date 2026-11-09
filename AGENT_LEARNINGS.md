@@ -149,7 +149,7 @@
 - **Better:** delete with the consumers in mind: manifest pruned, `-VerifyModels` 4 of
   4, tests green, doc rows keep their figures with "deleted <date>" in the file cell.
 
-## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c54)
+## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c57)
 - **Mistake:** the "past 64K" rung was launched at the ladder's 81920 budget, which caps
   the window at 65,536 (the rep peaked at 49,092); a side note caught it, and the
   48-module rep at 131,072 did pass 64K. -> Prove a context axis from the transcript's
@@ -167,6 +167,19 @@
 - **Avoid:** chaining ladder reps back to back against a task-started server: `run.ps1`
   refuses when the server log changed in the last 10 s, so rep 3 never ran. Sleep 15 s
   between reps when the server logs to file.
+- **Mistake:** c54 quoted `lines_removed` 96/89 as evidence of the default's facts
+  rewrites; it is the work tree's git diff count (`grade.py`), and the run log's
+  trust line prints `facts_retracted` under that same label. The "whole-file Write"
+  read from it was wrong too (the transcript has the opening Write and one Edit over
+  `NEXT m01`). -> Read the grader's definition (longrun.py docstring) before naming a
+  field as evidence, and check a write claim against the transcript's tool calls.
+- **Better:** the fixture key is a function of the server identity: same key within a
+  series = same fixture, differing keys across models is by design. Check
+  `rep_key_inputs` in run.ps1 (and compare `fixture_sha256`) before calling a
+  cross-model comparison unfair.
+- **Mistake (model test 2 brief):** a strict-survival tally mixed rungs (one file's
+  count over both rungs against another's over one). -> Tally compaction boundaries
+  per rung, and say when a boundary falls outside the axis (`axis_exercised` false).
 
 ## 2026-11-08 - default switch to the ISTA GSQ-RCO file (ruling (c))
 - **Mistake:** a table-row edit holding Windows paths went through a Bash heredoc

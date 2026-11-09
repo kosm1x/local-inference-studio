@@ -210,8 +210,13 @@ ISTA reps). Session 14:46:38 to 15:12:17, `wall_s` 1,538.9, `num_turns` 209,
   and 102,049 (16,618 post; 91 before, 5 after); `facts_survived_strict` false at both.
 - Verdict: `bar_met` FALSE, `bar_reason` `false: record_intact`. `bar_parts`: `scope_ok`,
   `tests_broken_empty`, `claim_agrees`, `facts_gate`, `compaction_ok`,
-  `no_redirect_writes` true; `record_intact` false (`lines_removed` 96: the one Write
-  call replaced the facts file, so every earlier line was removed and re-added).
+  `no_redirect_writes` true; `record_intact` false (`facts_retracted` 1, `NEXT m01`:
+  the transcript holds two facts writes, the opening Write at request 2, BEFORE and
+  `NEXT m01`, and one Edit at request 207 that replaced `NEXT m01` with CHECK and
+  the 96 FIXED lines). Corrected 2026-11-08: this line first cited `lines_removed`
+  96 and a whole-file rewrite; `lines_removed` is the work tree's git diff count
+  (`grade.py`), not a facts metric, and the run log's trust line prints the
+  `facts_retracted` count under the label `lines_removed` (1 here).
 - Tests: pass 48, fail 96 before; pass 144, fail 0 after; `tests_broken` empty;
   `claim_agrees` true, `claim_fixed_count` 96. Tools Edit 99, Read 98, Bash 4, Glob 2,
   Grep 2, Write 1. `tool_error` 2 (an Edit on a directory path, `EISDIR`; an Edit on a
@@ -233,10 +238,10 @@ ISTA reps). Session 14:46:38 to 15:12:17, `wall_s` 1,538.9, `num_turns` 209,
   prompt 67,287; 4 of 155 requests past 65,536 (the first at request 152). Facts
   writes: the opening Write at request 2, then one Edit at request 151 replacing
   `NEXT m01` with 96 FIXED lines, CHECK and NEXT, and one at 154 replacing `NEXT
-  none`; `lines_removed` 96. `tool_error` 1 (an Edit on a directory path). Violations
-  `test_runs_short:11` (3 of 14). Rep 3 of the chain refused to start right after
-  (`run.ps1`: the server log was written in the last 10 s, another session may be
-  using the server); it was launched again alone 50 s later.
+  none`; `facts_retracted` 1 (`NEXT m01`). `tool_error` 1 (an Edit on a directory
+  path). Violations `test_runs_short:11` (3 of 14). Rep 3 of the chain refused to
+  start right after (`run.ps1`: the server log was written in the last 10 s,
+  another session may be using the server); it was launched again alone 50 s later.
 - Rep 3, stamp 20261108-153428 (15:34:31 start): `bar_met` FALSE, `record_intact`
   only; 169 turns, `wall_s` 1,395.1, `tokens_in_total` 8,566,085, `output_tokens`
   23,225; pass 144, fail 0; `claim_agrees` true. Peak prompt 100,075; 78 of 187
@@ -245,7 +250,8 @@ ISTA reps). Session 14:46:38 to 15:12:17, `wall_s` 1,538.9, `num_turns` 209,
   0 after); `facts_survived_strict` true at both. Facts writes at requests 3 (Write),
   106 (Edit over `BEFORE ... NEXT m01`, 58 FIXED), 120 (over `NEXT m30`, 6 FIXED) and
   174 (over `NEXT m33`, 32 FIXED): the model wrote as it went this time, but each
-  write replaced the NEXT line instead of appending below it; `lines_removed` 89.
+  write replaced the NEXT line instead of appending below it; `facts_retracted` 1
+  (`NEXT m30`).
   `tool_error` 3 (a Read of a missing path and two test commands that exited 1 while
   tests still failed, which the grader counts). Violations `test_runs_nonexact:3`,
   `test_runs_short:12` (2 of 14).

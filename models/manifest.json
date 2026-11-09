@@ -1,5 +1,5 @@
 {
-  "about": "GGUF files this repo uses. size and sha256 were computed with Get-FileHash on the reference machine on 2026-10-30, and each sha256 equals the LFS etag that hf download recorded for the file (models/<dir>/.cache/huggingface/download/<file>.metadata, line 2); revision is the commit hf download fetched (line 1 of that file). Check with: pwsh scripts/install.ps1 -VerifyModels Four files were deleted on 2026-11-08 (unsloth Qwen3.8-27B UD-Q3_K_XL, Saluki IQ2-mix, gemma-4-26B-A4B UD-IQ4_XS, GLM-4.7-Flash UD-Q3_K_XL); their rows are gone, config/models.md keeps their measurements.",
+  "about": "GGUF files this repo uses. size and sha256 were computed with Get-FileHash on the reference machine on 2026-10-30, and each sha256 equals the LFS etag that hf download recorded for the file (models/<dir>/.cache/huggingface/download/<file>.metadata, line 2); revision is the commit hf download fetched (line 1 of that file). Check with: pwsh scripts/install.ps1 -VerifyModels Four files were deleted on 2026-11-08 (unsloth Qwen3.8-27B UD-Q3_K_XL, Saluki IQ2-mix, gemma-4-26B-A4B UD-IQ4_XS, GLM-4.7-Flash UD-Q3_K_XL); their rows are gone, config/models.md keeps their measurements. Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf was added on 2026-11-08 as the queue item 6 test file (RentedNoodle's quantization of the orcarouter checkpoint with ISTA's GSQ-RCO allocation map, v2.1); its sha256 equals the repo's SHA256SUMS.txt and LFS oid.",
   "files": [
     {
       "path": "models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf",
@@ -33,6 +33,14 @@
       "file": "gpt-oss-20b-MXFP4.gguf",
       "size": 12109566624,
       "sha256": "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901"
+    },
+    {
+      "path": "models/qwen3.8-27b-uncensored/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf",
+      "repo": "RentedNoodle/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-Uncensored",
+      "revision": "2113bb22c43635fcdaad4b728c914db4c2ec1d3b",
+      "file": "Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf",
+      "size": 10382717184,
+      "sha256": "ab955b5083d9cdf0bf55c37acdcae359b78756c4544d97960c23d8fca98feb9b"
     }
   ]
 }

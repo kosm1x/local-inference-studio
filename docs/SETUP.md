@@ -402,11 +402,11 @@ unavailable` when nvidia-smi is missing, fails or hangs past 10 s; the start goe
 either way. The default model fills nearly the whole card (14,301 to 14,736 of 16,376
 MiB in use idle after load across two starts on 2026-11-08, nvidia-smi read in the
 session; bench VRAM peak 14,465 MB the same night; the fallback left 858 MiB of
-16,376 free with it loaded in the resilience audit of 2026-10-30; about 1 GB free with the server idle on
-2026-11-04, 688 MiB while a rep ran), so close other GPU apps (games, video tools,
-browsers with GPU acceleration) before a start: a reload after a crash can fail when
-another app took the memory meanwhile. A low figure on the line before a failed start
-points there.
+16,376 free with it loaded in the resilience audit of 2026-10-30; about 1 GB free with
+the server idle on 2026-11-04, 688 MiB while a rep ran), so close other GPU apps
+(games, video tools, browsers with GPU acceleration) before a start: a reload after a
+crash can fail when another app took the memory meanwhile. A low figure on the line
+before a failed start points there.
 
 ### 7a. Register the watchdog (operator)
 

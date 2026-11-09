@@ -138,7 +138,7 @@ access. Serve it as in step 9.
 `models/manifest.json` (the one tracked file under `models\`) pins every GGUF this repo
 uses: Hugging Face repo, the revision (commit) `hf download` fetched, byte size and
 SHA256. On the reference machine each SHA256 was computed with `Get-FileHash` on
-2026-10-30 and equals the LFS etag `hf download` recorded in
+2026-10-30 (the default's on 2026-11-08) and equals the LFS etag `hf download` recorded in
 `models\<dir>\.cache\huggingface\download\<file>.metadata`. To check the files you have
 (no download; absent files are listed and skipped; a size or SHA256 mismatch throws):
 
@@ -146,7 +146,8 @@ SHA256. On the reference machine each SHA256 was computed with `Get-FileHash` on
 pwsh scripts\install.ps1 -VerifyModels
 ```
 
-Hashing all eight files takes about six minutes on the reference machine. To fetch the
+Hashing all five files took 193 s on the reference machine (2026-11-09, server running,
+five OK). To fetch the
 pinned revision rather than the repo's current one, add `--revision <revision>` to
 `hf download` (UNVERIFIED: the `hf` CLI is not installed here). A `-hf` download by
 `llama-server` is not covered by the manifest.
@@ -398,9 +399,10 @@ machine). The log is appended, renamed to `.1` past 50 MB, and each run ends wit
 Free VRAM: before each start and each restart serve.ps1 logs `serve.ps1: vram free: <N>
 MiB` (nvidia-smi `memory.free`, one value per GPU), or `serve.ps1: vram free:
 unavailable` when nvidia-smi is missing, fails or hangs past 10 s; the start goes on
-either way. The default model fills nearly the whole card (14,736 of 16,376 MiB in use
-idle after load, Model test 2, 2026-11-08; the fallback left 858 MiB of 16,376 free with
-it loaded in the resilience audit of 2026-10-30; about 1 GB free with the server idle on
+either way. The default model fills nearly the whole card (14,301 to 14,736 of 16,376
+MiB in use idle after load across two starts on 2026-11-08, nvidia-smi read in the
+session; bench VRAM peak 14,465 MB the same night; the fallback left 858 MiB of
+16,376 free with it loaded in the resilience audit of 2026-10-30; about 1 GB free with the server idle on
 2026-11-04, 688 MiB while a rep ran), so close other GPU apps (games, video tools,
 browsers with GPU acceleration) before a start: a reload after a crash can fail when
 another app took the memory meanwhile. A low figure on the line before a failed start
@@ -1650,9 +1652,15 @@ it names the `-Model` default).
 Both measure the server already running on :8080; neither starts or stops one.
 
 ```powershell
-pwsh bench\run.ps1 -Label orca-iq3xxs -Quant IQ3_XXS -Ctx 131072
-pwsh bench\loop\run.ps1 -Label orca-iq3xxs
+pwsh bench\run.ps1 -Label qwen3.8-27b-orcarouter-gsq-rco -Quant IQ3_XXS-v2.1 -Ctx 131072
+pwsh bench\loop\run.ps1 -Label qwen3.8-27b-orcarouter-gsq-rco -LisContextTokens 131072
 ```
+
+Both lines ran on the default on 2026-11-08 (results under `bench\results\`, stamps
+234151 and 234232): decode 48.6 tok/s, 20K prefill 11.8 s, tools 20 of 20, VRAM peak
+14,465 MB in about 70 s; the loop passed 3 of 3 with 0 tool errors, median 8 turns and
+39.5 s, in about 2.5 min. The loop's `-LisContextTokens` matches the server's `-Ctx`
+(the wrapper's own default is 114688, a margin below it).
 
 `bench\run.ps1` writes `bench\results\<stamp>-<Label>.json` (decode, 20K prefill, 20 tool
 calls, peak VRAM). `bench\loop\run.ps1` has Claude Code fix a 3-test Node fixture 3 times

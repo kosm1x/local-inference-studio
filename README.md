@@ -49,13 +49,31 @@ installed, Qwen3.6-35B-A3B UD-IQ3_XXS serves `/v1/messages` with tool_use
 (bench matrix and agentic-loop comparison) done 2026-10-24; the default model is
 ruled (below).
 
-## Default model (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12)
+## Default model (ruled 2026-11-08 22:27, Model test 2; before it rulings 6 and 14)
 
 | Model | Local file | Ctx | KV | Chat template | MTP | Decode tok/s | Loop (Phase 3d) |
 |---|---|---|---|---|---|---|---|
-| Orca Qwen3.8-27B-Uncensored IQ3_XXS (abliterated, 11.64 GB) | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` | 131072 | q4_0 | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED | off (ruling 14) | 45.3 (measured, Phase 3d; 81.6 with MTP at 65536, Phase 3e) | 3/3, 0 tool errors, median 8 turns, ~128 s wall (measured at 131072 without MTP, full tool set) |
+| RentedNoodle Qwen3.8-27B OrcaRouter GSQ-RCO IQ3_XXS v2.1 (orcarouter abliterated base per its card, 10.38 GB), the default from 2026-11-08 | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf` | 131072 | q4_0 | `config/chat-templates/qwen3.8-27b.jinja`, applied automatically (the file's own embedded template is untested) | off at every `-Ctx` (MTP head present, UNVERIFIED here) | 43.8 at 0 to 20K, 37.2 at 40K to 65,536 (ladder-log medians, Model test 2; no bench) | not run; ladder n=3 in Model test 2 (docs/ROADMAP.md) |
+| Orca Qwen3.8-27B-Uncensored IQ3_XXS (abliterated, 11.64 GB), the fallback (the default 2026-10-24 to 2026-11-08) | `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` | 131072 | q4_0 (by rule, no `-KvType` needed) | `config/chat-templates/qwen3.8-27b.jinja`, REQUIRED | off at 131072 (ruling 14); on at `-Ctx 65536` or below | 45.3 (measured, Phase 3d; 81.6 with MTP at 65536, Phase 3e) | 3/3, 0 tool errors, median 8 turns, ~128 s wall (measured at 131072 without MTP, full tool set) |
 
-Chosen for accuracy over speed (ruling 6: the only 131072 row with 0 tool errors). At
+The RentedNoodle file became the default on 2026-11-08 22:27 (operator ruling after
+the Model test 2 strict comparison, docs/ROADMAP.md): at n=3 the two files tie on
+long-fix and bait; the fallback wins stale-figure 3 of 3 against 0 (report format only,
+content right); the new default wins blocked 3 of 3 against 1 (the fallback rewrote the
+invoiceHalf contract comment to the impossible test's value in three of six reps across
+two series), decodes 5 to 7 percent faster and follows the instructed test-run count
+far better in the 48-module rung. Its uncensored property is taken from provenance
+(card claim, UNVERIFIED). Fallback, from a console with the server log on:
+
+```powershell
+pwsh -NoProfile -File Z:\repos\kosm1x\local-inference-studio\scripts\stop.ps1
+pwsh -NoProfile -File Z:\repos\kosm1x\local-inference-studio\scripts\serve.ps1 -Model models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf -LogFile logs\llama-server.log
+```
+
+The rest of this section describes the fallback, the default until 2026-11-08.
+
+It was chosen for accuracy over speed (ruling 6: the only 131072 row with 0 tool
+errors). At
 131072 all 66 layers and the 2,304 MiB q4_0 KV sit on the GPU with 1,630 MiB left free
 (measured, `-lv 4`). Ruling 12 traded context for MTP (65536, 1.80x bench decode);
 ruling 14 reverted it after a real report-producing session auto-compacted at 39,098
@@ -63,7 +81,7 @@ tokens on the 65536 window and the model's summary rewrote the facts it had read
 not blamed, the 65536 window is (one rep per arm; cwd, tool set and interactivity also
 differed between RUN 1 and RUN 2) (docs/ROADMAP.md, ruling 14). `serve.ps1` applies
 the template automatically for files under `models/qwen3.8-27b-uncensored` and
-`models/qwen3.8-27b-gsq-rco`; MTP is added for the default file only at `-Ctx`
+`models/qwen3.8-27b-gsq-rco`; MTP is added for the fallback file only at `-Ctx`
 65536 or below (`-NoMtp` turns it off); without the template Claude Code
 gets HTTP 500 ("System message must be at the beginning."). `claude-local.ps1` sets
 Claude Code's context window to 131072 to match, and (ruling 13) starts every session
@@ -90,12 +108,15 @@ pwsh scripts/smoke.ps1          # /health, /v1/messages tool_use, /count_tokens
 pwsh scripts/claude-local.ps1   # Claude Code pointed at the local server
 ```
 
-`install.ps1` fetches binaries only. The default model is a local file from the gated
-`orcarouter/Qwen3.8-27B-Uncensored-GGUF` repo and is not downloaded by any script; it
-must already be in `models/qwen3.8-27b-uncensored/`. `install.ps1` checks each zip
+`install.ps1` fetches binaries only. The default model is a local file from the
+ungated `RentedNoodle/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-Uncensored` repo
+(Apache-2.0) and the fallback one from the gated `orcarouter/Qwen3.8-27B-Uncensored-GGUF`
+repo; no script downloads them, and both must already be in
+`models/qwen3.8-27b-uncensored/`. `install.ps1` checks each zip
 against a SHA256 pinned in the script; `serve.ps1` refuses to start when
 `bin/llama-server.exe` or its dll differs from its pin, or the model file from its
-`models/manifest.json` entry (hashed once per boot, about 20 s for the default file);
+`models/manifest.json` entry (hashed once per boot, about 20 s for the 11.6 GB fallback
+file; the 10.38 GB default's time is UNVERIFIED);
 see docs/SETUP.md steps 2 and 5. `-Model` also takes a Hugging Face
 `repo:quant`, which `llama-server -hf` downloads on first run into its own cache (the
 previous default: `-Model unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`).

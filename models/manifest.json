@@ -7,8 +7,7 @@
       "revision": "34e7cb013d66af05f668fe8a37087585de2e85f0",
       "file": "Qwen3.8-27B-Uncensored-IQ3_XXS.gguf",
       "size": 11637692000,
-      "sha256": "0d91ad7b2c57f545a030b1d391375a5f9a822423b90923d91cf744e717e80d03",
-      "default": true
+      "sha256": "0d91ad7b2c57f545a030b1d391375a5f9a822423b90923d91cf744e717e80d03"
     },
     {
       "path": "models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ2_XXS.gguf",
@@ -40,7 +39,8 @@
       "revision": "2113bb22c43635fcdaad4b728c914db4c2ec1d3b",
       "file": "Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf",
       "size": 10382717184,
-      "sha256": "ab955b5083d9cdf0bf55c37acdcae359b78756c4544d97960c23d8fca98feb9b"
+      "sha256": "ab955b5083d9cdf0bf55c37acdcae359b78756c4544d97960c23d8fca98feb9b",
+      "default": true
     }
   ]
 }

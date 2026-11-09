@@ -44,7 +44,8 @@ Conventions:
   takes no mutex, writes no key, appends nothing to the server log (it does write
   `logs/model-verify.json` when the model hash runs and matches).
 - Pros: safe while the server runs.
-- Cons: the model hash takes about 20 s cold when the per-boot marker is missing.
+- Cons: the model hash takes about 20 s cold when the per-boot marker is missing
+  (measured on the 11.6 GB fallback; the default's time is UNVERIFIED).
 
 ### `stop.ps1`
 

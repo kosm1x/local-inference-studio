@@ -31,8 +31,8 @@ uploader one.
 
 Local files, each followed by the HF repo it came from.
 
-1. `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (the default)
-   <- orcarouter/Qwen3.8-27B-Uncensored-GGUF
+1. `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (the default
+   until 2026-11-08, the fallback since) <- orcarouter/Qwen3.8-27B-Uncensored-GGUF
 2. `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` <- same repo
 3. Qwen3.6-35B-A3B UD-IQ3_XXS (HF hub cache, served with `-hf`)
    <- unsloth/Qwen3.6-35B-A3B-GGUF
@@ -93,11 +93,17 @@ one tool-call failure the repo recorded is the template one above.
 
 ## Effect
 
-No model changes uploader. The default stays
+At the 2026-10-30 ruling no model changed uploader. The default stayed
 `models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (orcarouter); no
-download is needed.
+download is needed. Since 2026-11-08 22:27 (Model test 2 ruling in ROADMAP.md) the
+default is
+`models/qwen3.8-27b-uncensored/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf`
+<- RentedNoodle/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-Uncensored, a third-party requant
+of the orcarouter checkpoint (per its card), so not the finetune author's own GGUF
+under rule 1. The operator ruled it on the trust-ladder comparison, not on this rule;
+file 1 is the fallback.
 
-Bartowski alternative for the default, NOT proposed:
+Bartowski alternative for file 1 (the default until 2026-11-08), NOT proposed:
 `bartowski/orcarouter_Qwen3.8-27B-Uncensored-GGUF` IQ3_XXS is 12,626,774,272 B (HF
 API, UNVERIFIED here), +989 MB (about 943 MiB) over file 1. Against the 1,630 MiB left
 free at 131072 / q4_0 that leaves about 690 MiB (estimate, UNVERIFIED, untested).
@@ -114,5 +120,5 @@ download.
   this repo has not run.
 - The loop fixture showing a difference attributable to the quant (KLD or a repeated
   tool-argument error), not to the template or the parser (#20837 is still open).
-- For the default: the operator wanting a published calibration set; the candidate is
+- For file 1: the operator wanting a published calibration set; the candidate is
   then the Bartowski requant, after a fit check at 131072 / q4_0 and an MTP layer check.

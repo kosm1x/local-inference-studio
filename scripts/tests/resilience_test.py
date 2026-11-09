@@ -90,7 +90,7 @@ def make_repo(tmp, stub_exe=None):
         shutil.copy(os.path.join(REPO, 'scripts', f), os.path.join(root, 'scripts', f))
     shutil.copy(os.path.join(REPO, 'config/chat-templates/qwen3.8-27b.jinja'),
                 os.path.join(root, 'config/chat-templates'))
-    open(os.path.join(root, 'models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-IQ3_XXS.gguf'), 'w').close()
+    open(os.path.join(root, 'models/qwen3.8-27b-uncensored/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf'), 'w').close()
     # serve.ps1's binary pin check (S-O1) reads the pins from install.ps1 (refusing
     # without it); a release with no pin warns and goes on; the empty model has no
     # manifest here, so its hash check warns too (S-O2)

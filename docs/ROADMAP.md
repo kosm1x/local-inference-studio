@@ -160,7 +160,9 @@ harness fixes (39). Still OPEN:
   ruling (the uncensored property is required) and are measured only as controls.
   Default RERUN 2026-11-08 21:22 under the current client and grader (strict
   comparison in Model test 2): ties on long-fix and bait, default 3 of 3 stale-figure
-  vs 0, item 6 3 of 3 blocked vs 1; open (a)/(c).
+  vs 0, item 6 3 of 3 blocked vs 1; open (a)/(c). RULED 2026-11-08 22:27 (c): the
+  RentedNoodle file is the default (c60); the Uncensored file stays as the fallback,
+  one launch line, MTP rule follows it.
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
   2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4
@@ -945,7 +947,8 @@ every case); the rep keys differ because the server identity is a key input
   uncensored property is judged from provenance, and this file's card puts it on the
   same abliterated base as the default (vendor text, UNVERIFIED). Open between (a)
   keep and (c) switch: at n=3 the ladder alone does not separate them. The default
-  stays the ruled default (ruling 6) until the operator picks one.
+  stays the ruled default (ruling 6) until the operator picks one. RULED 2026-11-08
+  22:27: (c), built as c60; the Uncensored file is the fallback.
 
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 
@@ -1219,6 +1222,9 @@ every case); the rep keys differ because the server identity is a key input
 - Default model: RULED 2026-10-24 (ruling 6), Orca Qwen3.8-27B-Uncensored IQ3_XXS at
   131072 with q4_0 KV and the patched chat template; ruling 12 moved it to 65536 with
   MTP on, ruling 14 moved it back to 131072 without MTP; the logon task serves that.
+  2026-11-08: the default file changed by the Model test 2 ruling (22:27, c60) to the
+  RentedNoodle OrcaRouter GSQ-RCO v2.1 file, settings unchanged (q4_0 KV at 131072,
+  patched template); the ruling 6 file is the fallback.
 - Open rulings: uploader per model (Unsloth vs Bartowski, given the tool-call gap
   reported for one quant). Released 2026-10-30 (31). DONE 2026-10-30 (35): rule in
   docs/uploader-rule.md; no model changes uploader; the gap claim is untraceable
@@ -1485,6 +1491,9 @@ to `scripts/claude-local.ps1` or `config/claude-settings.json` was needed.
   refusal removal of the abliterated build stay UNVERIFIED. Fallbacks: gpt-oss-20b
   MXFP4 (fastest) and Qwen3.6-35B-A3B UD-IQ3_XXS (`-Model
   unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ3_XXS -KvType q8_0`).
+  2026-11-08: the default file changed by the Model test 2 ruling (22:27, c60) to the
+  RentedNoodle OrcaRouter GSQ-RCO v2.1 file, settings unchanged (q4_0 KV at 131072,
+  patched template); the file ruled here is the fallback.
 - (7) Phase 6 (MTP): folded into that comparison as the fourth contender; no
   separate MTP decision. The ruled default ran without MTP until ruling 12 (see P6).
 - (8) vLLM/WSL2 stack from the P5 spike: REMOVED 2026-10-24 (`~/lis-vllm` 9.9 GB,

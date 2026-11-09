@@ -3,9 +3,11 @@
 .SYNOPSIS
   Run llama-server (Anthropic /v1/messages on 127.0.0.1) from bin/.
 .DESCRIPTION
-  Default command line (rulings 6 and 14 in docs/ROADMAP.md; ruling 14 of 2026-10-25
-  reverted ruling 12's 65536 + MTP): the local orcarouter Qwen3.8-27B-Uncensored
-  IQ3_XXS at -c 131072 with q4_0 KV,
+  Default command line (Model test 2 ruling of 2026-11-08 22:27 in docs/ROADMAP.md, on
+  top of rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12's 65536 + MTP):
+  the local RentedNoodle Qwen3.8-27B-OrcaRouter-GSQ-RCO IQ3_XXS v2.1 file (the default
+  until then, the orcarouter Qwen3.8-27B-Uncensored IQ3_XXS, is the fallback) at
+  -c 131072 with q4_0 KV,
   --chat-template-file config/chat-templates/qwen3.8-27b.jinja and no MTP,
   plus -fa on, -np 1,
   Qwen sampling, --host/--port, --reasoning-format auto, --reasoning off, --api-key-file
@@ -74,17 +76,24 @@
   which one llama-server honours (last wins?) is UNVERIFIED. -Model is a
   Hugging Face "repo:quant" (passed as -hf, downloaded on first run) or a local .gguf
   path (passed as -m; relative to the repo root; a missing file throws). -KvType
-  defaults to q4_0 for the default model file only and to q8_0 for any other -Model
-  (the KV the other rows were benched with); an explicit -KvType always wins.
+  defaults to q4_0 for the default and the fallback model files only and to q8_0 for
+  any other -Model (the KV the other rows were benched with); an explicit -KvType always
+  wins. Both files were measured at 131072 with q4_0 KV: the fallback all-GPU (Phase
+  3d), the default whole-card only (14,736 of 16,376 MiB, Model test 2; its layer split
+  is UNVERIFIED).
   -ChatTemplateFile (relative to the repo root) is passed as --chat-template-file; it
   defaults to config/chat-templates/qwen3.8-27b.jinja when the model is under
-  models/qwen3.8-27b-gsq-rco or models/qwen3.8-27b-uncensored (both GGUFs embed the
-  same template, which rejects Claude Code's second system message with HTTP 500).
-  MTP (--spec-type draft-mtp --spec-draft-n-max 2) is added for the default model file
-  only, at -Ctx 65536 or below, unless -NoMtp; any other -Model runs without it. It fits
-  all-GPU at 65536 with q4_0 KV (Phase 3e), so `-Ctx 65536` turns it on. The default
-  (no -Ctx, 131072) skips it silently; an explicit -Ctx above 65536 skips it with a
-  warning (pass -NoMtp to silence it), since MTP there is expected to push layers to CPU.
+  models/qwen3.8-27b-gsq-rco or models/qwen3.8-27b-uncensored (the orcarouter and ISTA
+  GGUFs embed the stock template, which rejects Claude Code's second system message with
+  HTTP 500; the default embeds another one, untested).
+  MTP (--spec-type draft-mtp --spec-draft-n-max 2) is added for the fallback model file
+  only, at -Ctx 65536 or below, unless -NoMtp; the default and any other -Model run
+  without it at every -Ctx (the default's MTP head is present but UNVERIFIED here). The
+  fallback fits all-GPU at 65536 with q4_0 KV and MTP (Phase 3e), so `-Ctx 65536` turns
+  it on there. The fallback at the default -Ctx (131072) skips it silently; an explicit
+  -Ctx above 65536 skips it with a warning (pass -NoMtp to silence it), since MTP there
+  is expected to push layers to CPU. The fallback starts with scripts/stop.ps1, then
+  `serve.ps1 -Model models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf -LogFile logs\llama-server.log`.
   -ExtraArgs (string[]) is passed through verbatim, one element per argument, so a
   value with spaces stays whole; use it from inside pwsh. `pwsh -File` hands
   -ExtraArgs 'a','b' over as the single string "a,b", so from `pwsh -File` use
@@ -111,7 +120,7 @@
   LastBootUpTime), path, size, mtime and manifest sha256, it is not hashed; otherwise a
   size or sha256 mismatch refuses the start with both values and a match writes that
   marker (none when the boot time cannot be read, so the next run hashes again).
-  Hashing the default 11.6 GB file took 20 s cold and 8.9 s from the OS file cache on
+  Hashing the fallback 11.6 GB file took 20 s cold and 8.9 s from the OS file cache on
   the reference machine (2026-11-04); restarts in the loop never rehash, and a later
   serve.ps1 in the same boot (the watchdog's) takes the marker. A file not in the
   manifest, or an -hf model, warns and goes on. -SkipModelVerify skips the model hash
@@ -144,7 +153,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Model = 'models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf',
+    [string]$Model = 'models\qwen3.8-27b-uncensored\Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf',
     [int]$Ctx = 131072,
     [int]$Port = 8080,
     [int]$NCpuMoe = 0,
@@ -226,8 +235,9 @@ try {
         $Model = [IO.Path]::GetFullPath($Model, $repoRoot)
         if (-not (Test-Path -LiteralPath $Model -PathType Leaf)) { throw "Model file not found: $Model" }
     }
-    $defaultModel = [IO.Path]::GetFullPath('models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf', $repoRoot)
-    if (-not $PSBoundParameters.ContainsKey('KvType') -and $Model -ne $defaultModel) { $KvType = 'q8_0' }
+    $defaultModel = [IO.Path]::GetFullPath('models\qwen3.8-27b-uncensored\Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf', $repoRoot)
+    $fallbackModel = [IO.Path]::GetFullPath('models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf', $repoRoot)
+    if (-not $PSBoundParameters.ContainsKey('KvType') -and $Model -ne $defaultModel -and $Model -ne $fallbackModel) { $KvType = 'q8_0' }
     if (-not $ChatTemplateFile -and $source -eq '-m' -and
         (@('models\qwen3.8-27b-gsq-rco', 'models\qwen3.8-27b-uncensored') | Where-Object {
             $Model.StartsWith([IO.Path]::GetFullPath($_, $repoRoot) + '\', 'OrdinalIgnoreCase') })) {
@@ -312,7 +322,7 @@ try {
         'ok', $ok
     }
     # At most once per boot: a marker with this boot time, path, size, mtime and manifest
-    # sha256 skips the hash (the default file took 20 s on the reference machine).
+    # sha256 skips the hash (the fallback file took 20 s on the reference machine).
     function Test-ModelHash([string]$Path, [string]$Manifest, [string]$Root, [string]$Marker) {
         $entry = $null
         if (Test-Path -LiteralPath $Manifest -PathType Leaf) {
@@ -383,7 +393,7 @@ try {
     if ($Web) { $cmdArgs += '-lv', '3' }
     if ($NCpuMoe -gt 0) { $cmdArgs += '--n-cpu-moe', "$NCpuMoe" }
     if ($ChatTemplateFile) { $cmdArgs += '--chat-template-file', $ChatTemplateFile }
-    if ($Model -eq $defaultModel -and -not $NoMtp) {
+    if ($Model -eq $fallbackModel -and -not $NoMtp) {
         if ($Ctx -gt 65536) {
             if ($PSBoundParameters.ContainsKey('Ctx')) { Write-Warning 'MTP skipped: only measured to fit all-GPU up to -Ctx 65536 (Phase 3e); pass -NoMtp to silence' }
         } else {

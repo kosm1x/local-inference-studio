@@ -440,6 +440,46 @@ def serve_checks(root, check):
             want(rc == 0 and has == tpl, f'serve -PrintArgs: the template must '
                  f'{"" if tpl else "not "}apply under models\\{d}', rc, out)
 
+    # KV and MTP rules (ruling 2026-11-08 22:27): q4_0 KV for the default and the
+    # fallback file, q8_0 for any other -Model; MTP for the fallback only, at -Ctx 65536
+    with open(os.path.join(root, 'scripts', 'serve.ps1'), encoding='utf-8') as f:
+        src = f.read()
+    dflt = re.search(r"\[string\]\$Model\s*=\s*'([^']+)'", src)
+    fb = re.search(r"\$fallbackModel\s*=\s*\[IO\.Path\]::GetFullPath\('([^']+)'", src)
+    check(bool(dflt and fb) and dflt.group(1) != fb.group(1),
+          f'serve.ps1: -Model default {dflt and dflt.group(1)} and $fallbackModel '
+          f'{fb and fb.group(1)} must both exist and differ')
+    if dflt and fb:
+        with tempfile.TemporaryDirectory() as tmp:
+            t = serve_tree(tmp, root)
+            os.makedirs(os.path.join(t, 'config', 'chat-templates'))
+            open(os.path.join(t, 'config', 'chat-templates', 'qwen3.8-27b.jinja'), 'w').close()
+            other = 'models\\qwen3.8-27b-uncensored\\Qwen3.8-27B-Uncensored-IQ2_XXS.gguf'
+            for p in (dflt.group(1), fb.group(1), other):
+                os.makedirs(os.path.join(t, os.path.dirname(p)), exist_ok=True)
+                open(os.path.join(t, p), 'w').close()
+            mtp = ' --spec-type draft-mtp --spec-draft-n-max 2'
+            fbm = ['-Model', fb.group(1)]
+            for what, extra, kv, has_mtp, need in (
+                    ('default at -Ctx 65536', ['-Ctx', '65536'], 'q4_0', False, ''),
+                    ('default at the default -Ctx', [], 'q4_0', False, ''),
+                    ('fallback at -Ctx 65536', fbm + ['-Ctx', '65536'], 'q4_0', True, ''),
+                    ('fallback at the default -Ctx', fbm, 'q4_0', False, ''),
+                    ('fallback at -Ctx 65536 -NoMtp', fbm + ['-Ctx', '65536', '-NoMtp'], 'q4_0', False, ''),
+                    ('fallback at -Ctx 65536 -KvType q8_0', fbm + ['-Ctx', '65536', '-KvType', 'q8_0'],
+                     'q8_0', True, ''),
+                    ('fallback at an explicit -Ctx 131072', fbm + ['-Ctx', '131072'], 'q4_0', False,
+                     'MTP skipped'),
+                    ('another gguf', ['-Model', other], 'q8_0', False, ''),
+                    ('another gguf at -Ctx 65536', ['-Model', other, '-Ctx', '65536'], 'q8_0', False, '')):
+                rc, out = pwsh_file(os.path.join(t, 'scripts', 'serve.ps1'), '-Port', str(free_port()),
+                                    *extra, '-PrintArgs')
+                line = next((ln for ln in out.splitlines() if 'llama-server.exe -m ' in ln), '')
+                want(rc == 0 and f' -ctk {kv} -ctv {kv} ' in line and (mtp in line) == has_mtp
+                     and need in out,
+                     f'serve -PrintArgs, {what}: want {kv} KV and {"" if has_mtp else "no "}MTP'
+                     f'{" and " + repr(need) if need else ""}', rc, out)
+
 
 def main():
     args = sys.argv[1:]

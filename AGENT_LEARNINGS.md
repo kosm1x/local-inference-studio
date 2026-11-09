@@ -149,7 +149,7 @@
 - **Better:** delete with the consumers in mind: manifest pruned, `-VerifyModels` 4 of
   4, tests green, doc rows keep their figures with "deleted <date>" in the file cell.
 
-## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c59)
+## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c60)
 - **Mistake:** the "past 64K" rung was launched at the ladder's 81920 budget, which caps
   the window at 65,536 (the rep peaked at 49,092); a side note caught it, and the
   48-module rep at 131,072 did pass 64K. -> Prove a context axis from the transcript's
@@ -184,6 +184,9 @@
   like-for-like (c57 reading). -> Read `claude_version` and `bar_v` from every
   .meta.json in a comparison before writing a table; a baseline older than the
   current grader is history, not a comparator.
+- **Better:** a default switch keeps the predecessor as a named fallback with its own
+  measured rules (KV, MTP) instead of folding them into "the default" (c60:
+  `$fallbackModel` in serve.ps1, q4_0 KV and MTP at 65536 keyed on it).
 
 ## 2026-11-08 - default switch to the ISTA GSQ-RCO file (ruling (c))
 - **Mistake:** a table-row edit holding Windows paths went through a Bash heredoc

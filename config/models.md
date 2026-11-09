@@ -7,13 +7,30 @@ orcarouter/Qwen3.8-27B-Uncensored-GGUF, read with a token) on
 the API exactly.
 "Fits all-GPU" is measured for the benched rows (P3 part B, Phase 3b and Phase 3c, 2026-10-24): whether
 `--fit` kept every tensor on GPU at the target context with the `serve.ps1`
-defaults of the time (q8_0 KV, still the default for every model except the ruling 6 file). "Decode tok/s" (median of 3 after one discarded warm-up) and
+defaults of the time (q8_0 KV, still the default for every model except the default and
+fallback files; until 2026-11-08 the ruling 6 file only). "Decode tok/s" (median of 3
+after one discarded warm-up) and
 "Prefill 20K ms" (cold, median of 3) are the P3 bench numbers; the full table is
 `bench/summary-2026-10-24.md`. Unbenched rows are the weights-only estimate.
 "lastModified" is the repo's, not the file's.
 
-Default (rulings 6 and 14; ruling 14 of 2026-10-25 reverted ruling 12's 65536 + MTP;
-the `scripts/serve.ps1` defaults and the logon task): Qwen3.8-27B-Uncensored IQ3_XXS,
+Default (Model test 2 ruling of 2026-11-08 22:27 in docs/ROADMAP.md; the
+`scripts/serve.ps1` defaults and the logon task from that commit): Qwen3.8-27B
+OrcaRouter GSQ-RCO IQ3_XXS v2.1 (RentedNoodle), local file
+`models\qwen3.8-27b-uncensored\Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf`, ctx
+131072, KV q4_0, chat template `config/chat-templates/qwen3.8-27b.jinja` (`serve.ps1`
+adds it for this folder; the file's own embedded template is untested), no MTP at any
+`-Ctx` (its MTP head is present, UNVERIFIED here), server thinking off. Fit and decode
+come from Model test 2 only (its row below): whole card 14,736 of 16,376 MiB idle after
+load, layer split UNVERIFIED, 43.8 tok/s ladder-log decode at 0 to 20K; no bench. The
+uncensored property is taken from provenance (card claim, UNVERIFIED). Ladder evidence:
+Model test 2 results in docs/ROADMAP.md.
+
+Fallback (the default 2026-10-24 to 2026-11-08; rulings 6 and 14; ruling 14 of
+2026-10-25 reverted ruling 12's 65536 + MTP; until 2026-11-08 the `scripts/serve.ps1`
+defaults and the logon task; started with `scripts\stop.ps1`, then
+`scripts\serve.ps1 -Model <this file> -LogFile logs\llama-server.log`, launch lines in
+the README): Qwen3.8-27B-Uncensored IQ3_XXS,
 local file `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf`, ctx
 131072, KV q4_0, chat template `config/chat-templates/qwen3.8-27b.jinja` REQUIRED
 (`serve.ps1` adds it for this folder), no MTP, server thinking off (`--reasoning off`,
@@ -23,27 +40,30 @@ measured 81.6 tok/s with 1,684 MiB free (Phase 3e), and one lean-set loop rep pa
 in 6 turns, 40.7 s wall, 0 tool errors (variance UNVERIFIED). The Phase 3d loop (3/3,
 0 tool errors, median 127.7 s wall) ran this file at 131072 without MTP.
 Quality and refusal removal UNVERIFIED. MTP rule: `serve.ps1` adds the two MTP flags
-only for this default file, only at `-Ctx` 65536 or below and only without `-NoMtp`;
-every other `-Model` runs without MTP. The default start (131072) adds none and warns
-nothing; an explicit `-Ctx` above 65536 skips them with a warning (`-NoMtp` silences
-it): MTP costs about 1.1 GB, so `--fit` would move layers to CPU (estimate, UNVERIFIED
-at 131072). `config/claude-settings.json` and `scripts/claude-local.ps1` default to a
-114688 context window, a margin below the server's 131072 (the ladder and benches pass
-131072 explicitly); the wrapper passes a per-run copy of the
+only for this file (the default until 2026-11-08, the fallback since), only at `-Ctx`
+65536 or below and only without `-NoMtp`; every other `-Model`, the new default
+included, runs without MTP. A start of this file without `-Ctx` (131072) adds none
+and warns nothing; an explicit `-Ctx` above 65536 skips them with a warning (`-NoMtp`
+silences it): MTP costs about 1.1 GB, so `--fit` would move layers to CPU (estimate,
+UNVERIFIED at 131072). `config/claude-settings.json` and `scripts/claude-local.ps1`
+default to a 114688 context window, a margin below the server's 131072 (the ladder and
+benches pass 131072 explicitly); the wrapper passes a per-run copy of the
 settings file with `CLAUDE_CODE_AUTO_COMPACT_WINDOW` rewritten to `-LisContextTokens`
 and, unless `-LisFull`, the lean set (7 tools, no MCP, one-model policy; ruling 13; it
 saves about 9,172 prompt tokens against `-LisFull` in the same cwd, 9,560 before the
 2026-10-25 policy block, measured before the loop guards (+101 tokens), while absolute
 sizes vary by a few hundred tokens with the cwd path). KV rule: `serve.ps1` uses
-q4_0 only for this default file and q8_0 for any other `-Model` (the KV those rows
-were benched with) unless `-KvType` is passed.
+q4_0 only for this file and the default and q8_0 for any other `-Model` (the KV those
+rows were benched with) unless `-KvType` is passed.
 
 Pins: `models/manifest.json` holds each local file's HF repo, revision (commit), byte
 size and SHA256; for the default file, revision
-`34e7cb013d66af05f668fe8a37087585de2e85f0` and SHA256
+`2113bb22c43635fcdaad4b728c914db4c2ec1d3b` and SHA256
+`ab955b5083d9cdf0bf55c37acdcae359b78756c4544d97960c23d8fca98feb9b`; for the fallback,
+revision `34e7cb013d66af05f668fe8a37087585de2e85f0` and SHA256
 `0d91ad7b2c57f545a030b1d391375a5f9a822423b90923d91cf744e717e80d03`.
 `pwsh scripts/install.ps1 -VerifyModels` checks every file present. `serve.ps1` hashes
-the `-Model` it starts against its entry at most once per boot (20 s for the default
+the `-Model` it starts against its entry at most once per boot (20 s for the fallback
 file cold, 8.9 s from the OS cache; marker `logs/model-verify.json`) and refuses a
 mismatch; a file not in the manifest starts with a warning.
 
@@ -51,11 +71,13 @@ Local files 2026-11-08 (operator): four files were deleted after the November HF
 survey (report kept outside the repo): unsloth `Qwen3.8-27B-UD-Q3_K_XL` (spills 16
 layers), Saluki IQ2-mix (licence CC BY-NC 4.0 since 2026-11-05), gemma-4-26B-A4B
 UD-IQ4_XS and GLM-4.7-Flash UD-Q3_K_XL (experts on the CPU at 131072). Their rows keep
-the measurements. On disk: the default, the GSQ-RCO IQ3_XXS-mtp file (test arm 2),
-and two fallbacks, Uncensored IQ2_XXS and gpt-oss-20b MXFP4. `models/manifest.json`
+the measurements. On disk: the then default (the fallback since 22:27 that day), the
+GSQ-RCO IQ3_XXS-mtp file (test arm 2),
+and two other alternates, Uncensored IQ2_XXS and gpt-oss-20b MXFP4. `models/manifest.json`
 lists only these four; `pwsh scripts/install.ps1 -VerifyModels` passed 4 of 4 that day.
-Added the same day: the queue item 6 file (OrcaRouter GSQ-RCO v2.1 row below); the
-manifest then listed five and `-VerifyModels` passed 5 of 5.
+Added the same day: the queue item 6 file (OrcaRouter GSQ-RCO v2.1 row below; the
+default since 22:27 that day); the manifest then listed five and `-VerifyModels` passed
+5 of 5.
 
 | Model | HF repo | Quant | Size | Fits all-GPU? | Decode tok/s | Prefill 20K ms | Ctx target | Status | Local file |
 |---|---|---|---|---|---|---|---|---|---|
@@ -65,13 +87,13 @@ manifest then listed five and `-VerifyModels` passed 5 of 5.
 | Qwen3.8-27B GSQ-RCO (with MTP layer) | ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF `Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` (lastModified 2026-09-02) | IQ3_XXS | 10.44 GB (10442827840 B) | no at 131072 with q8_0 KV, measured: 61/66 layers on GPU, 967 MiB CPU_Mapped, 272 MiB of the 4352 MiB KV on CPU (52/66 with MTP); with q4_0 KV + MTP still no: 64/66 layers, 603 MiB CPU_Mapped, full 2304 MiB KV on GPU, 124 MiB short (Phase 3d); yes at 65536 with q8_0 KV (66/66, with or without MTP); yes at 131072 with q4_0 KV and no MTP, measured 2026-11-08: 12,648 + 248 MiB for the process, VRAM peak 15,418 MB (bench `20261108-125456`) | 26.4 at 131072 (18.0 with MTP; 56.4 with MTP and q4_0 KV; 49.03 with q4_0 KV and no MTP, 2026-11-08); 48.8 at 65536 (83.7 with MTP `draft-mtp`, n-max 2) | 17,021 (12,227 at 65536; 12,120 at 131072 with q4_0 KV and no MTP, 2026-11-08) | 131072 | benched | `models\qwen3.8-27b-gsq-rco\Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf` |
 | Gemma 4 26B-A4B | unsloth/gemma-4-26B-A4B-it-GGUF `gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` (lastModified 2026-07-17) | UD-IQ4_XS | 13.60 GB (13597177568 B) | no, measured: 31/31 layers on GPU, 4 layers overflowing (experts), 1964 MiB CPU_Mapped at 131072 ctx | 96.9 | 4,653 | 131072 | benched | deleted 2026-11-08 (was `models\gemma-4-26b-a4b\gemma-4-26B-A4B-it-UD-IQ4_XS.gguf`) |
 | GLM-4.7-Flash | unsloth/GLM-4.7-Flash-GGUF `GLM-4.7-Flash-UD-Q3_K_XL.gguf` (lastModified 2026-02-12) | UD-Q3_K_XL (substitute; IQ4_XS 16.27 GB needs offload) | 13.78 GB (13782004064 B) | no, measured: 48/48 layers on GPU, 12 layers overflowing (experts), 3026 MiB CPU_Mapped at 131072 ctx | 89.9 | 13,755 | 131072 | benched | deleted 2026-11-08 (was `models\glm-4.7-flash\GLM-4.7-Flash-UD-Q3_K_XL.gguf`) |
-| Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP (DavidAU) | DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF (card and file list read 2026-11-04, sizes from the file list, not the API) | IQ2_M 11.7 GB or MTP-IQ2_M 12.1 GB (the only files in the fit class; no IQ3_XXS) | 11.7 / 12.1 GB (file list) | estimate: yes at 131072 with q4_0 KV, like the default (UNVERIFIED) | - | - | 131072 | candidate, top of the queue (operator, 2026-11-04); card read; test arm 1 in docs/ROADMAP.md | - |
+| Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP (DavidAU) | DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF (card and file list read 2026-11-04, sizes from the file list, not the API) | IQ2_M 11.7 GB or MTP-IQ2_M 12.1 GB (the only files in the fit class; no IQ3_XXS) | 11.7 / 12.1 GB (file list) | estimate: yes at 131072 with q4_0 KV, like the fallback (UNVERIFIED) | - | - | 131072 | candidate, top of the queue (operator, 2026-11-04); card read; test arm 1 in docs/ROADMAP.md | - |
 | gpt-oss-20b | ggml-org/gpt-oss-20b-GGUF `gpt-oss-20b-MXFP4.gguf` (lastModified 2026-10-19) | native MXFP4 | 12.11 GB (12109566624 B) | yes, measured: `--fit` made no change at 131072 ctx (2096 MiB left free; 587 MiB CPU_Mapped) | 170.4 | 2,977 | 131072 | benched | `models\gpt-oss-20b\gpt-oss-20b-MXFP4.gguf` |
 | Qwen3.8-27B OrcaSAQ2 (3.21 bpw, vLLM + vendor kernel) | orcarouter/OrcaSAQ-2-27B (4 safetensors shards, EXL3 `quant_method`, lastModified 2026-10-12) | EXL3 3.21 bpw (OrcaSAQ2) | 12.27 GB safetensors (12.32 GB / 12323397010 B all files, incl. a 29 MB mp4) | no, measured (vLLM 0.30.0, WSL2): weights 11.26 GiB of a 14.55 GiB budget leave a 0.33-0.49 GiB KV pool; 32768 needs 1.29 GiB, so no context >= 4096 starts | - | - | 131072 | blocked: vLLM KV pool too small on this 16 GB card with the desktop's 1.3-2.0 GiB (Phase 5 spike, `bench/summary-2026-10-24.md`) | `models\orcasaq-2-27b\` |
 | Qwen3.8-27B-Uncensored (abliterated) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) | IQ3_M | 12.8 GB (12768331360 B) | no at 131072 (weights-only estimate: the smaller IQ3_XXS below already misses by 1441 MiB, measured) | - | - | 131072 | fallback | - |
 | Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` (lastModified 2026-10-12) | IQ2_XXS | 8.88 GB (8884504160 B) | yes, measured: `--fit` made no change at 131072 ctx (66/66 layers, full 4352 MiB KV on GPU, 2084 MiB left free; 398 MiB CPU_Mapped) | 55.0 (55.2 at 65536) | 11,369 (11,268 at 65536) | 131072 | benched (Phase 3c; quality and refusal removal UNVERIFIED) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` |
-| Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (lastModified 2026-10-12) | IQ3_XXS | 11.64 GB (11637692000 B) | no at 131072 with q8_0 KV, measured: 58/66 layers on GPU, 1684 MiB CPU_Mapped, 544 MiB of the 4352 MiB KV on CPU (`--fit` cut 1441 MiB); yes at 131072 with q4_0 KV (66/66, 2304 MiB KV, 1630 MiB left free; Phase 3d); yes at 65536 with q8_0 KV (66/66, 2078 MiB left free); yes at 65536 with q4_0 KV + MTP (66/66, 1684 MiB left free; Phase 3e) | 20.2 at 131072 (45.3 with q4_0 KV); 44.6 at 65536 (45.4 with q4_0 KV, 81.6 with q4_0 KV + MTP `draft-mtp` n-max 2, Phase 3e) | 14,750 (11,520 at 65536) | 131072 | DEFAULT (ruling 6: q4_0 KV, template REQUIRED); benched (Phase 3c; quality and refusal removal UNVERIFIED); ladder rerun 2026-11-08 under client 2.1.319 (Model test 2, Default rerun) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` |
-| Qwen3.8-27B OrcaRouter GSQ-RCO v2.1 (orcarouter abliterated base per its card, with MTP layer; see provenance note) | RentedNoodle/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-Uncensored `Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf` (lastModified 2026-11-06) | IQ3_XXS (GSQ-RCO map, 3.04 bpw per card) | 10.38 GB (10382717184 B; sha256 verified against the manifest) | UNVERIFIED layer split (no offload summary at the log level used); whole-card figures at 131072 with q4_0 KV and no MTP, 2026-11-08, nvidia-smi read in the session, not saved: 14,736 of 16,376 MiB idle after load, 15,065 MiB during a 48-module rep | 43.8 at 0 to 20K (ladder log median, not the bench; 37.2 at 40K to 65,536, 31.0 at 80K to 95K) | - | 131072 | ladder n=3 2026-11-08, Model test 2; no bench; refusal removal UNVERIFIED | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf` |
+| Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (lastModified 2026-10-12) | IQ3_XXS | 11.64 GB (11637692000 B) | no at 131072 with q8_0 KV, measured: 58/66 layers on GPU, 1684 MiB CPU_Mapped, 544 MiB of the 4352 MiB KV on CPU (`--fit` cut 1441 MiB); yes at 131072 with q4_0 KV (66/66, 2304 MiB KV, 1630 MiB left free; Phase 3d); yes at 65536 with q8_0 KV (66/66, 2078 MiB left free); yes at 65536 with q4_0 KV + MTP (66/66, 1684 MiB left free; Phase 3e) | 20.2 at 131072 (45.3 with q4_0 KV); 44.6 at 65536 (45.4 with q4_0 KV, 81.6 with q4_0 KV + MTP `draft-mtp` n-max 2, Phase 3e) | 14,750 (11,520 at 65536) | 131072 | FALLBACK (default 2026-10-24 to 2026-11-08; q4_0 KV by rule, MTP at 65536); benched (Phase 3c; quality and refusal removal UNVERIFIED); ladder rerun 2026-11-08 under client 2.1.319 (Model test 2, Default rerun) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` |
+| Qwen3.8-27B OrcaRouter GSQ-RCO v2.1 (orcarouter abliterated base per its card, with MTP layer; see provenance note) | RentedNoodle/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-Uncensored `Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf` (lastModified 2026-11-06) | IQ3_XXS (GSQ-RCO map, 3.04 bpw per card) | 10.38 GB (10382717184 B; sha256 verified against the manifest) | UNVERIFIED layer split (no offload summary at the log level used); whole-card figures at 131072 with q4_0 KV and no MTP, 2026-11-08, nvidia-smi read in the session, not saved: 14,736 of 16,376 MiB idle after load, 15,065 MiB during a 48-module rep | 43.8 at 0 to 20K (ladder log median, not the bench; 37.2 at 40K to 65,536, 31.0 at 80K to 95K) | - | 131072 | DEFAULT (ruling 2026-11-08 22:27, Model test 2 strict comparison: q4_0 KV, patched template applied automatically with the file's own embedded template untested, no MTP, UNVERIFIED layer split); ladder n=3 2026-11-08, Model test 2; no bench; refusal removal UNVERIFIED | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf` |
 
 Agentic loop (Phase 3d, `bench/loop/run.ps1`: Claude Code fixes a 3-test Node fixture,
 3 repetitions; median wall s / median turns; table and failure modes in
@@ -85,7 +107,7 @@ Agentic loop (Phase 3d, `bench/loop/run.ps1`: Claude Code fixes a 3-test Node fi
 | Qwen3.8-27B GSQ-RCO IQ3_XXS + MTP | 65536 / q8_0 | 3/3, 68.8 s / 9 | patched, REQUIRED |
 | Qwen3.8-27B GSQ-RCO IQ3_XXS + MTP | 131072 / q4_0 | 3/3, 121.1 s / 8 | patched, REQUIRED |
 | Underdog Saluki 27B IQ2-mix | 131072 / q8_0 | 3/3, 120.9 s / 8 | patched, REQUIRED |
-| Qwen3.8-27B-Uncensored IQ3_XXS (default, ruling 6) | 131072 / q4_0 | 3/3, 127.7 s / 8 | patched, REQUIRED |
+| Qwen3.8-27B-Uncensored IQ3_XXS (fallback; default 2026-10-24 to 2026-11-08, ruling 6) | 131072 / q4_0 | 3/3, 127.7 s / 8 | patched, REQUIRED |
 | Qwen3.8-27B-Uncensored IQ2_XXS | 131072 / q8_0 | 3/3, 156.1 s / 11 | patched, REQUIRED |
 
 The Qwen3.8-27B rows (Saluki, GSQ-RCO and both Uncensored quants embed the same

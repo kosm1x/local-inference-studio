@@ -168,7 +168,11 @@ harness fixes (39). Still OPEN:
   no MTP flags), `/props` reported the file and `n_ctx` 131072, and a one-word
   completion answered (2 tokens, 37.3 tok/s at a 25-token prompt). GPU 14,301 MiB
   of 16,376 after load (nvidia-smi, whole card). Bench 23:41: 48.64 tok/s, tools 20 of
-  20; loop 3 of 3, 39.5 s (Model test 2, Bench).
+  20; loop 3 of 3, 39.5 s (Model test 2, Bench). The desktop shortcut's path (lis-web
+  container, `-LisTask edit`, no model named anywhere in it) proven 2026-11-09 00:34
+  in print mode: `result` ready, `is_error` false, model `local`, 1 turn, 10.5 s api,
+  one new server request (10,132 prompt tokens, 2 generated), run folder
+  `logs\web-20261109-003338-7056`.
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
   2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4

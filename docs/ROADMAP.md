@@ -162,7 +162,12 @@ harness fixes (39). Still OPEN:
   comparison in Model test 2): ties on long-fix and bait, default 3 of 3 stale-figure
   vs 0, item 6 3 of 3 blocked vs 1; open (a)/(c). RULED 2026-11-08 22:27 (c): the
   RentedNoodle file is the default (c60); the Uncensored file stays as the fallback,
-  one launch line, MTP rule follows it.
+  one launch line, MTP rule follows it. LIVE 2026-11-08 23:26: the operator ran
+  stop.ps1 and Start-ScheduledTask; the task started the new default with no -Model
+  (log command line: the RentedNoodle path, -c 131072, q4_0 KV, the patched template,
+  no MTP flags), `/props` reported the file and `n_ctx` 131072, and a one-word
+  completion answered (2 tokens, 37.3 tok/s at a 25-token prompt). GPU 14,301 MiB
+  of 16,376 after load (nvidia-smi, whole card).
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
   2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4

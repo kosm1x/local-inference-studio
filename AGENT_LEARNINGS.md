@@ -149,7 +149,7 @@
 - **Better:** delete with the consumers in mind: manifest pruned, `-VerifyModels` 4 of
   4, tests green, doc rows keep their figures with "deleted <date>" in the file cell.
 
-## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c57)
+## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c59)
 - **Mistake:** the "past 64K" rung was launched at the ladder's 81920 budget, which caps
   the window at 65,536 (the rep peaked at 49,092); a side note caught it, and the
   48-module rep at 131,072 did pass 64K. -> Prove a context axis from the transcript's
@@ -180,6 +180,10 @@
 - **Mistake (model test 2 brief):** a strict-survival tally mixed rungs (one file's
   count over both rungs against another's over one). -> Tally compaction boundaries
   per rung, and say when a boundary falls outside the axis (`axis_exercised` false).
+- **Mistake:** compared ladder series across client and grader versions as if
+  like-for-like (c57 reading). -> Read `claude_version` and `bar_v` from every
+  .meta.json in a comparison before writing a table; a baseline older than the
+  current grader is history, not a comparator.
 
 ## 2026-11-08 - default switch to the ISTA GSQ-RCO file (ruling (c))
 - **Mistake:** a table-row edit holding Windows paths went through a Bash heredoc

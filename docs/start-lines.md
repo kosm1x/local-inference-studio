@@ -323,7 +323,8 @@ Get-ChildItem $env:TEMP -Filter lis-web-*.env
   -NoProfile -File <repo>\scripts\claude-local.ps1 -LisWeb -LisTerminal -LisStartServer
   -LisTask edit --permission-mode acceptEdits`, start in `<workdir>` (an empty directory
   outside the profile). `-LisStartServer` starts the server's scheduled task when
-  `/health` is not ok and waits up to 180 s for it (that start path is UNVERIFIED live).
+  `/health` is not ok and waits up to 180 s for it (proven 2026-11-09 01:10 against a
+  stopped server: started, served and answered in 21 s wall).
   Windows Terminal gives the font size; a bare `pwsh.exe` target opens
   conhost, where auto mode stays off by design (S-B2) and `acceptEdits` passes
   through. The tab closes on `/exit`; closing with the X leaves the key file to the

@@ -315,7 +315,7 @@ surface, no read-only root filesystem.
 ## Audits 2026-10-30
 
 Four read-only audits of HEAD `0fd0cea`, filed under `docs/audits/`; every finding,
-owner, fix and proof is in one table (41 LANDED, 7 BUILT, 13 OPEN of 61 on 2026-11-09) in
+owner, fix and proof is in one table (42 LANDED, 6 BUILT, 13 OPEN of 61 on 2026-11-09) in
 [docs/audits/2026-10-30-ledger.md](audits/2026-10-30-ledger.md).
 
 - Resilience: FAIL for unsupervised multi-hour tasks (no restart after a fault).
@@ -510,7 +510,7 @@ Batches (IDs in the ledger):
   interactive web read (16:13) showed Bash `curl` as a second web path in the
   container (W-14, OPEN) and the 5,000-character `web_read` cap (residual). Ledger
   41 LANDED, 6 BUILT, 13 OPEN of 60.
-  Server start from the icon (W-17, BUILT 2026-11-09): the wrapper only ever connected
+  Server start from the icon (W-17, LANDED 2026-11-09): the wrapper only ever connected
   to a running server (`Test-LisServer` throws on a failed `/health` and names the
   start line; under `-LisWeb` that check runs inside the container, where the task
   does not exist). The operator asked for the icon to start the server when it is
@@ -520,7 +520,14 @@ Batches (IDs in the ledger):
   already Running, and polls `/health` every 2 s for up to 180 s before the per-start
   key is read (a start after the key read would hand the session a stale key and a
   401). The desktop shortcut's arguments carry the switch. Without it nothing
-  changes. Ledger 41 LANDED, 7 BUILT, 13 OPEN of 61.
+  changes. Proven 2026-11-09 01:10 against the server the operator had stopped at
+  00:43 (stop.ps1 from the console, nothing restarted it): the icon's line in print
+  mode printed `server down; started the scheduled task`, serve.ps1 logged a new
+  start at 01:10:17 and rewrote the key, `listening on` 4.8 s later, and the session
+  answered `ready` (10,131 prompt tokens, 2 generated, 6.0 s api) in 20.8 s wall;
+  `/props` then showed the default file at n_ctx 131072 and the task State Running
+  (run folder `logs\web-20261109-011012-49848`). The timeout, absent-task and
+  disabled-task throws remain UNVERIFIED. Ledger 42 LANDED, 6 BUILT, 13 OPEN of 61.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

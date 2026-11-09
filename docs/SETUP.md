@@ -1463,7 +1463,9 @@ server's `-Ctx` when that is smaller), `-LisFull` (refused with web access, abov
 `-LisPrintArgs`. `-LisStartServer` (host only, skipped by `-LisPrintArgs`): when
 `/health` is not ok, it starts the `LocalInferenceStudio-llama-server` task (unless it
 is already running) and waits up to 180 s for `/health`, before the key is read
-(UNVERIFIED live). Success:
+(proven 2026-11-09 01:10 against a stopped server: task started, `/health` ok in
+about 10 s, the session answered in 21 s wall; run folder
+`logs\web-20261109-011012-49848`). Success:
 Claude Code answers and the server log shows the requests. A
 `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
 

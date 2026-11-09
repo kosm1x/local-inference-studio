@@ -201,3 +201,18 @@
   recommending a switch. Also: the chat offered options (a)(b)(c) that differed from
   the ROADMAP's lettered options; the operator's letter must never be copied into a
   doc whose letters mean something else.
+
+## 2026-11-09 - icon proof, -LisStartServer (W-17), down-path proof (c64-c66)
+- **Better:** a launcher that starts a server must run AFTER every launcher refusal
+  (so a refused launch starts nothing) and BEFORE any per-start secret is read
+  (serve.ps1 rewrites the key at each start). The audit caught the first ordering;
+  a static call-order test (call position < key-read position, per path) now pins it
+  and goes red on moved or deleted calls, with no live server needed.
+- **Mistake:** a Bash heredoc patch of a Python fold script failed on quoting; the
+  retry as a Write'd script worked first time. -> Scripts and any text with quotes or
+  backslashes go through Write, never a heredoc or inline `python -c`.
+- **Avoid:** blaming an agent for a stopped server before reading the evidence: the
+  PSReadLine history (last line `stop.ps1`, written 00:43:35) showed the operator's
+  console did it. Check history/log timestamps first, then ask.
+- **Avoid:** `sed -n` in a Bash command that also runs git; the hook refuses any `-n`
+  next to git. Use awk ranges instead.

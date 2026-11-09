@@ -339,8 +339,9 @@ within 0.7 tok/s across two sections.
   file. The operator dropped the refusal fixture the same evening (ROADMAP, Model
   test 2, Reading), so it stays unmeasured by ruling. Card claims (XSTest
   over-refusal 0/250 for v2.0) are vendor text, UNVERIFIED.
-- No 24-command bench (`bench/run.ps1`): decode figures are ladder-traffic medians
-  from the server log, not bench figures; prefill and tool-call figures do not exist.
+- No 24-command bench during the ladder: the decode figures here are ladder-traffic
+  medians from the server log. The bench ran 2026-11-08 23:41 after the cutover
+  (ROADMAP, Model test 2, Bench): 48.64 tok/s, prefill 11,785 ms, tools 20 of 20.
 - No 79-module rung.
 - The file's own embedded template (froggeric v22.5, 28,226 chars) was replaced by
   the patched stock-derived one, so its behaviour with its own template is untested.

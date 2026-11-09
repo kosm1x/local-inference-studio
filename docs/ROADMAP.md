@@ -167,7 +167,8 @@ harness fixes (39). Still OPEN:
   (log command line: the RentedNoodle path, -c 131072, q4_0 KV, the patched template,
   no MTP flags), `/props` reported the file and `n_ctx` 131072, and a one-word
   completion answered (2 tokens, 37.3 tok/s at a 25-token prompt). GPU 14,301 MiB
-  of 16,376 after load (nvidia-smi, whole card).
+  of 16,376 after load (nvidia-smi, whole card). Bench 23:41: 48.64 tok/s, tools 20 of
+  20; loop 3 of 3, 39.5 s (Model test 2, Bench).
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
   2026-11-08 above); revisit with the spec sweep or before any `ngram-mod` run.
 - Phase-level, not in this batch: P1 CUDA 13.4 vs 12.4 build (only if 13.4
@@ -923,10 +924,25 @@ every case); the rep keys differ because the server identity is a key input
   48-module rep 1, one Bash variable the tool could not check. (5) `test_runs_short`
   2, 4, 4 at 24 modules and none, 5, 4 at 48: 48-module rep 1 ran all 14 instructed
   runs, the only long-fix rep of Model tests 1 and 2 to do so.
+- Bench 2026-11-08, 23:40 to 23:45, after the c60 cutover on the scheduled-task server
+  (same flags as above; `bench/run.ps1`, console in
+  `bench/results/20261108-234038-qwen3.8-27b-orcarouter-gsq-rco.log`, result
+  `20261108-234151-qwen3.8-27b-orcarouter-gsq-rco.json`): decode 48.64 tok/s, prefill
+  20K 11,785.1 ms (1,697.1 tok/s), prefix-cached 66.8 ms, tools 20 of 20 (p50 696 ms,
+  0 wrong, 0 none, 0 bad args), VRAM peak 14,465 MB whole card. Against the fallback's
+  no-MTP arm B of 2026-11-04 (45.06, 11,308, 728, 15,219 MB): 8 percent faster decode,
+  4 percent slower prefill, 754 MB less VRAM. Agentic loop (`bench/loop/run.ps1`,
+  3 reps, `-LisContextTokens 131072`, Claude Code 2.1.319, result
+  `20261108-234232-loop-qwen3.8-27b-orcarouter-gsq-rco.json`): 3 of 3 PASS, 0 tool
+  errors, 0 denials, turns 8, 11, 8, wall 37.1, 51.9, 39.5 s (median 39.5), median
+  95,252 tokens in and 1,157 out, VRAM peak 14,464 MiB. The Phase 3d rows (fallback
+  127.7 s, 8 turns) ran 2026-10-24 on Claude Code 2.1.310 with 4,065 median output
+  tokens, so the wall times are not like-for-like; the pass and tool-error counts
+  are.
 - Limits: no refusal case (Model test 1, Limits), so the property that decided the
   revert of ruling (c) is unmeasured on all three files, and by the ruling below it
-  stays so; no 24-command bench, so no prefill, tool-call or bench decode figure; no
-  79-module rung; the patched template replaced the file's own, which is untested;
+  stays so; no 79-module rung (the bench and loop ran after the cutover, above); the
+  patched template replaced the file's own, which is untested;
   the layer split is UNVERIFIED (whole-card figures only); the 95K to 131K decode band
   has 2 rows; rep keys differ from the other files' by design (the fixture does not).
 - Reading at n=3, strict (Default rerun above: same client, grader, fixtures and

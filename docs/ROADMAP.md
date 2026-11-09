@@ -638,6 +638,13 @@ Phase 3d loop fixture passed every contender it ran and cannot separate them):
    against 11.64 GB, Phase 3c), so a small gap is not attributable to abliteration
    alone; if the result is close, repeat with bartowski's IQ3_XXS (12.32 GB, marginal
    fit, UNVERIFIED).
+3. Gemma 4 31B it ARA-heretic i1-IQ3_XXS (mradermacher i1 repo, Apache-2.0 + OpenRAIL++,
+   ungated; added by the operator 2026-11-09, downloaded 10:08, sha256 verified, in the
+   manifest): a different family at the same quant class, abliterated by Heretic 2.0
+   ARA (figures in config/models.md). Estimate: 16.5 to 17.1 GB at 131072 with q4_0
+   KV, so the first run measures the fit and falls back to -Ctx 81920; bench and loop
+   through `scripts/serve.ps1 -Model ... -KvType q4_0` (the embedded Gemma template,
+   no patched file). Bench pending: the server swap is operator-run.
 
 Ruled out for a first round: DeepSeek-V4.1-Flash-1017 (763B MoE; its GGUF card asks for
 128 GB+ RAM and the smallest backbone quant is about 121 GB, read from the Hugging Face

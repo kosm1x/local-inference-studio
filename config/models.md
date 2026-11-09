@@ -78,6 +78,17 @@ lists only these four; `pwsh scripts/install.ps1 -VerifyModels` passed 4 of 4 th
 Added the same day: the queue item 6 file (OrcaRouter GSQ-RCO v2.1 row below; the
 default since 22:27 that day); the manifest then listed five and `-VerifyModels` passed
 5 of 5.
+Added 2026-11-09 10:08 (operator: "download the IQ3_XXS and bench it"): the Gemma 4 31B
+ARA-heretic i1-IQ3_XXS file (row below; 12.08 GB by curl from the HF resolve URL, sha256
+equal to the LFS hash the API lists); the manifest lists six. Its bench waits for the
+operator's server swap (the harness refuses the stop from a session). Suitability read
+2026-11-09 from the HF pages and the GGUF header (nothing run): abliterated (Heretic 2.0
+ARA; dev-set refusals 28 of 100 against 99 stock, held-out 0.6 %, KL 0.0845, about -2.2
+points over five capability sets, all the finetuner's own automatic judges), dense,
+native tool calls and `gemma4` in b11868 (the 26B-A4B row ran on it), but 1.6 GB more
+weights than the default and a 3.4 GB q4_0 KV at 131072, so the fit is marginal; the
+GGUFs are a day old with no user reports, and Gemma 4 tool calls in llama.cpp have
+mixed community reports (UNVERIFIED here). Figures are in the row.
 
 | Model | HF repo | Quant | Size | Fits all-GPU? | Decode tok/s | Prefill 20K ms | Ctx target | Status | Local file |
 |---|---|---|---|---|---|---|---|---|---|
@@ -94,6 +105,7 @@ default since 22:27 that day); the manifest then listed five and `-VerifyModels`
 | Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` (lastModified 2026-10-12) | IQ2_XXS | 8.88 GB (8884504160 B) | yes, measured: `--fit` made no change at 131072 ctx (66/66 layers, full 4352 MiB KV on GPU, 2084 MiB left free; 398 MiB CPU_Mapped) | 55.0 (55.2 at 65536) | 11,369 (11,268 at 65536) | 131072 | benched (Phase 3c; quality and refusal removal UNVERIFIED) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ2_XXS.gguf` |
 | Qwen3.8-27B-Uncensored (abliterated, with MTP layer) | orcarouter/Qwen3.8-27B-Uncensored-GGUF (gated) `Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` (lastModified 2026-10-12) | IQ3_XXS | 11.64 GB (11637692000 B) | no at 131072 with q8_0 KV, measured: 58/66 layers on GPU, 1684 MiB CPU_Mapped, 544 MiB of the 4352 MiB KV on CPU (`--fit` cut 1441 MiB); yes at 131072 with q4_0 KV (66/66, 2304 MiB KV, 1630 MiB left free; Phase 3d); yes at 65536 with q8_0 KV (66/66, 2078 MiB left free); yes at 65536 with q4_0 KV + MTP (66/66, 1684 MiB left free; Phase 3e) | 20.2 at 131072 (45.3 with q4_0 KV); 44.6 at 65536 (45.4 with q4_0 KV, 81.6 with q4_0 KV + MTP `draft-mtp` n-max 2, Phase 3e) | 14,750 (11,520 at 65536) | 131072 | FALLBACK (default 2026-10-24 to 2026-11-08; q4_0 KV by rule, MTP at 65536); benched (Phase 3c; quality and refusal removal UNVERIFIED); ladder rerun 2026-11-08 under client 2.1.319 (Model test 2, Default rerun) | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-Uncensored-IQ3_XXS.gguf` |
 | Qwen3.8-27B OrcaRouter GSQ-RCO v2.1 (orcarouter abliterated base per its card, with MTP layer; see provenance note) | RentedNoodle/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-Uncensored `Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf` (lastModified 2026-11-06) | IQ3_XXS (GSQ-RCO map, 3.04 bpw per card) | 10.38 GB (10382717184 B; sha256 verified against the manifest) | UNVERIFIED layer split (no offload summary at the log level used); whole-card figures at 131072 with q4_0 KV and no MTP, 2026-11-08, nvidia-smi read in the session, not saved: 14,736 of 16,376 MiB idle after load, 15,065 MiB during a 48-module rep | 48.6 (bench 2026-11-08, no MTP; ladder-log medians 43.8 at 0 to 20K, 37.2 at 40K to 65,536, 31.0 at 80K to 95K) | 11,785 (1,697 tok/s; prefix-cached 66.8 ms) | 131072 | DEFAULT (ruling 2026-11-08 22:27, Model test 2 strict comparison: q4_0 KV, patched template applied automatically with the file's own embedded template untested, no MTP, UNVERIFIED layer split); ladder n=3 2026-11-08, Model test 2; bench 2026-11-08 (tools 20/20, p50 696 ms, VRAM peak 14,465 MB whole card); loop 3/3, 39.5 s / 8 turns; refusal removal UNVERIFIED | `models\qwen3.8-27b-uncensored\Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.1.gguf` |
+| Gemma 4 31B it ARA-heretic (Heretic v2.0.0 ARA abliteration of google/gemma-4-31B-it by richardyoung; dense, 30.7B, text + vision, Apache-2.0 + OpenRAIL++ use terms per the finetune card) | mradermacher/gemma-4-31B-it-ARA-heretic-i1-GGUF `gemma-4-31B-it-ARA-heretic.i1-IQ3_XXS.gguf` (ungated; repo lastModified 2026-11-08, revision `85cb67fb1054442cdddd7efa741646f1424a8dd1`; the static `-GGUF` repo has no IQ3 quant, its smallest 3-bit is Q3_K_S 13.76 GB) | i1-IQ3_XXS | 12.08 GB (12077509792 B, sha256 = LFS) | estimate: no at 131072 even with q4_0 KV: weights 12.08 + KV 3.37 (60 layers: 10 global at 4 KV heads x 512 at full length, 50 sliding at 16 x 256 over a 1024 window) + compute 1.0 to 1.6 GB = 16.5 to 17.1 of 17.18 GB, under 0.5 GB headroom (computed from the GGUF header, UNVERIFIED); about 81920 ctx keeps 1.5 GB; i1-IQ4_XS (16.74 GB) cannot fit at any ctx | - (expect about 13 % under the default, by weight size, UNVERIFIED) | - | 131072 (trial at 81920 if the fit fails) | candidate (operator 2026-11-09); downloaded 10:08, sha256 verified, in the manifest; bench pending: the server swap is operator-run | `models\gemma-4-31b-ara-heretic\gemma-4-31B-it-ARA-heretic.i1-IQ3_XXS.gguf` |
 
 Agentic loop (Phase 3d, `bench/loop/run.ps1`: Claude Code fixes a 3-test Node fixture,
 3 repetitions; median wall s / median turns; table and failure modes in
@@ -136,6 +148,7 @@ GGUF header (read locally from each downloaded file, GGUF v3):
 | qwen3.8-27b-uncensored (OrcaRouter GSQ-RCO v2.1) | qwen35 | Staged_Tmpl (no `general.finetune` or `basename`; 866 tensors) | 65 (incl. MTP, `nextn_predict_layers` 1) | 262144 | - (dense) |
 | qwen3.8-27b-uncensored (IQ2_XXS and IQ3_XXS) | qwen35 | Qwen3.8 27B Abliterated (`general.finetune` abliterated) | 65 (incl. MTP, `nextn_predict_layers` 1) | 262144 | - (dense) |
 | gemma-4-26b-a4b | gemma4 | Gemma-4-26B-A4B-It | 30 | 262144 | 128 / 8 |
+| gemma-4-31b-ara-heretic | gemma4 | Gemma 4 31B It ARA Heretic (`general.finetune` it-ARA-heretic; 833 tensors; sliding window 1024, key/value length 512 global and 256 sliding; template carries tool_call and think blocks) | 60 | 262144 | - (dense) |
 | glm-4.7-flash | deepseek2 | Glm-4.7-Flash | 47 | 202752 | 64 / 4 |
 | gpt-oss-20b | gpt-oss | gpt-oss-20b | 24 | 131072 | 32 / 4 |
 

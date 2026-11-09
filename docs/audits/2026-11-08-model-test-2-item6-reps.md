@@ -207,8 +207,9 @@ section; the pairs above are the like-for-like ones. The ISTA file has no log.
 
 - No refusal case in the ladder: this file's uncensored property, the one that
   decided the 2026-11-08 revert, is unmeasured here, as on the default and the ISTA
-  file. Card claims (XSTest over-refusal 0/250 for v2.0) are vendor text,
-  UNVERIFIED.
+  file. The operator dropped the refusal fixture the same evening (ROADMAP, Model
+  test 2, Reading), so it stays unmeasured by ruling. Card claims (XSTest
+  over-refusal 0/250 for v2.0) are vendor text, UNVERIFIED.
 - No 24-command bench (`bench/run.ps1`): decode figures are ladder-traffic medians
   from the server log, not bench figures; prefill and tool-call figures do not exist.
 - No 79-module rung.

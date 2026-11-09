@@ -154,7 +154,8 @@ harness fixes (39). Still OPEN:
   measured candidate and `-Model` runs it with the template applied automatically.
   Queue 6 RUN 2026-11-08 (Model test 2 results): the RentedNoodle OrcaRouter GSQ-RCO
   v2.1 file led the default on blocked, the 24-module rung and decode, trailed it on
-  stale-figure, and is held for a refusal fixture (recommendation (b) there); queue 2
+  stale-figure; the refusal fixture it was held for was DROPPED by the operator the
+  same evening (Model test 2, Reading), so the open choice is keep or switch; queue 2
   and the other stock files cannot become the default under the 2026-11-08 revert
   ruling (the uncensored property is required) and are measured only as controls.
 - Engine upgrade b11868 to b12198: HELD by the operator 2026-11-08 (Engine research
@@ -768,10 +769,11 @@ copied from the named file under `bench/results/`; the per-rep record is
   the ladder does not test (refusal behaviour UNVERIFIED on both files, see Limits).
   The trust-ladder reading above stands. Kept
   from c55: the template rule for both Qwen3.8-27B folders and the install_verify
-  checks that pin the serve.ps1 default. Owed before any future switch: a refusal
-  fixture in the ladder, so both files are measured on the property that decided this
-  ruling, plus the whole-file-read fixture and the `STATUS:` slip screen of the
-  Uncensored file's short-case reps.
+  checks that pin the serve.ps1 default. Owed before any future switch (as written
+  that day): a refusal fixture in the ladder, the whole-file-read fixture and the
+  `STATUS:` slip screen of the Uncensored file's short-case reps. RULED 2026-11-08
+  evening: the refusal fixture is DROPPED; the uncensored property is taken from each
+  file's provenance (abliterated base or not), not measured. The other two stay owed.
 
 ### Model test 2 results (2026-11-08, queue item 6)
 
@@ -864,8 +866,8 @@ every case); the rep keys differ because the server identity is a key input
   2, 4, 4 at 24 modules and none, 5, 4 at 48: 48-module rep 1 ran all 14 instructed
   runs, the only long-fix rep of Model tests 1 and 2 to do so.
 - Limits: no refusal case (Model test 1, Limits), so the property that decided the
-  revert of ruling (c), and that is owed before any switch, is still unmeasured on all
-  three files; no 24-command bench, so no prefill, tool-call or bench decode figure; no
+  revert of ruling (c) is unmeasured on all three files, and by the ruling below it
+  stays so; no 24-command bench, so no prefill, tool-call or bench decode figure; no
   79-module rung; the patched template replaced the file's own, which is untested;
   the layer split is UNVERIFIED (whole-card figures only); the 95K to 131K decode band
   has 2 rows; rep keys differ from the other files' by design (the fixture does not).
@@ -880,10 +882,13 @@ every case); the rep keys differ because the server identity is a key input
   leads on bait. Open: (a) keep the default; (b) build the refusal fixture and run it
   on the default and this file before any ruling; (c) make this file the default (per
   its card the same orcarouter abliterated base, so the uncensored property should
-  carry over; UNVERIFIED by measurement). Recommendation: (b). The standing ruling of
-  2026-11-08 owes a refusal fixture before any switch, and this file's case for the
-  switch is the uncensored property it shares with the default by provenance only.
-  The default stays the ruled default (ruling 6) until the operator rules.
+  carry over; UNVERIFIED by measurement). Recommendation as written: (b).
+  RULED 2026-11-08 20:36: (b) DROPPED. The refusal fixture will not be built; the
+  uncensored property is judged from provenance, and this file's card puts it on the
+  same abliterated base as the default (vendor text, UNVERIFIED). Open between (a)
+  and (c): the ladder says (c) on blocked, the 24-module rung and decode, (a) on the
+  stale-figure placement and the NEXT rewrites. The default stays the ruled default
+  (ruling 6) until the operator picks one.
 
 ## Status 2026-10-25 (detail, updated through 2026-10-26)
 

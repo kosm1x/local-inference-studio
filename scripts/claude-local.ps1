@@ -211,7 +211,9 @@
   Portability (the container is Linux): the temp root is $env:TEMP, or
   [IO.Path]::GetTempPath() where it is unset; paths are built with Join-Path; and an
   absolute path becomes a rule root as //c/Users/<name> on Windows or //home/lis on
-  Linux. `python -I` resolves to python3 through the image's /usr/local/bin/python link.
+  Linux. Hook commands run `python -I` on the host and `/usr/bin/python3 -I` in the
+  container (ledger W-24b, audit C1): the model can install into ~/.local/bin and
+  ~/.npm-global/bin, so the guards never run a `python` found on PATH there.
 
   Permissions (ruling 15): the per-run settings carry rule set A from
   config/claude-settings.json plus a PreToolUse Bash hook, scripts/hooks/lis-guard.py
@@ -231,9 +233,13 @@
   -LisNoGuard leaves both hooks out (rules only, set A; used by bench/perm/run.ps1).
   A PreToolUse hook on every tool, scripts/hooks/loop-guard.py, denies the 4th identical
   call within the last 12 counted calls (docs/SETUP.md step 8). -LisNoGuard drops it too;
-  -LisNoLoopGuard drops only it (benches that measure raw loop behaviour).
+  -LisNoLoopGuard drops it and repeat-guard (benches that measure raw loop behaviour).
+  A PostToolUse, a PostToolUseFailure, a Stop and a SubagentStop hook,
+  scripts/hooks/repeat-guard.py, block once 3 of the last 6 assistant replies are
+  near-identical (ledger W-22, docs/SETUP.md step 8);
+  -LisNoGuard and -LisNoLoopGuard drop it too (it has no switch of its own).
   Hook copies (ledger S-B3): every hook script the run registers (lis-guard.py,
-  loop-guard.py, verify-doc.py, facts-inject.py) runs from a copy in
+  loop-guard.py, repeat-guard.py, verify-doc.py, facts-inject.py) runs from a copy in
   <temp root>\lis-hooks-<stamp>-<pid>\, made at launch, byte-identical, marked read-only and
   kept after exit (path in the banner), so an edit of the repo files mid-session changes
   no hook. lis-guard.py gets --hooks-dir <repo>/scripts/hooks so its exemptions and
@@ -1141,6 +1147,7 @@ $docChecks = @("python -I `"$(Join-Path $repo 'scripts' 'verify-doc.py')`" <deli
 $testChecks = @(if (Test-Path -LiteralPath 'scripts/hooks/tests/lis-guard_test.py') {
     @('python -I scripts/hooks/tests/lis-guard_test.py', 'python -I scripts/hooks/tests/lis-guard_property_test.py',
       'python -I scripts/hooks/tests/loop-guard_test.py',
+      'python -I scripts/hooks/tests/repeat-guard_test.py',
       'python -I scripts/hooks/tests/facts-inject_test.py',
       'python -I scripts/tests/verify-doc_test.py',
       'python -I scripts/tests/verify_claims_report_test.py', 'python -I bench/ladder/tests/grade_test.py',
@@ -1184,7 +1191,7 @@ function Write-LisBanner {
         }
     }
     if (-not $LisTask) { $e.WriteLine('claude-local: profile: none'); return }
-    $guardState = if ($LisNoGuard) { 'off' } elseif ($LisNoLoopGuard) { 'on, loop-guard off' } else { 'on' }
+    $guardState = if ($LisNoGuard) { 'off' } elseif ($LisNoLoopGuard) { 'on, loop-guard+repeat-guard off' } else { 'on' }
     $e.WriteLine("claude-local: profile: $LisTask   tools: $tools   guard: $guardState")
     $denied = $profiles[$LisTask].deny
     if ($LisTask -eq 'longrun') { $denied = @($denied) + 'Edit of lis-facts-inject-*' }
@@ -1266,12 +1273,15 @@ try {
         $cfg.permissions['deny'] = @($cfg.permissions['deny']) +
             @("Edit($tempRule/lis-facts-inject-*)", 'Edit(//**/lis-facts-inject-*)')
     }
+    # The hooks' interpreter (W-24b, audit C1): in the container the root-owned
+    # /usr/bin/python3, never a `python` on PATH that the model could have installed.
+    $hookPython = if ($inContainer) { '/usr/bin/python3' } else { 'python' }
     if (-not $LisNoGuard) {
         $guard = Add-LisHook @('hooks', 'lis-guard.py')
         if (-not $cfg.hooks) { $cfg.hooks = [ordered]@{} }
         $cfg.hooks['PreToolUse'] = @($cfg.hooks['PreToolUse'] | Where-Object { $_ }) + @([ordered]@{
                 matcher = 'Bash'
-                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$guard`" --hooks-dir `"$r/scripts/hooks`""
+                hooks   = @([ordered]@{ type = 'command'; command = "$hookPython -I `"$guard`" --hooks-dir `"$r/scripts/hooks`""
                     timeout = 10; onFailure = 'block' })
             })
         if (-not $LisNoLoopGuard) {
@@ -1281,15 +1291,25 @@ try {
             $loop = Add-LisHook @('hooks', 'loop-guard.py')
             $cfg.hooks['PreToolUse'] = @($cfg.hooks['PreToolUse'] | Where-Object { $_ }) + @([ordered]@{
                     matcher = '*'
-                    hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$loop`""; timeout = 5 })
+                    hooks   = @([ordered]@{ type = 'command'; command = "$hookPython -I `"$loop`""; timeout = 5 })
                 })
+            # repeat-guard (ledger W-22): blocks when 3 of the last 6 replies are near-identical,
+            # after a tool call (PostToolUse, PostToolUseFailure: inside the turn) or at a stop;
+            # no matcher (every tool, every agent type; Stop has none); no onFailure = 'block',
+            # so a guard error never blocks (docs/SETUP.md step 8).
+            $repeat = Add-LisHook @('hooks', 'repeat-guard.py')
+            foreach ($ev in 'PostToolUse', 'PostToolUseFailure', 'Stop', 'SubagentStop') {
+                $cfg.hooks[$ev] = @($cfg.hooks[$ev] | Where-Object { $_ }) + @([ordered]@{
+                        hooks = @([ordered]@{ type = 'command'; command = "$hookPython -I `"$repeat`""; timeout = 10 })
+                    })
+            }
         }
         # verify-doc: deterministic figure checks on every .md the session writes or edits,
         # fed back to the model as additionalContext (docs/SETUP.md step 8).
         $verify = Add-LisHook 'verify-doc.py'
         $cfg.hooks['PostToolUse'] = @($cfg.hooks['PostToolUse'] | Where-Object { $_ }) + @([ordered]@{
                 matcher = 'Write|Edit'
-                hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$verify`" --hook --script `"$r/scripts/verify-doc.py`""; timeout = 30 })
+                hooks   = @([ordered]@{ type = 'command'; command = "$hookPython -I `"$verify`" --hook --script `"$r/scripts/verify-doc.py`""; timeout = 30 })
             })
     }
     if ($LisTask -eq 'longrun') {
@@ -1303,7 +1323,7 @@ try {
             foreach ($m in 'compact', 'startup') {
                 [ordered]@{
                     matcher = $m
-                    hooks   = @([ordered]@{ type = 'command'; command = "python -I `"$factsHook`""; timeout = 10 })
+                    hooks   = @([ordered]@{ type = 'command'; command = "$hookPython -I `"$factsHook`""; timeout = 10 })
                 }
             })
     }

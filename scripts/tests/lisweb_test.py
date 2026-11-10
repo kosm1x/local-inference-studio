@@ -330,18 +330,69 @@ def test_automode_file():
         data = {}
     check('automode file: allow and soft_deny led by "$defaults", environment prose without it',
           isinstance(data, dict) and rules_ok(data), text[:200])
-    check('automode file: environment has 6 to 10 lines',
-          6 <= len(data.get('environment', [])) <= 10, len(data.get('environment', [])))
+    check('automode file: environment has 6 to 18 lines',
+          6 <= len(data.get('environment', [])) <= 18, len(data.get('environment', [])))
     check('automode file: ASCII, LF ends, lines <= 100 columns',
           raw.isascii() and b'\r' not in raw and all(len(x) <= 100 for x in text.split('\n')),
           max((len(x) for x in text.split('\n')), default=0))
     check('automode file: no drive path, IP address or email',
           not re.search(r'[A-Za-z]:[\\/]|\b\d{1,3}(\.\d{1,3}){3}\b|@', text),
           re.findall(r'[A-Za-z]:[\\/]|\b\d{1,3}(?:\.\d{1,3}){3}\b|@', text))
-    check('automode file: soft_deny names curl, wget, nc, ssh and the three GitHub hosts',
-          all(w in ' '.join(data.get('soft_deny', [])) for w in
-              ('curl', 'wget', 'nc', 'ssh', 'python -c', 'node -e', 'pip', 'npm', 'github.com',
-               'raw.githubusercontent.com', 'api.github.com')), data.get('soft_deny'))
+    # W-24b (operator ruling 2026-11-10): downloads and installs in the container are
+    # allowed; uploads, sends of local data and download-into-shell stay denied.
+    deny = ' '.join(data.get('soft_deny', []))
+    allow = ' '.join(data.get('allow', []))
+    check('automode file: soft_deny names the send routes (curl -d/-F/-T, wget --post, nc, '
+          'scp, ssh, git push, POST from python -c/node -e) and piping a download to a shell',
+          all(w in deny for w in
+              ('curl -d/--data/-F/-T', 'wget --post-data', 'nc', 'scp', 'ssh', 'git push',
+               'python -c', 'node -e', '| sh', '/home/lis/.claude', '*_API_KEY')),
+          data.get('soft_deny'))
+    check('automode file: soft_deny denies downloads from unlisted hosts or via redirects to '
+          'them, and running or extracting a download whose published checksum was not checked',
+          'Downloads from unlisted hosts or via redirects to them' in deny
+          and 'Running or extracting a download whose published checksum was not checked'
+          in deny, data.get('soft_deny'))
+    check('automode file: soft_deny denies an unread downloaded script, a URL or argument '
+          'expanding a key, and any write under /home/lis/.claude (W1, R1, W3)',
+          'Running a downloaded script that was not read in full first' in deny
+          and 'Running a downloaded script that itself downloads and runs another file' in deny
+          and 'Any URL or argument that expands LIS_API_KEY or a *_API_KEY variable' in deny
+          and 'Writes to /lis, /opt, /etc, or anything under /home/lis/.claude' in deny
+          and 'Writes to /tmp/lis-hooks-*, /tmp/lis-settings* or /tmp/lis-mcp-*' in deny,
+          data.get('soft_deny'))
+    check('automode file: soft_deny no longer denies downloads, package fetches or installs '
+          '(no blanket network, pip/npm, github.com or install-outside-/work rule)',
+          not any(w in deny for w in ('Any network command other than', 'pip, npm',
+                                      'github.com', 'Package installs', 'Writes outside')),
+          data.get('soft_deny'))
+    check('automode file: allow names curl/wget GET downloads from the named hosts only, '
+          'npm, pip, archive extraction and the checksum step',
+          all(w in allow for w in
+              ('GET by curl/wget', 'github.com releases', 'raw.githubusercontent.com',
+               'huggingface.co and its cdn-lfs hosts', 'registry.npmjs.org', 'pypi.org',
+               'files.pythonhosted.org', 'deb.debian.org', 'security.debian.org',
+               'api.github.com', 'objects.githubusercontent.com', 'sha256sum -c',
+               'the GitHub release checksum file', 'the Hugging Face LFS sha256',
+               'npm install', 'pip install', 'unzip', 'zstd', 'xz', '~/.npm-global',
+               'redirects to *.githubusercontent.com or *.hf.co',
+               'release-assets.githubusercontent.com', 'us.aws.cdn.hf.co',
+               'files the model itself authored under /work or /tmp',
+               'Running a downloaded script once read in full with the Read tool'))
+          and 'any https host' not in allow and 'any host' not in allow
+          and 'xethub' not in allow and 'signature' not in allow
+          and 'into /work, /tmp' not in allow,
+          data.get('allow'))
+    env = ' '.join(data.get('environment', []))
+    check('automode file: environment says every download gets an integrity check and a '
+          'mismatch is reported, never retried from another host',
+          'Every download gets an integrity check when the project publishes one' in env
+          and 'never retried from another host' in env, data.get('environment'))
+    check('automode file: environment names every download host of the allow rules',
+          all(h in env for h in ('github.com', 'api.github.com', '*.githubusercontent.com',
+                                 'huggingface.co', '*.hf.co', 'registry.npmjs.org', 'pypi.org',
+                                 'files.pythonhosted.org', 'deb.debian.org',
+                                 'security.debian.org')), data.get('environment'))
 
 
 # scripts/statusline.mjs (W-15): stdin JSON -> one plain line; nothing, exit 0, on bad input.
@@ -525,6 +576,26 @@ def test_image_pin():
           'before USER lis', got == want and text.index(want[-1]) < text.index('USER lis'), got)
     check('image: --chown appears nowhere (the lis-web copy stays root-owned)',
           '--chown' not in text, '')
+    # W-24b: the download/unpack tools, the user install space on PATH, and no root route.
+    apt = re.search(r'apt-get install -y --no-install-recommends ((?:[^\n&]*\\\n)*[^\n&]*)', text)
+    pkgs = set(re.findall(r'[a-z0-9][a-z0-9.+=-]*', apt.group(1))) if apt else set()
+    check('image (W-24b): the first apt line installs wget, jq, unzip, zstd, xz-utils, '
+          'python3-pip and python3-venv beside python3, git, ca-certificates and curl',
+          {'python3', 'git', 'ca-certificates', 'curl', 'wget', 'jq', 'unzip', 'zstd',
+           'xz-utils', 'python3-pip', 'python3-venv'} <= pkgs, sorted(pkgs))
+    # The user directories come after $PATH (audit C1): a python, pwsh, node or claude the
+    # model installs there never shadows the root-owned ones.
+    paths = re.findall(r'(?m)^ENV PATH=(\S+)', text)
+    check('image (W-24b): ENV puts ~/.local/bin and ~/.npm-global/bin LAST on PATH (after '
+          '$PATH), sets NPM_CONFIG_PREFIX and PIP_BREAK_SYSTEM_PACKAGES, after the root installs',
+          paths == ['$PATH:/home/lis/.local/bin:/home/lis/.npm-global/bin']
+          and 'NPM_CONFIG_PREFIX=/home/lis/.npm-global' in text
+          and 'PIP_BREAK_SYSTEM_PACKAGES=1' in text
+          and text.index('ENV PATH=') > text.index('COPY web/tools/ /opt/lis-web/tools/')
+          and text.index('ENV PATH=') < text.index('USER lis'), '')
+    check('image (W-24b): no sudo, no PIP_USER, /usr/local not handed to lis',
+          not re.search(r'\bsudo\b', '\n'.join(steps)) and 'PIP_USER' not in '\n'.join(steps)
+          and not re.search(r'(chown|chmod)[^\n]*/usr/local', text), '')
     build = read('scripts', 'web-image.ps1')
     check('image: web-image.ps1 builds from the repo root with -f container/Dockerfile and '
           'no BuildKit context',
@@ -1353,6 +1424,13 @@ def main():
             test_refusals()
             test_inner_server()
             test_inner_key(tmp)
+            # W-24b (audit C1): the hooks name the root-owned interpreter, never PATH's python.
+            rc, _, cfg, _, _, err = print_args(['-LisWeb'])
+            hooks = [h['command'] for groups in ((cfg or {}).get('hooks') or {}).values()
+                     for g in groups for h in g['hooks']]
+            check('container: every hook command starts with /usr/bin/python3 -I',
+                  rc == 0 and len(hooks) >= 5
+                  and all(c.startswith('/usr/bin/python3 -I "') for c in hooks), f'{rc} {hooks}')
             rc, _, _, _, out, err = print_args(['-LisWeb', '-LisTerminal'])
             check('container: -LisTerminal (a host switch) is refused inside',
                   rc != 0 and not out.strip() and '-LisTerminal needs -LisWeb, on the host' in err,

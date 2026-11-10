@@ -623,9 +623,28 @@ read `https://example.com/` through `web_read` (rc 0, 2 turns; before the round-
 audit folds above); on the lis-web server 2026-11-06 23:40: rc 0, `Example Domain`,
 2 turns, 2059 ms, no denial, 0 env files and 0 containers left (docs/web-access.md
 "Proof").
+Every web session carries the `autoMode` rules of `config/automode-web.json`; since
+W-24b (operator ruling 2026-11-10) they allow GET downloads by curl or wget into /work
+or /tmp from the named GitHub, Hugging Face, npm, PyPI and Debian hosts, a checksum
+check before use, npm, pip, archive extraction, running what the model installed or
+authored, and running a downloaded script after reading all of it; they keep denying
+other hosts, an unchecked download whose project publishes a checksum, an unread
+downloaded script or one that downloads and runs another file, uploads and other sends
+of local data, a download piped into a shell, printing, writing or expanding the keys,
+writes to /lis, /opt, /etc and anything under ~/.claude, and docker (docs/web-access.md
+"W-24b"). The classifier runs on the session's own model (S-B2): the rules are advice,
+not a gate. UNVERIFIED live until the first session on the rebuilt image.
 Tests: `python -I scripts/tests/lisweb_test.py` and `node --test web/test/*.test.mjs`
 (needs `npm ci --prefix web` once). Residuals: egress from
 the container is open (ledger W-8); the keys share the session's environment (W-9).
+
+The image carries python3, git, curl, wget, jq, unzip, zstd, xz-utils, python3-pip and
+python3-venv; npm `-g` installs into `~/.npm-global` and pip into `~/.local` (both
+LAST on PATH, so python, pwsh, node and claude resolve from root-owned directories
+first; `PIP_BREAK_SYSTEM_PACKAGES=1`), with no sudo and no write access to /usr/local
+or /opt; inside the container the hook commands run `/usr/bin/python3 -I`, never a
+`python` from PATH (ledger W-24b; rebuild with the same line after a Dockerfile
+change).
 
 Permissions (ruling 15: only writes and deletes of critical files block or ask; the rest
 runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
@@ -640,11 +659,12 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   hook allows their read-only forms by parsing them. The matcher sees the
   raw command string, and every `;` / `&&` / `|` segment of a command must match. An
   allowed command skips the auto-mode classifier (about 60 s per decision on the local
-  model). Sixteen exact rules run tests: thirteen run this repo's tests from its root,
+  model). Seventeen exact rules run tests: fourteen run this repo's tests from its root,
   `Bash(python -I scripts/hooks/tests/lis-guard_test.py)`,
   `Bash(python -I scripts/hooks/tests/lis-guard_property_test.py)` (exact: its `--hook`
   option runs any Python file),
   `Bash(python -I scripts/hooks/tests/loop-guard_test.py)`,
+  `Bash(python -I scripts/hooks/tests/repeat-guard_test.py)`,
   `Bash(python -I scripts/hooks/tests/facts-inject_test.py)`,
   `Bash(python -I bench/ladder/tests/grade_test.py)`,
   `Bash(python -I bench/ladder/tests/gen_longfix_test.py)`,
@@ -1252,6 +1272,41 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `python -I scripts\hooks\tests\lis-guard_property_test.py` (22,000 generated
   cases checked against the allow grammar, 1,000 of them UNC paths on random hosts;
   `--seed N`, ruling 45).
+- W-23 (repeated denies): lis-guard counts each deny per session in
+  `<tempdir>/lis-guard-denies/<session id>.json` (sha1 of the command and cwd; atomic
+  write, files older than 24 h pruned, corrupt state starts fresh, a missing or unsafe
+  session id keeps no state). From the third identical deny on, the reason ends with
+  "This exact command was denied N times in this session. Do not run it again, and do
+  not try a variation of it: report the block to the operator in one paragraph."
+  Allows and no-decisions leave the state alone; a state error leaves the reason as it
+  was. The state dir must be a real directory (audit C1): a symlink or junction at
+  `lis-guard-denies` or above it means no state and no prune, and the deny keeps its
+  plain reason; the prune removes only state names (`<id>.json` and its temp file),
+  pinned by junction and symlink rows against a dir holding an old `package.json`.
+  The three state dir names are critical paths: planting a link or deleting them
+  denies. Observed: a session sent one denied command 87 times in 10 minutes; lis-guard
+  and loop-guard both deny with hookSpecificOutput JSON, loop-guard denied 84 of them,
+  and on each of those 84 the model's tool result showed only lis-guard's reason.
+  Which deny Claude Code surfaces when several PreToolUse hooks deny is UNVERIFIED
+  (undocumented), so the escalation lives in lis-guard, whose reason was seen.
+- W-24a (container profile): with LIS_CONTAINER=1 only, a session-written file under
+  `/work` or `/tmp` may run (S-B4 rule 2 gives no deny there; per-run launcher files,
+  guard files, missing targets and the 64-target cap still deny), a name-listing walk
+  of `/home/lis` (`find` without an action option, `ls -R`, `tree`, `du`) is not a
+  home read unless the segment names `.claude` (content readers such as `grep -r` and
+  `rg` keep the deny), and `rm -r/-f <paths>` or `git checkout -- <paths>` of literal
+  paths strictly under `/work` or `/tmp` (not a git work tree's top, not a critical
+  path by the operand or its real path, and no `.git`, `.claude`, `.env*`,
+  `scripts/hooks` or guard file under it; a walk that reaches its cap (depth 10 or
+  20000 entries) without a hit gives no decision, so a nested repository deeper than
+  that or later in walk order (directory order in the container; alphabetical only on
+  NTFS) is a residual) is not a critical delete. Every other rule is the
+  host's; see docs/web-access.md, "Container capability profile (W-24)".
+- Container key names (W-24a (f), LIS_CONTAINER=1 only): the credential scan also
+  names `LIS_API_KEY`, `EXA_API_KEY`, `JINA_API_KEY` and `BRAVE_SEARCH_API_KEY`, except
+  leading `NAME=$KEY` assignments before a command word that is not a dumper, echo or
+  shell (`LLM_API_KEY=$LIS_API_KEY npm run dev` gets no decision from the scan). The
+  host does not scan these four names; `BRAVE_API_KEY` is unchanged everywhere.
 - PostToolUse hook (matcher `Write|Edit`, added with lis-guard, dropped by `-LisNoGuard`):
   `scripts/verify-doc.py --hook` checks every `.md` written or edited inside the working
   directory and hands its findings to the model as `additionalContext`, never blocking.
@@ -1278,7 +1333,23 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   through Bash or PowerShell (sed -i, scripts, git) do not. A mutation identical (tool
   name and input) to the previous two mutations is denied, since it usually changes
   nothing on disk; calls in between do not break the run, only a different mutation does
-  (W-20: on 2026-11-09 a web session wrote one file 14 times byte-identically). Bash and
+  (W-20: on 2026-11-09 a web session wrote one file 14 times byte-identically). Web
+  calls form two classes (`DRIFT_RE`): searches (lis-web `web_search`, `exa_search`,
+  `jina_search`, WebSearch) and reads (lis-web `web_read`, `web_read_tweet`, WebFetch).
+  A search whose query words are a superset of the previous search's, or overlap them at
+  Jaccard 0.8 or more, is a drift repeat, whichever search tool runs it; a read of the
+  same page (host, path and query parameters; fragment, case, percent-encoding, one
+  trailing `/`, parameter order and the selector, engine or fresh options ignored) is
+  one too; the third drift repeat in a row in a class is denied, and only a non-matching
+  call of that class resets the run (W-21: a web session ran 31 searches, each the
+  previous query plus a word or two). A repeated drift deny says how many times the
+  model was already told. More than 20 searches in a row with no non-web tool call
+  between them are denied; reads neither count nor reset the run (`WEB_BURST_MAX`;
+  operator ruling pending). Residuals: one changed word in a query of under 9 words
+  escapes the drift rule (the burst cap is the backstop); alternating two different
+  queries is caught only by the exact-repeat rule; paging one search query (a page
+  parameter is not in the tokens) counts as drift; `www.` or trailing-dot host variants
+  and cache-buster parameters make a read a new page; reads have no burst cap. Bash and
   PowerShell commands with a wait word at command position (`sleep`, `until`, `timeout`,
   `Start-Sleep`, `Wait-Process`, `Wait-Job`, `Wait-Event`) are polls and are not counted,
   nor are `BashOutput` and `TaskOutput` calls (tool names UNVERIFIED on 2.1.310). A quoted
@@ -1288,18 +1359,82 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   its tool set; after 2 denials of the same call it says to stop and answer. It stays a
   deny, never an ask: in `-p` an ask is a hard denial whose reason the model does not see.
   State lives in `%TEMP%\lis-loop-guard\<session_id>.json` (atomic write, pruned after 24
-  h). Bad input, input over 1 MB or a missing session_id give no decision; corrupt state
+  h). A state dir that is a link or junction gives no decision; only state names are
+  pruned.
+  Bad input, input over 1 MB or a missing session_id give no decision; corrupt state
   is discarded (the window restarts); a lock left by a crashed hook means no decision for
   about 10 s, until it is broken as stale. The hook is registered without `onFailure:
   block`, so its failure never blocks a call. Why: one identical call repeated on the 27B
   model is the loop seen in 5 of the 8 bench/compact runs (2026-10-26), 4 of which it held
   until `--max-turns`; replayed through the hook, the first deny fires at call 8 to 63,
   and 28 to 55 of 61 turns would have been saved had the model then answered (not verified
-  live). bench/compact/run.ps1 passes `-LisNoLoopGuard` so its cases stay comparable with
+  live). bench/compact/run.ps1 passes `-LisNoLoopGuard` (which drops repeat-guard too,
+  W-22) so its cases stay comparable with
   those captures, and bench/loop/run.ps1 so its runs stay comparable with the 2026-10-24
   baselines. Tests: `python -I scripts/hooks/tests/loop-guard_test.py`; replay of the
   effort-low-forced capture: `python -I scripts/hooks/tests/loop-guard_replay.py` (prints
   SKIP when the gitignored capture is absent, as in a fresh clone).
+- PostToolUse, PostToolUseFailure, Stop and SubagentStop hook
+  `scripts/hooks/repeat-guard.py` (Python 3, stdlib, `python -I`; no matcher, so the
+  tool events run after every tool and SubagentStop for every agent type; added with
+  loop-guard and dropped with it, by `-LisNoGuard` or `-LisNoLoopGuard`; ledger W-22).
+  The tool events are the operative registration: both 2026-11-10 UTC loops it was
+  written for ran inside one turn (the FEN loop 02:58-03:09:08, repeated in the next
+  turn until 03:10:16; the watch-server loop 05:31-05:35, ended by a user interrupt),
+  and Stop fires only when the model ends its turn, so Stop alone would have caught
+  neither (the FEN turn-end Stop at 03:09:08 passes: its last two replies are 961
+  chars against the loop's 1236, ratio 0.739; the watch loop had no Stop).
+  On each event the hook reads the last 400 KB of the transcript (`transcript_path`;
+  `agent_transcript_path` for SubagentStop), groups the assistant rows by message id
+  (one message = one turn, tool_use ignored, a turn without text skipped; API error rows
+  and `<synthetic>` rows skipped; sidechain rows skipped in the main transcript only,
+  since every row of an agent transcript is a sidechain row) and takes the last 6
+  turns; at a Stop the input's `last_assistant_message` is the latest turn when the file
+  does not hold it yet (the hooks reference says the file may lag at Stop time). Each
+  text is lower-cased, stripped of backticks and whitespace-collapsed (digits kept);
+  the compared text is the whole text, or its first 600 and last 400 chars when it is
+  over 1000. When 3 or more of the 6 (the latest included) are 0.85 or more alike to
+  the latest (difflib ratio) and the latest text is 120 chars or more, it blocks with
+  the reason "repeat guard: your last N replies are near-identical. You are repeating
+  the same analysis. Do not restate it. In one paragraph: what you verified, what you
+  did not, and the one next action or the question for the user. Then stop." On
+  PostToolUse, Stop and SubagentStop the output is top-level `decision: block` with
+  that `reason`; on PostToolUseFailure it is
+  `hookSpecificOutput.additionalContext`, the only output the reference documents for
+  that event. On PostToolUse the reason is added next to the tool result (observed; the
+  tool has already run); on PostToolUseFailure it goes in additionalContext (reference
+  text; delivery UNVERIFIED live); on Stop it is the model's next input.
+  One warning per loop: a block stores the latest turn's compared text in
+  `<tempdir>/lis-repeat-guard/<session id>[.<agent id>].json` (lower-cased; /tmp inside
+  the lis-web container; atomic, pruned after 24 h; audit C1: the state dir must be a
+  real directory, so a link or junction at that path, or above it, means no state and
+  no prune, and the loop then blocks on every event, without the one-warning
+  suppression; the prune removes only state names, `<id>[.<id>].json` and its temp
+  file, never another name). While the latest turn stays 0.85
+  or more alike to the stored text nothing blocks; the first event whose latest turn is
+  not clears the file, and the rule is live again. A Stop with `stop_hook_active` true
+  gives no decision and leaves the file alone. Bad input, input over 1 MB, a missing or
+  unsafe session id, a corrupt state file (counts as none) or an unreadable transcript
+  give no block; no `onFailure: block`, so a guard error never blocks. Parallel tool
+  calls run the hook once each and can produce two warnings for one loop; the state
+  file is replaced atomically, so it is never corrupted.
+  Residuals: the assistant row (text and tool_use) must be on disk when the tool event
+  runs: in the web transcript, measured on 2026-11-10 (4.4 MB), 546 assistant rows hold
+  a tool_use, 544 unique ids, and 544 of 544 precede their tool_result row, but the
+  write time relative to the hook was not observed (UNVERIFIED); an event whose tail
+  holds no text turn clears the stored state; how Claude Code joins a multi-block text
+  in `last_assistant_message` is UNVERIFIED (the hook joins blocks with a newline);
+  SubagentStop sees a subagent only when it ends, so a loop inside one subagent turn
+  runs to that end (or past an interrupt) unseen, and tool events inside a subagent
+  give no decision because their `transcript_path` is the main session's; dropping
+  the cut first line of the 400 KB tail is untested (a mutant that keeps it passes,
+  since a cut line almost never parses as JSON); bench/ladder/grade.py counts only
+  `is_error` tool results in its HOOKS figure, so a repeat-guard block leaves no trace
+  in the grade JSON (the config boolean is all that changes). bench/loop, bench/compact
+  and bench/perm set B pass `-LisNoLoopGuard`, so they run without it; bench/ladder
+  runs carry it. UNVERIFIED live. Tests:
+  `python -I scripts/hooks/tests/repeat-guard_test.py` (fixtures: the two loops,
+  reduced to assistant text and tool names, in `scripts/hooks/tests/fixtures/`).
 - SessionStart hook `scripts/hooks/facts-inject.py` (Python 3, stdlib, `python -I`;
   matchers `compact` and `startup`, added for `-LisTask longrun` only; ledger T-9 and
   R-W2). After each compaction, and at the start of a session the wrapper relaunched
@@ -1320,9 +1455,9 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   check decides `facts_read_after_boundary_any`). Tests:
   `python -I scripts/hooks/tests/facts-inject_test.py`.
 - Hook copies (ledger S-B3): every hook script a run registers (`lis-guard.py`,
-  `loop-guard.py`, `verify-doc.py`, `facts-inject.py`) runs from a copy in
-  `%TEMP%\lis-hooks-<stamp>-<pid>\`, made at launch, byte-identical to the repo file,
-  marked read-only and kept after exit for forensics (the banner names it:
+  `loop-guard.py`, `repeat-guard.py`, `verify-doc.py`, `facts-inject.py`) runs from a
+  copy in `%TEMP%\lis-hooks-<stamp>-<pid>\`, made at launch, byte-identical to the repo
+  file, marked read-only and kept after exit for forensics (the banner names it:
   `claude-local: hook copies: <dir>`). An edit of the repo files mid-session changes no
   hook of that session. lis-guard runs as `lis-guard.py --hooks-dir
   <repo>/scripts/hooks`, so its exempt files and repo root still name the repo;

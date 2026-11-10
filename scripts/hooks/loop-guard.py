@@ -11,20 +11,28 @@ wait word at command position (sleep, until, timeout, Start-Sleep, Wait-Process,
 Wait-Job, Wait-Event) is a poll whose result changes with time, as is a POLL_TOOLS call:
 never counted or denied. A denied call is not added to the window, so a loop stays
 denied until the model calls something else.
+A DRIFT_RE web call (class search or read) that is a drift repeat of the previous call of
+its class (search: query words a superset of, or overlapping at Jaccard >= DRIFT_JACCARD
+with, the previous ones; read: the same page) is denied from the third drift repeat
+in a row on (a non-matching call of the class resets the run, other tools do not). More
+than WEB_BURST_MAX searches in a row with no non-web tool call between them are denied.
 
 State: <tempdir>/lis-loop-guard/<session_id lowercased>.json, written atomically under a
 lock file; a lock older than LOCK_STALE_S is broken. State files older than 24 h are
-pruned on every run. Corrupt state is discarded (the window restarts). Any error (bad
-input, input over MAX_INPUT, missing or unsafe session_id, lock timeout) gives no
+pruned on every run (state, lock, temp and stale-lock names only). Corrupt state is
+discarded (the window restarts). Any error (bad input, input over MAX_INPUT, missing or
+unsafe session_id, lock timeout, a state dir that is a link or junction) gives no
 decision: no output, exit 0. Deterministic, stdlib only, run with `python -I`. ASCII only.
 """
 import hashlib
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 import time
+import urllib.parse
 
 WINDOW = 12            # counted calls kept per session
 THRESHOLD = 3          # earlier identical calls in the window that make the next one a deny
@@ -44,10 +52,34 @@ WAIT_RE = re.compile(r'(?i)(?:^\s*|[;&|(\n\'"{]\s*|\b(?:do|then)\s+)'
                      r'(?:sleep|until|timeout|start-sleep|wait-(?:process|job|event))'
                      r'(?![\w-])')
 SESSION_RE = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
+# Web tools by what they do (W-21: 31 searches, each the previous query plus a word or
+# two). The three lis-web search tools spend paid quota (Brave, Exa, Jina keys); web_read
+# and web_read_tweet are keyless. Drift is tracked per class, so a provider switch with
+# the same drifting query is still compared with the previous search.
+DRIFT_RE = {'search': re.compile(r'mcp__.+__(?:web|exa|jina)_search|WebSearch'),
+            'read': re.compile(r'mcp__.+__web_read(?:_tweet)?|WebFetch')}
+DRIFT_JACCARD = 0.8    # search token-set overlap at or above this is a near-repeat
+WEB_BURST_MAX = 20     # searches in a row; the next one is denied (operator ruling pending)
 
 
 def state_dir():
     return os.path.join(tempfile.gettempdir(), 'lis-loop-guard')
+
+
+# <sid>.json, its lock, a temp write and a broken lock: the only names prune() removes
+STATE_NAME = re.compile(r'[a-z0-9_-]{1,128}\.json(?:\.lock(?:\.\d+\.stale)?|\.\d+\.tmp)?')
+
+
+def real_dir(d):
+    """True when d is a directory itself: not a symlink or junction (a reparse point), and
+    no link in a parent (audit C1: a planted link aims the prune and the write elsewhere)."""
+    try:
+        st = os.lstat(d)
+    except OSError:
+        return False
+    return (stat.S_ISDIR(st.st_mode) and not os.path.islink(d)
+            and not getattr(st, 'st_file_attributes', 0) & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400)
+            and os.path.normcase(os.path.realpath(d)) == os.path.normcase(os.path.abspath(d)))
 
 
 def call_hash(tool_name, tool_input):
@@ -56,7 +88,8 @@ def call_hash(tool_name, tool_input):
 
 
 def fresh():
-    return {'calls': [], 'denied': {}, 'last_mut': None, 'mut_repeat': 0}
+    return {'calls': [], 'denied': {}, 'last_mut': None, 'mut_repeat': 0,
+            'drift_prev': {}, 'drift_run': {}, 'drift_denied': {}, 'web_run': 0}
 
 
 def load(path):
@@ -75,6 +108,19 @@ def load(path):
     s.setdefault('mut_repeat', 0)
     r = s['mut_repeat']
     if not (isinstance(r, int) and not isinstance(r, bool) and r >= 0):
+        return fresh()
+    for k, v in (('drift_prev', {}), ('drift_run', {}), ('drift_denied', {}), ('web_run', 0)):
+        s.setdefault(k, v)
+    p, w = s['drift_prev'], s['web_run']
+
+    def count(x):
+        return isinstance(x, int) and not isinstance(x, bool) and x >= 0
+    if not (isinstance(p, dict)
+            and all(v is None or (isinstance(v, list) and all(isinstance(t, str) for t in v))
+                    for v in p.values())
+            and all(isinstance(s[k], dict) and all(count(x) for x in s[k].values())
+                    for k in ('drift_run', 'drift_denied'))
+            and count(w)):
         return fresh()
     s['calls'] = s['calls'][-WINDOW:]
     return s
@@ -102,12 +148,67 @@ def mut_reason(tool_name, tool_input, n):
             'and continue with the next step.')
 
 
+def drift_reason(tool_name, n, told, cls):
+    if cls == 'read':
+        r = (f'loop guard: this {tool_name} fetches the same page as the previous {n} '
+             f'read{"s" if n > 1 else ""} (same host, path and query). Re-reading it with other '
+             'options returns the same content. Use what you already have, read a different '
+             'page, or report what you found.')
+    else:
+        r = (f'loop guard: this {tool_name} query is a near-repeat of the previous {n} (same '
+             'words plus a few more). Narrowing by appending words is not a new search. Use '
+             'the results you already have, change the query substantially, or report what '
+             'you found.')
+    if told >= 1:
+        r += (f' You were already told this {told} time{"s" if told > 1 else ""}: do not try '
+              'another variation.')
+    return r
+
+
+def burst_reason():
+    return (f'loop guard: {WEB_BURST_MAX} searches in a row without acting on any result. '
+            'Stop searching: summarize what you found or use a result.')
+
+
+def web_class(tool_name):
+    return next((c for c, r in DRIFT_RE.items() if r.fullmatch(tool_name)), None)
+
+
+def drift_tokens(cls, tool_input):
+    """search: sorted unique words of the query; read: one token, the lower-cased host,
+    unquoted path (one trailing / dropped) and sorted query parameters of the url
+    (fragment dropped; ?page=N stays a new page). A call without its string field falls
+    back to the canonical JSON."""
+    canon = json.dumps(tool_input, sort_keys=True, ensure_ascii=True)
+    if cls == 'read':
+        url = tool_input.get('url')
+        if not isinstance(url, str):
+            return [canon]
+        try:
+            u = urllib.parse.urlsplit(url.strip().lower())
+            path = urllib.parse.unquote(u.path)
+            if len(path) > 1 and path.endswith('/'):
+                path = path[:-1]
+            qs = urllib.parse.urlencode(sorted(urllib.parse.parse_qsl(u.query,
+                                                                      keep_blank_values=True)))
+            return [(u.hostname or '') + path + (f'?{qs}' if qs else '')]
+        except ValueError:
+            return [url.strip().lower()]
+    text = tool_input.get('query')
+    return sorted(set(re.findall(r'\w+', (text if isinstance(text, str) else canon).lower())))
+
+
+def is_drift(prev, cur):
+    a, b = set(prev), set(cur)
+    return bool(a) and (b >= a or len(a & b) >= DRIFT_JACCARD * len(a | b))
+
+
 def step(state, tool_name, tool_input):
     """Pure rule: returns (decision or None, new state). decision = (kind, reason)."""
     cmd = tool_input.get('command')
     if tool_name in POLL_TOOLS or (tool_name in SHELL_TOOLS and isinstance(cmd, str)
                                    and WAIT_RE.search(cmd)):
-        return None, state
+        return None, dict(state, web_run=0)
     h = call_hash(tool_name, tool_input)
     calls, denied = list(state['calls']), dict(state['denied'])
     rep = state.get('mut_repeat', 0)
@@ -115,20 +216,34 @@ def step(state, tool_name, tool_input):
         if h != state.get('last_mut'):
             calls, denied, rep = [], {}, -1
         rep += 1
-        new = {'calls': calls, 'denied': denied, 'last_mut': h, 'mut_repeat': rep}
+        new = dict(state, calls=calls, denied=denied, last_mut=h, mut_repeat=rep, web_run=0)
         if rep >= 2:
             return ('deny', mut_reason(tool_name, tool_input, rep)), new
         return None, new
     n = calls.count(h)
     if n >= THRESHOLD:
         denied[h] = denied.get(h, 0) + 1
-        return ('deny', reason(tool_name, n, denied[h] - 1)), {'calls': calls, 'denied': denied,
-                                                               'last_mut': state.get('last_mut'),
-                                                               'mut_repeat': rep}
+        return ('deny', reason(tool_name, n, denied[h] - 1)), dict(state, calls=calls,
+                                                                   denied=denied)
+    web = {'web_run': 0}
+    cls = web_class(tool_name)
+    if cls:
+        toks, prev = drift_tokens(cls, tool_input), state['drift_prev'].get(cls)
+        run, told = state['drift_run'].get(cls, 0), state['drift_denied'].get(cls, 0)
+        drift = prev is not None and is_drift(prev, toks)
+        if drift and run >= 2:
+            return (('deny', drift_reason(tool_name, run + 1, told, cls)),
+                    dict(state, drift_denied={**state['drift_denied'], cls: told + 1}))
+        search = cls == 'search'
+        if search and state['web_run'] >= WEB_BURST_MAX:
+            return ('deny', burst_reason()), state
+        web = {'drift_prev': {**state['drift_prev'], cls: toks},
+               'drift_run': {**state['drift_run'], cls: run + 1 if drift else 0},
+               'drift_denied': {**state['drift_denied'], cls: told if drift else 0},
+               'web_run': state['web_run'] + 1 if search else state['web_run']}
     calls = (calls + [h])[-WINDOW:]
     denied = {k: v for k, v in denied.items() if k in calls}
-    return None, {'calls': calls, 'denied': denied, 'last_mut': state.get('last_mut'),
-                  'mut_repeat': rep}
+    return None, dict(state, calls=calls, denied=denied, **web)
 
 
 def prune(d, now):
@@ -137,7 +252,7 @@ def prune(d, now):
     except OSError:
         return
     for name in names:
-        if not name.endswith(('.json', '.lock', '.tmp', '.stale')):
+        if not STATE_NAME.fullmatch(name):
             continue
         p = os.path.join(d, name)
         try:
@@ -191,6 +306,9 @@ def run(raw):
         return None
     d = state_dir()
     os.makedirs(d, exist_ok=True)
+    if not real_dir(d):
+        sys.stderr.write('loop-guard: state dir is a link; no decision\n')
+        return None
     prune(d, time.time())
     path = os.path.join(d, sid.lower() + '.json')
     lock = path + '.lock'

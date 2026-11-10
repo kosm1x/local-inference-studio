@@ -15,6 +15,7 @@ Constraints for agents working in this repo:
   `python -I scripts/hooks/tests/lis-guard_test.py`,
   `python -I scripts/hooks/tests/lis-guard_property_test.py`,
   `python -I scripts/hooks/tests/loop-guard_test.py`,
+  `python -I scripts/hooks/tests/repeat-guard_test.py`,
   `python -I scripts/hooks/tests/facts-inject_test.py`,
   `python -I bench/ladder/tests/grade_test.py`,
   `python -I bench/ladder/tests/gen_longfix_test.py`,

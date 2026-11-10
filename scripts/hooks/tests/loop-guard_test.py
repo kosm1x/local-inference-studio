@@ -261,9 +261,20 @@ def e2e(fail):
             with open(p, 'w') as f:
                 f.write('{}')
             os.utime(p, (time.time() - age, time.time() - age))
+        strays = [os.path.join(sd, x) for x in ('Other.json', 'a.b.json', 'x.txt.lock')]
+        for p in strays:                        # audit C1: not state names, never pruned
+            with open(p, 'w') as f:
+                f.write('{}')
+            os.utime(p, (time.time() - 25 * 3600,) * 2)
         call('s7')
         if os.path.exists(old) or not os.path.exists(new):
             fail(f'e2e prune: old exists={os.path.exists(old)} new exists={os.path.exists(new)}')
+        CHECKS[0] += 1
+        if not all(os.path.exists(p) for p in strays):
+            fail('e2e prune removed a name that is not a state name')
+        for p in strays:                        # the leftover check below reads .lock names
+            if os.path.exists(p):
+                os.remove(p)
         # parallel calls (one tool batch): 8 hook processes started together from threads
         # overlap; the lock keeps every call
         start = threading.Barrier(8)
@@ -302,6 +313,58 @@ def e2e(fail):
             fail(f'e2e identical Write: {got}')
         if any(name.endswith(('.lock', '.tmp', '.stale')) for name in os.listdir(sd)):
             fail('e2e left a lock, tmp or stale file behind')
+
+
+def plant_link(kind, target, link):
+    """A directory junction (Windows) or symlink at link pointing at target; False, with a
+    printed SKIP, when this PC cannot make one (no _winapi, an unprivileged symlink)."""
+    try:
+        if kind == 'junction':
+            import _winapi
+            _winapi.CreateJunction(target, link)
+        else:
+            os.symlink(target, link, target_is_directory=True)
+        return True
+    except (ImportError, OSError, AttributeError) as e:
+        print(f'SKIP loop-guard {kind} at the state path: {e!r}')
+        return False
+
+
+def link_cases(fail):
+    """Audit C1: a junction or symlink planted at the state path (or above it) would aim
+    the prune and the write at another dir. The hook keeps no state there and gives no
+    decision (it cannot count without state); the target's old package.json stays."""
+    for kind, above in (('junction', False), ('junction', True), ('symlink', False)):
+        with tempfile.TemporaryDirectory() as t:
+            victim = os.path.join(t, 'victim')
+            os.makedirs(os.path.join(victim, 'lis-loop-guard'))
+            pj = os.path.join(victim, 'package.json')
+            with open(pj, 'w') as f:
+                f.write('{}')
+            os.utime(pj, (time.time() - 30 * 3600,) * 2)
+            link = os.path.join(t, 'up' if above else 'lis-loop-guard')
+            if not plant_link(kind, victim, link):
+                continue
+            tmp = link if above else t
+            env = dict(os.environ, TEMP=tmp, TMP=tmp, TMPDIR=tmp)
+            try:
+                p = {'session_id': 'sess-c1', 'tool_name': A[0], 'tool_input': A[1], 'cwd': t,
+                     'hook_event_name': 'PreToolUse'}
+                got = [run_hook(env, p)[1] for _ in range(4)]
+                tag = f'{kind}{" above the state dir" if above else ""}'
+                CHECKS[0] += 3
+                if got != [None] * 4:
+                    fail(f'link {tag}: want no decision on every call, got {got}')
+                if not os.path.exists(pj):
+                    fail(f'link {tag}: the old package.json was pruned')
+                if sorted(os.listdir(victim)) != ['lis-loop-guard', 'package.json'] or os.listdir(
+                        os.path.join(victim, 'lis-loop-guard')):
+                    fail(f'link {tag}: state written in the target: {sorted(os.listdir(victim))}')
+            finally:
+                try:
+                    os.unlink(link)
+                except OSError:
+                    os.rmdir(link)
 
 
 def sid_cases(fail):
@@ -355,14 +418,241 @@ def old_state_case(fail):
                 fail(f'mut_repeat {bad!r} must load as fresh state: fresh={fresh} got={got}')
 
 
+WS = 'mcp__lis-web__web_search'
+WX = 'mcp__lis-web__exa_search'
+WR = 'mcp__lis-web__web_read'
+URL = 'https://example.com/models/small-llm'
+
+
+def q(text, tool=WS):
+    return (tool, {'query': text})
+
+
+def rd(url, **kw):
+    return (WR, dict(kw, url=url))
+
+
+def after(calls):
+    """State after feeding calls through step()."""
+    s = g.fresh()
+    for name, ti in calls:
+        _, s = g.step(s, name, ti)
+    return s
+
+
+def run_of(calls, cls='search'):
+    return after(calls)['drift_run'].get(cls)
+
+
+def web_cases(fail):
+    """W-21 drift rule (per class: search, read) and burst cap on searches."""
+    def want(name, got, exp):
+        CHECKS[0] += 1
+        if got != exp:
+            fail(f'{name}: want {exp} got {got}')
+
+    words = 'chess rating assessment player skill level'.split()
+    grow = [q(' '.join(['llama.cpp gguf model small llm'] + words[:i])) for i in range(6)]
+    want('appending one word: drift repeats 1-2 pass, the 3rd and later deny', seq(grow),
+         [None, None, None, 'deny', 'deny', 'deny'])
+    s, ds = g.fresh(), []
+    for name, ti in grow:
+        d, s = g.step(s, name, ti)
+        ds.append(d)
+    r = ds[3][1] if ds[3] else ''
+    CHECKS[0] += 1
+    if not (r == (f'loop guard: this {WS} query is a near-repeat of the previous 3 (same '
+                  'words plus a few more). Narrowing by appending words is not a new search. '
+                  'Use the results you already have, change the query substantially, or '
+                  'report what you found.')):
+        fail(f'drift reason wording: {r!r}')
+    CHECKS[0] += 1
+    r4, r5 = (ds[4][1] if ds[4] else ''), (ds[5][1] if ds[5] else '')
+    if not (r4 == r + ' You were already told this 1 time: do not try another variation.'
+            and r5 == r + ' You were already told this 2 times: do not try another variation.'):
+        fail(f'escalated drift reason on the 2nd and 3rd deny: {r4!r} {r5!r}')
+    want('a drift deny changes only drift_denied', g.step(s, *grow[5])[1],
+         dict(s, drift_denied={'search': 4}))
+    s2 = s
+    for name, ti in (q('weather forecast mexico'), q('weather forecast mexico city'),
+                     q('weather forecast mexico city today'),
+                     q('weather forecast mexico city today rain')):
+        d, s2 = g.step(s2, name, ti)
+    CHECKS[0] += 1
+    if not (d and d[1] == r):
+        fail(f'a reset run zeroes drift_denied (no escalation on the next chain): {d!r}')
+    a, b = q('small llm for chess on a gpu'), q('weather forecast mexico city tomorrow')
+    want('two unrelated queries alternating are never denied', seq([a, b] * 3), [None] * 6)
+    want('reordered words are a drift repeat (Jaccard 1.0)',
+         run_of([q('small llm chess rating'), q('rating chess llm small')]), 1)
+    want('a query with 50% new words resets the run',
+         run_of([q('small llm chess rating'), q('rating chess llm small'),
+                 q('small llm cooking recipes')]), 0)
+    want('9 words, 1 swapped (Jaccard 0.8 exactly) is a drift repeat',
+         run_of([q('a b c d e f g h i'), q('a b c d e f g h z')]), 1)
+    want('8 words, 1 swapped (Jaccard 0.78) is not a drift repeat',
+         run_of([q('a b c d e f g h'), q('a b c d e f g z')]), 0)
+    want('queries after an empty-token query pass', seq([q(x) for x in ('???', 'x y', 'p q', 'm n')]),
+         [None] * 4)
+    want('empty-token queries never drift from each other',
+         seq([q(x) for x in ('???', '!!!', '...', '---', '***')]), [None] * 5)
+    want('a case-only difference is a drift repeat',
+         run_of([q('Small LLM Chess'), q('small llm chess')]), 1)
+    # reads: one token, host + path + query string
+    want('same url with another selector is a drift repeat',
+         run_of([rd(URL), rd(URL, selector='main')], 'read'), 1)
+    want('same url read 4 ways: the 3rd drift repeat denies',
+         seq([rd(URL), rd(URL, selector='main'), rd(URL, engine='browser'), rd(URL, fresh=True)]),
+         [None, None, None, 'deny'])
+    s, ds = g.fresh(), []
+    for name, ti in (rd(URL), rd(URL, selector='main'), rd(URL, engine='browser'),
+                     rd(URL, fresh=True), rd(URL, wait_for='main')):
+        d, s = g.step(s, name, ti)
+        ds.append(d)
+    rr = (f'loop guard: this {WR} fetches the same page as the previous 3 reads (same host, '
+          'path and query). Re-reading it with other options returns the same content. Use what '
+          'you already have, read a different page, or report what you found.')
+    CHECKS[0] += 1
+    if not (ds[3] and ds[3][1] == rr and ds[4] and ds[4][1] == rr + (
+            ' You were already told this 1 time: do not try another variation.')):
+        fail(f'read drift reason wording: {ds[3]!r} {ds[4]!r}')
+    want('same url with a #fragment or upper case is a drift repeat',
+         run_of([rd(URL), rd(URL.upper() + '#specs')], 'read'), 1)
+    for name, u1, u2, exp in (
+            ('a trailing / is the same page', 'https://example.com/page', 'https://example.com/page/', 1),
+            ('a percent-encoded path is the same page', 'https://example.com/%70age',
+             'https://example.com/page', 1),
+            ('query parameter order is the same page', 'https://example.com/p?b=2&a=1',
+             'https://example.com/p?a=1&b=2', 1),
+            ('?page=1 and ?page=2 are different pages', 'https://example.com/p?page=1',
+             'https://example.com/p?page=2', 0)):
+        want(name, run_of([rd(u1), rd(u2)], 'read'), exp)
+    try:
+        got = seq([rd('http://[::1', selector=f'#s{i}') for i in range(4)])
+    except Exception as e:
+        got = repr(e)
+    want('a malformed url falls back to its text: the 4th read is a drift deny, no raise', got,
+         [None, None, None, 'deny'])
+    want('sibling urls are not drift repeats',
+         seq([rd(f'https://example.com/models/{m}') for m in ('a', 'b', 'c', 'd', 'e')]),
+         [None] * 5)
+    want('?page=2..5 are not drift repeats', seq([rd(f'{URL}?page={i}') for i in range(2, 6)]),
+         [None] * 4)
+    want('the same path on another host is not a drift repeat',
+         run_of([rd(URL), rd(URL.replace('example.com', 'example.org'))], 'read'), 0)
+    want('a read without a url string falls back to the canonical JSON',
+         run_of([(WR, {'link': 'x'}), (WR, {'link': 'y'})], 'read'), 0)
+    want('reads and searches keep separate classes',
+         after([q('small llm'), rd(URL), q('small llm chess'), rd(URL, selector='main')])['drift_run'],
+         {'search': 1, 'read': 1})
+    want('exa_search after two drifting web_search calls is denied (class keying)',
+         seq(grow[:3] + [q(grow[3][1]['query'], WX)]), [None, None, None, 'deny'])
+    bash = ('Bash', {'command': 'ls models'})
+    s = after([grow[0], grow[1], bash, grow[2], bash])
+    want('a Bash call between drift repeats keeps drift_run', s['drift_run'], {'search': 2})
+    want('a Bash call resets web_run', s['web_run'], 0)
+    d = g.step(s, *grow[3])[0]
+    want('drift repeats across Bash calls: the 3rd denies', d[0] if d else None, 'deny')
+    rep = q('small llm for chess')
+    s, ds = g.fresh(), []
+    for name, ti in [rep] * 4:
+        d, s = g.step(s, name, ti)
+        ds.append(d)
+    want('an exact repeated search: the existing rule denies the 4th',
+         [d[0] if d else None for d in ds], [None, None, None, 'deny'])
+    CHECKS[0] += 1
+    if not (ds[3] and ds[3][1].startswith(f'loop guard: this exact {WS} call was made 3 times')):
+        fail(f'an exact repeat must get the exact-repeat reason: {ds[3]!r}')
+    want('an exact-repeat deny keeps drift_run and web_run',
+         (s.get('drift_run'), s.get('web_run')), ({'search': 2}, 3))
+    # burst cap: searches only
+    distinct = [q(f'topic{i} subject{i} angle{i}') for i in range(31)]
+    want('20 distinct searches pass, the 21st denies', seq(distinct[:21]), [None] * 20 + ['deny'])
+    s, ds = g.fresh(), []
+    for name, ti in distinct[:22]:
+        d, s = g.step(s, name, ti)
+        ds.append(d)
+    CHECKS[0] += 1
+    rb = ds[20][1] if ds[20] else ''
+    if rb != ('loop guard: 20 searches in a row without acting on any result. Stop '
+              'searching: summarize what you found or use a result.'):
+        fail(f'burst reason wording: {rb!r}')
+    want('a denied burst call does not count', s['web_run'], 20)
+    reads = [rd(f'https://example.com/docs/page{i}') for i in range(25)]
+    want('1 search + 25 reads never deny', seq(distinct[:1] + reads), [None] * 26)
+    want('reads do not count toward the burst', after(distinct[:1] + reads)['web_run'], 1)
+    want('after 20 searches a read passes, then the 21st search denies',
+         seq(distinct[:20] + reads[:1] + distinct[20:21])[-2:], [None, 'deny'])
+    want('a read does not reset the burst', seq(distinct[:20] + reads[:1] + distinct[20:21])[-1],
+         'deny')
+    mixed = []
+    for i in range(30):
+        if i and i % 10 == 0:
+            mixed.append(other(i))
+        mixed.append(distinct[i])
+    want('30 distinct searches with a Read every 10 never deny', seq(mixed), [None] * 32)
+    edit = ('Edit', {'file_path': 'notes.md', 'old_string': 'a', 'new_string': 'b'})
+    wait = ('Bash', {'command': 'sleep 5'})
+    for name, tool in (('an Edit', edit), ('a poll', wait),
+                       ('a lookalike tool (fullmatch)', ('mcp__lis-web__web_search_x', {'query': 'x'}))):
+        want(f'{name} resets web_run', after(distinct[:20] + [tool])['web_run'], 0)
+    want('tool classes',
+         [g.web_class(t) for t in ('WebSearch', 'WebFetch', WS, WX, 'mcp__lis-web__jina_search', WR,
+                                   'mcp__lis-web__web_read_tweet', 'mcp__x__web_read', 'Read',
+                                   'mcp__lis-web__web_search_x', 'mcp__lis-web__web_read_x')],
+         ['search', 'read', 'search', 'search', 'search', 'read', 'read', 'read', None, None, None])
+
+
+def web_state_case(fail):
+    """W-21 state: old files without the new keys load; corrupt values load as fresh."""
+    with tempfile.TemporaryDirectory() as t:
+        p = os.path.join(t, 'old.json')
+        base = {'calls': [], 'denied': {}, 'last_mut': None, 'mut_repeat': 0}
+        CHECKS[0] += 1
+        with open(p, 'w', encoding='ascii') as f:
+            json.dump(base, f)
+        s = g.load(p)
+        if s != g.fresh():
+            fail(f'state without the W-21 keys must load with defaults: {s!r}')
+        CHECKS[0] += 1
+        s = after([q('small llm'), q('small llm chess'), q('small llm chess gpu'),
+                   q('small llm chess gpu cpu'), rd(URL)])
+        g.save(p, s)
+        if g.load(p) != s or s['drift_denied'] != {'search': 1, 'read': 0}:
+            fail(f'W-21 state must round-trip through save and load: {s!r}')
+        # the first W-21 build wrote drift_run as one int and drift_prev keyed by tool name
+        bads = [('first-build shape', {'drift_prev': {WS: ['llm', 'small']}, 'drift_run': 1,
+                                       'web_run': 2})]
+        for key in ('drift_run', 'drift_denied'):
+            bads += [(key, {key: v}) for v in ('x', None, True, -5, {'search': -1},
+                                               {'search': True})]
+        bads += [('web_run', {'web_run': v}) for v in ('x', None, True, -5)]
+        bads += [('drift_prev', {'drift_prev': v}) for v in ('x', None, True, -5,
+                                                            {'search': 'small llm'},
+                                                            {'search': [1]})]
+        for key, bad in bads:
+            CHECKS[0] += 1
+            with open(p, 'w', encoding='ascii') as f:
+                json.dump(dict(base, calls=['abc'], **bad), f)
+            try:
+                fresh = g.load(p) == g.fresh()
+            except Exception as e:
+                fresh = repr(e)
+            if fresh is not True:
+                fail(f'{key} {bad!r} must load as fresh state: {fresh}')
+
+
 def main():
     fails = []
     core(fails.append)
     lock_cases(fails.append)
     permission_case(fails.append)
     e2e(fails.append)
+    link_cases(fails.append)
     sid_cases(fails.append)
     old_state_case(fails.append)
+    web_cases(fails.append)
+    web_state_case(fails.append)
     n = CHECKS[0] + 5  # rule, lock and e2e checks, plus the 5 mutation pins below
     # mutation pins: the core cases must go red when the constants are mutated
     for const, val in (('THRESHOLD', 4), ('WINDOW', 100), ('THRESHOLD', 2), ('WINDOW', 11)):

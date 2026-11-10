@@ -1,183 +1,151 @@
 # Agent learnings - local-inference-studio
-
 ## Standing rules
-- Every built commit gets a scoped qa-auditor pass before push; warnings become a
-  follow-up commit, never a silent amend.
-- Commit messages go through a file (`git commit -F <abs path>`), never a PowerShell
-  here-string piped to `-F -` or a `git log --format=%B` round trip (newlines lost).
-- PowerShell expands a bare `~` before `wsl` sees it (wrap payloads in `bash -c`); via the
-  Bash tool, bash expands `$_` and `~` in `powershell -Command "..."`: single-quote it.
-- Tee every `bench/run.ps1` run to `bench/results/<stamp>-<label>.log` and cite the
-  logged run (no log = UNVERIFIED); a cold server's warm-up request is not a sample.
-- GPU work is single-tenant: check `nvidia-smi` compute apps and port 8081 before
-  `stop.ps1`, and restore the Scheduled Task afterwards.
+- Before push: a scoped qa-auditor pass on every built commit (warnings become a follow-up
+  commit, never a silent amend); every added line passes the identity grep; every brief
+  states the exact trailer (10-24: a wrong trailer and a WSL username shipped publicly).
+- Git: messages go through a file (`git commit -F <abs path>`), never a PowerShell
+  here-string to `-F -` or a `git log --format=%B` round trip (newlines lost); stamp
+  commits from `git log`; `date` before any timestamp (memory files too). The hook guard
+  reads any `-n` or one-letter count flag in a git command as skip-hooks: bare counts or
+  awk ranges (11-04 `tail`, 11-09 `sed -n`).
+- Quoting: PowerShell expands bare `~` before `wsl` (use `bash -c`); bash expands `$_`/`~`
+  in `powershell -Command "..."` (single-quote it); `Start-Process serve.ps1` takes ONE
+  string arg, `-ExtraArgLine "-lv 4"` inside (an array gives `--port 4`). Backslash/quote
+  text uses Write/Edit, no heredoc or `python -c` (6x, 10-24 to 11-09).
+- Tee every `bench/run.ps1` run to `bench/results/<stamp>-<label>.log`, cite it (no log =
+  UNVERIFIED; a cold server's warm-up is no sample) and freeze its inputs (10-25
+  lis-guard.py edit; 11-09 server swap: it benches whatever answers on 8080). GPU work is
+  single-tenant: check `nvidia-smi` and port 8081 before `stop.ps1`; restore the task.
 - A fit budget is serve.ps1's `vram free` start line (13.5 to 14.2 GB; the desktop holds
-  1.3 to 2.0 GiB) minus `--fit on`'s 1,024 MiB, never a card's or vendor's 16 GB or
-  17.18 GB; judge a fit by a decode probe and private RAM, not by loading (11-09 Gemma).
-- `Start-Process serve.ps1` takes ONE argument string with `-ExtraArgLine "-lv 4"` quoted
-  inside (an array gives `--port 4`); read the server log's first line before trusting it.
-- Scripted doc edits detect `\r\n` per file before matching, apply every edit before
-  any `git add` and check the diff stat against the file list (10-24: 1 of 4 shipped).
+  1.3 to 2.0 GiB) minus `--fit on`'s 1,024 MiB, never a card's or vendor's 16 GB or 17.18
+  GB; judge a fit by a decode probe and private RAM, not by loading (11-09 Gemma).
+- Scripted doc edits detect `\r\n` per file before matching, apply every edit before any
+  `git add` and check the diff stat against the file list (10-24: 1 of 4 shipped).
 - A brief's model claim (MTP head, template, fit) is read from `config/models.md` or the
-  GGUF header before dispatch, and the subagent verifies it again on arrival.
-- Scripts and text with backslashes or quotes go through Write/Edit, never a heredoc or
-  `python -c` (`\\` collapses, quoting breaks; 10-24 x2, 10-25, 11-08 x2, 11-09).
-- An allow prefix the hook cannot fully read is the hole: allow file-valued commands via
-  the hook's recogniser only; after 3 failed grammars remove the prefix (10-25, 11-05).
-- No hook decision on any segment with an expansion (`$`, backtick, unquoted `{}*?[]~`);
-  new arg-reading rules start with it; verbs, arguments, env-prefix filter = allow-lists.
-- A new deny rule ships with a positive oracle (random instances, expansion spellings
-  too, must deny) and a converse one; unit-row mutation alone proves little (11-05 x2).
-- Grade a run from its artefacts against a fixed fact checklist (JSON `subtype`,
-  `permission_denials`, call log, per-run home; its end from docker `kill`/`die` and
-  `history.jsonl`), never the reply, server health or recollection; rank on one fixture.
+  GGUF header before dispatch and re-verified on arrival; a binary a brief forbids is
+  forbidden in version probes too (version from the real-run path only, 10-26).
+- Hooks: an allow prefix the hook cannot fully read is the hole (file-valued commands via
+  its recogniser only; 3 failed grammars = remove the prefix; 10-25, 11-05); no decision
+  on a segment with an expansion (`$`, backtick, unquoted `{}*?[]~`), the first check of
+  any arg-reading rule; verbs, arguments, env-prefix filter = allow-lists.
+- Test before arming: a deny rule ships with a positive oracle (random instances and
+  expansion spellings must deny) and a converse one, not unit-row mutation alone (11-05
+  x2); a loop, monitor or grep selector runs on a known state (c38; c51; 11-10).
+- Grade a run from its artefacts on a fixed checklist (JSON `subtype`,
+  `permission_denials`, call log, per-run home; end from docker `kill`/`die` and
+  `history.jsonl`), never the reply (11-04), server health or memory; rank on one fixture.
+  Rule A/Bs on scripted per-rep figures that move, per rung (flag `axis_exercised` false),
+  never pooled (11-04 1-of-3, c51); `claude_version`/`bar_v` change = new series.
+- Diagnose from the transcript before a fix: a context axis from peak prompt tokens, with
+  range + requests past it (c51); a loop from per-turn hashes (same tool, input, output
+  tokens = attractor; 11-09); a hook event by where it fails (in a turn = Pre/PostToolUse,
+  between turns = Stop), the brief quoting the reference's firing condition (11-10).
+- A local-model prompt names a mechanical route for what it must generate or check, plus a
+  stop condition and fallback: its attractor is to copy or re-explain (11-09, 11-10).
 - Every figure, count, tool order or quoted string in a doc or brief is copied from a
-  named artifact in its order, after reading what the field holds and how it is defined;
-  never from memory. A behaviour claim is measured first, else marked UNVERIFIED.
-- Every added line passes the identity grep before commit and every brief states the
-  exact commit trailer (10-24: a wrong trailer and a WSL username shipped publicly).
-- A brief that forbids a binary forbids it in version probes too; record its version
-  from the real-run path only (10-26).
-- Run `date` before any timestamp (memory files too); stamp commits from `git log`.
-- The hook guard refuses any `-n` or one-letter count flag in a command that runs git
-  (read as skip-hooks): use bare counts or awk ranges (11-04 `tail`, 11-09 `sed -n`).
-- Before arming a loop or monitor, test its selector on a known state: compare the
-  extracted count with the list (c38: no test ran), run a filter on a quiet log (c51).
-
+  named artifact in its order, after reading the field's definition (c34
+  `permission_denials` holds commands; c51 `lines_removed` = git diff count). A behaviour,
+  order, timing or mechanism claim is measured first and names its log line or read-back,
+  else UNVERIFIED (c32; c34 pager; c45 14.7 MB fetch; 11-09; 11-10).
+- A change re-runs every CLAUDE.md test that reads a file it touches, docs-only or not:
+  lis-guard_test scans every repo script (11-04), install_verify_test checks the manifest
+  `default` against serve.ps1's `-Model` (11-08), lisweb_test pins ps1 docstrings (c73
+  left HEAD failing until c74). Never hex-escape a guarded literal.
+- Walk what a boundary trusts, not its residuals: the host (each loopback port behind
+  `host.docker.internal`, a real work dir), each mount by owner (c39), the helpers an
+  allow calls (W-19 `\@`), every lookup through a newly writable dir (11-10); scope an
+  allow or deny to where its premise or threat holds (W-19 LIS_CONTAINER=1; 11-10).
 ## 2026-10-25 - PC recon runs 1 to 3 (65K+MTP+lean, then ruling 14 back to 131K)
-- **Avoid:** auto-compact mid-task on 65,536 (the summary made "J 135/4657" "mostly
-  free"). -> Report tasks write facts to a file; local auto mode costs ~240 of 330 GPU s.
-- **Mistake:** one cause for 3 failed queries (timeout, bash `$_`, `-f` precedence behind
-  `2>/dev/null`); size off the monitor. -> Read each result; use `preTokens` (39,098).
+- **Avoid:** auto-compact mid-task at 65,536 (made "J 135/4657" "mostly free"); facts go
+  to a file; local auto mode costs ~240 of 330 GPU s. One cause for 3 failed queries
+  (timeout, `$_`, `-f` behind `2>/dev/null`): read each; size = `preTokens` (39,098).
 ## 2026-10-25 - Ruling 15 build: rule set A, lis-guard hook, perm bench
-- **Mistake:** PowerShell `$s` overwrote `$S` (case-insensitive) -> distinct names; edited
-  lis-guard.py mid-bench -> freeze every file a running bench reads.
-- **Better:** a `deny` saying "not retryable; report it to the operator" ends the `-p`
-  retry loop (ask denials retry to `--max-turns`); the debug log names each path.
+- **Mistake:** `$s` overwrote `$S` (PowerShell ignores case). A `deny` "not retryable;
+  report it to the operator" ends the `-p` retry loop (asks retry to `--max-turns`).
 ## 2026-10-25 - lis-guard audits R1 to R8, policy-text levers (merged)
-- **Mistake:** a 200 KB read cap followed by `allow`; grammars beaten by word-split
-  `-o F`, `${Y@P}`, `-{delete,delete}`, `GIT_EXTERNAL_DIFF`. -> A cap yields no decision.
-- **Mistake:** a stale script cited, `2>/dev/null` on probes. -> Never silence stderr.
+- **Mistake:** a 200 KB cap then `allow` (a cap = no decision); grammars beaten by `-o F`,
+  `${Y@P}`, `-{delete,delete}`, `GIT_EXTERNAL_DIFF`; `2>/dev/null` on probes.
 ## 2026-11-04 - MTP A/B run (three arms, operator restarts)
-- **Avoid:** a 1-of-3 tally as the A/B result when every miss was a thrash exit, facts
-  gate or format line. -> Rule from the per-rep figures that move.
-- **Mistake:** a grader overruled from the rep's report; a stub built from the brief. ->
-  Read fixture and diff; stubs copy real records; per-rep figures come from a script.
-- **Mistake:** new scripts shipped without `lis-guard_test.py` (it scans every repo
-  script). -> Run the full CLAUDE.md test list; never hex-escape a guarded literal.
+- **Mistake:** a grader overruled from the report; a stub from the brief, not real data.
 ## 2026-11-05 - S-B3 per-run hook copies: glob coverage (audit C1 rounds 2-3)
-- **Mistake:** the `lis-hooks-<x>` stamp modelled as free text denied `ls src/*.test.js`.
-  -> Give a glob model's free slot the real alphabet (`[0-9-]`).
-- **Better:** measure the simpler route (mirrored copies) against the old guard first.
+- **Mistake:** the `lis-hooks-<x>` stamp as free text denied `ls src/*.test.js` -> give a
+  glob's free slot the real alphabet (`[0-9-]`); measure the simpler route first.
 ## 2026-11-05 - S-O3 user scope off, S-B4 inline code and session-written files (c32)
-- **Mistake:** assumed an edit keeps birthtime (Edit rewrites), missed NTFS tunneling
-  (recreate in 15 s keeps it). -> Measure the tool's write path; judge birth AND mtime.
-- **Mistake:** the run-target rule stat'ed before the command ran. -> Judge the command's
-  own writers and missing targets; walk every grouping form (`( )`, `{ }`, `bash -c`).
-- **Better:** for an excluded settings scope, read what it carried ("Adding N allow
-  rule(s) to destination 'userSettings'") and name every bench whose inputs change;
-  with user scope on a no-decision is allow in a rep, off it is deny in a lean `-p` run.
+- **Mistake:** missed NTFS tunneling (recreate in 15 s keeps birthtime) and Edit rewrites;
+  a run-target rule stat'ed before the command ran -> judge birth AND mtime, the command's
+  writers, all groupings (`( )`, `{ }`, `bash -c`); read what an excluded settings scope
+  carried ("Adding N allow rule(s) to destination 'userSettings'").
 ## 2026-11-05 - Restart proofs, the harness's own warnings (c34)
-- **Mistake:** six `[WARN] [permissions]` lines sat in a proof's debug log for 18 h. ->
-  `[WARN]` grep every live proof's debug log before LANDED.
-- **Better:** prove a "next start" row from the restart's log lines (stop marker, pin,
-  hash reuse, vram, launch), not the first `/health` ok; state the measured order.
-- **Mistake:** a `core.pager` exploit written from a warning (no pager without a TTY);
-  `bench/results/` subfolders assumed ignored. -> Run it in a scratch repo first; run
-  `git check-ignore -v <new path>` right after creating anything there.
-- **Mistake:** denial reasons quoted from `permission_denials` (it holds commands); an
-  order claimed with no log line. -> Print fields first; no log line, no order claim.
+- **Mistake:** 6 `[WARN]` log lines sat 18 h -> grep `[WARN]` pre-LANDED; prove "next
+  start" by restart logs, not `/health`; `check-ignore` new `bench/results` paths.
 ## 2026-11-05 - G run folded (c38)
 - **Better:** a bar no allowed input meets (2 h vs a 79-module cap): ask the ruling first.
 ## 2026-11-05/06 - web access in a container, lis-web port (c39, c40)
-- **Mistake:** the helper server read the work tree's `tsconfig.json`; the Jarvis mount
-  exposed private source. -> Pin paths, chdir away; list each mount's exposure by owner.
-- **Better:** a regex secret filter is no control, the mounts are; prove
-  `host.docker.internal:8080` from a container first; file flags take relative names.
+- **Mistake:** the helper server read the work tree's `tsconfig.json` -> pin paths, chdir
+  away; mounts are the control, not a regex secret filter; prove
+  `host.docker.internal:8080` from a container first.
 ## 2026-11-07 - keys imported, keyed proofs (c43)
 - **Mistake:** `ls -la .env` (`.env*` reads are denied). -> Check `keys present:` stderr.
 ## 2026-11-07 - W-10 interactive run, first web read, closed window (c45, c46)
-- **Mistake:** "nothing from your profile" read as network-silent (a fresh home fetched
-  14.7 MB) -> list what the tool fetches; a `defaultMode` pin called a lock -> test the
-  runtime toggle (Shift+Tab); an /exit matched to the wrong run -> pin to its folder.
-- **Avoid:** a setup wizard's allow lines left unread (`/auto-mode` wrote a blanket
-  allow against a soft_deny); a column check beside the commit -> gate it with `&&`.
+- **Mistake:** a `defaultMode` pin called a lock (test Shift+Tab); an /exit matched to the
+  wrong run (pin its folder); `/auto-mode` wrote a blanket allow against a soft_deny,
+  unread; a column check beside the commit (gate: `&&`).
 ## 2026-11-08 - engine research, upgrade held, PR 30966, isolation assessment (c48)
-- **Mistake:** a `cd "$TMPDIR" || cd <scratch dir>` chain wrote a diff wherever it landed.
-  -> One absolute scratch path per write, never a `cd` fallback chain.
-- **Better:** a research report marks each figure M (card, date, source) or E, names
-  each comparison's weaker arm (EXL3 blog: Q3_K_M plus a separate draft), computes the
-  bandwidth ceiling first, states an upgrade's gain class (b12198: fixes, so HELD).
-- **Avoid:** rating a boundary by its documented residuals alone; walk the host side
-  (every loopback port behind `host.docker.internal`, a real work dir).
+- **Better:** one absolute scratch path per write, no `cd` fallback chain; a report marks
+  each figure M (card, date, source) or E, names each comparison's weaker arm, computes
+  the bandwidth ceiling first, states an upgrade's gain class (b12198: fixes = HELD).
 ## 2026-11-08 - HF model survey, four files deleted, fallbacks verified (c49)
-- **Better:** read a GGUF's tensor table (header only) before ranking a file or blaming
-  its weights: it showed eight 1-bit tensors in the ISTA IQ3_XXS, none in the default.
-- **Mistake:** an aggregate grouped by a kind allow-list dropped `attn_k`/`attn_v`. ->
-  Verify a derived claim with a per-item listing, never a second aggregate.
-- **Better:** delete for consumers: manifest, `-VerifyModels`, tests, "deleted <date>".
+- **Mistake:** a kind-allow-list aggregate dropped `attn_k`/`attn_v` -> verify per item;
+  read a GGUF's tensor table before ranking or blaming a file (eight 1-bit tensors in the
+  ISTA IQ3_XXS); delete for consumers (manifest, `-VerifyModels`, tests).
 ## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c60)
-- **Mistake:** the "past 64K" rung ran at the 81920 budget (window 65,536, peak 49,092);
-  one rep 6 percent past 64K for 15 requests was called the result. -> Prove a context
-  axis from transcript peak prompt tokens; state the range and the requests past it.
-- **Mistake:** a restart line omitted that its console window must stay open (closed
-  twice). -> Name it; no `llama-server exited` line = the wrapper was killed, no crash.
-- **Avoid:** back-to-back reps on a task-started server: `run.ps1` refuses when the
-  server log changed in the last 10 s. Sleep 15 s between reps.
-- **Mistake:** `lines_removed` 96/89 cited as facts rewrites (it is the git diff count;
-  the trust line prints `facts_retracted` under that label); a "whole-file Write" claimed
-  (one Write, one Edit). -> Read the grader's definition; check the transcript's calls.
-- **Better:** the fixture key derives from the server identity; check `rep_key_inputs`
-  in run.ps1 and `fixture_sha256` before calling a cross-model comparison unfair.
-- **Mistake:** a strict-survival tally mixed rungs; series across client and grader
-  versions compared as like-for-like. -> Tally per rung (say if `axis_exercised` is
-  false); read `claude_version` and `bar_v` in every .meta.json; old baselines = history.
-- **Better:** a default switch keeps the predecessor as a named fallback with its own
-  measured rules (c60: `$fallbackModel` in serve.ps1, q4_0 KV and MTP at 65536).
+- **Mistake:** the "past 64K" rung ran at budget 81920 (window 65,536, peak 49,092); one
+  rep 6% past 64K for 15 requests was the result; a restart line omitted the stay-open
+  console; sleep 15 s between reps (`run.ps1` refuses <10 s after a log change).
+- **Better:** the fixture key derives from the server identity (`rep_key_inputs`,
+  `fixture_sha256`); a default switch keeps a named fallback with its own measured rules
+  (c60: `$fallbackModel`, q4_0 KV and MTP at 65536).
 ## 2026-11-08 - default switch to the ISTA GSQ-RCO file (ruling (c))
-- **Better:** run `install_verify_test.py` after any default change (it cross-checks the
-  manifest `default` flag against the serve.ps1 `-Model` default).
-- **Mistake:** the recommendation never said the ISTA file is STOCK, the ruled default
-  abliterated; the operator reverted the same day. -> List every property the candidate
-  lacks first; never copy a chat's option letter into a doc whose letters differ.
+- **Mistake:** the advice never said the ISTA file is STOCK, the default abliterated ->
+  list every property the candidate lacks; never copy a chat's option letter.
 ## 2026-11-09 - icon proof, W-17, Gemma trial, trims, shortcut window (c64-c71)
 - **Better:** a server-starting launcher runs AFTER every refusal, BEFORE any per-start
   secret read (serve.ps1 rewrites the key); a static call-order test pins it, no server.
-- **Avoid:** blaming an agent for a stopped server: PSReadLine history (last line
-  `stop.ps1`, 00:43:35) showed the operator's console. Check timestamps first, then ask.
-- **Avoid:** a bench left across a server swap benches whatever answers on 8080: stop it.
+- **Avoid:** blaming an agent for a stopped server (PSReadLine history, last line
+  `stop.ps1` 00:43:35, showed the operator's console): check timestamps first, then ask.
 - **Better:** a serve.ps1 trial clears the stop marker, so the watchdog relaunches the
-  default ~3 min after the window (three failed 60 s polls; logs/watchdog.log is the
-  proof, not LastRunTime). Verify the model path from /props after every swap.
-- **Mistake:** wrote "relaunches within seconds" from one sighting; the log said three
-  minutes. -> A timing claim names the log line that measures it, or says UNVERIFIED.
-- **Better:** `wt.exe` opens a tab in whichever Windows Terminal window is already
-  open, so a shortcut session can land beside another and look like a different
-  terminal; `-w new` gives it its own window. Read the process parent before guessing.
-- **Mistake:** a builder brief said "the shortcut carries the switch" and the subagent
-  wrote it as fact before the .lnk was edited; qa-auditor read the live file. -> A doc
-  claim about an operator artifact (shortcut, task, config) is written after the
-  artifact is read back, with its time stamp.
-- **Better:** the W-18 live proof needed two `-p` runs from an empty work directory
-  (12 s + 6 s on the shared GPU): a `--continue` run that reports the first run's
-  session id and answers from its turn proves the mount, the resume and the append in
-  one shot; `-p` runs leave `history.jsonl` empty, so that claim stays UNVERIFIED.
-- **Mistake:** the c73 docs fold changed a ps1 docstring sentence that lisweb_test pins
-  and shipped without re-running that suite (HEAD failed 1 check until c74). -> A fold
-  that touches a file any test reads re-runs that test, docs-only or not.
-- **Mistake:** told the user the container runs lis-guard from the repo mount; S-B3
-  copies every hook at launch, so an open session keeps the old hook until relaunch.
-  -> Read the launcher docstring before describing a hook's load path.
-- **Better:** an explicit hook allow is scoped to where its premise holds (W-19:
-  loopback is safe only inside the container, so gate on LIS_CONTAINER=1); and the
-  auditor's adversarial probes on a NEW allow path found a pre-existing hole in the
-  shared parser (`\@` in the authority), so audit the helpers an allow trusts, not
-  only the new lines.
-- **Mistake:** a fix prompt for the local 27B model asked it to invent 10 legal chess
-  positions; it copied the two FENs in context 17 times (14 byte-identical Writes), and
-  neither compaction nor two user prompts broke the attractor. -> A prompt to this
-  model for knowledge-heavy content names a mechanical generation route (here: random
-  play + the engine's eval gap); the rewrite with that route landed first try.
-- **Better:** diagnose a model loop from the transcript hashes (same tool, same input,
-  same output-token count per turn = sampling attractor) before blaming the harness;
-  then close the harness gap that let it run (W-20: identical mutations were exempt).
+  default ~3 min later (logs/watchdog.log: three failed 60 s polls); check /props.
+- **Better:** `wt.exe` reuses an open Terminal (`-w new`: own window); see the parent PID.
+- **Mistake:** wrote "the shortcut carries the switch" before the .lnk was edited; told
+  the user lis-guard runs from the repo mount (S-B3 copies hooks at launch; open sessions
+  keep the old one) -> claim an operator artifact after a timestamped read-back, a load
+  path from the launcher docstring.
+- **Better:** W-18's proof = two `-p` runs from an empty work dir: a `--continue` run that
+  reports the first run's session id and answers from its turn proves mount, resume and
+  append; `-p` leaves `history.jsonl` empty (UNVERIFIED).
+- **Mistake:** asked the 27B model to invent 10 legal chess positions: it copied the two
+  FENs 17 times (14 byte-identical Writes) past a compaction and 2 prompts; a random-play
+  + eval-gap route landed first try. W-20: identical mutations no longer exempt.
+## 2026-11-10 - web-session loop guards and the container profile (W-21 to W-24)
+- **Mistake:** W-22 was briefed as a Stop hook; both loops ran inside one turn (text +
+  tool_use rows, one ended by a user interrupt), so Stop would fire late or never.
+- **Mistake:** a fix-round brief pinned "drop the url query string" and "treat
+  `?page=2..5` as distinct pages" -> run the pins against each rule before sending: a pin
+  is a test case; two that cannot both pass = a design bug.
+- **Better:** a health-curl line carries a fallback (fails twice -> start the server in
+  the background, report); a harness rule's first audit replays the incident transcript.
+- **Mistake:** an env listing on `$1 ~ /LIS_/` printed a key value -> print names only; a
+  ` 0BB8 ` grep of /proc/net/tcp missed the serving port (it follows a colon) -> `:0BB8 `.
+- **Mistake:** said "only exit-2 stderr reaches the model" unread (both hooks deny via
+  hookSpecificOutput JSON) -> read how each hook emits its decision first.
+- **Mistake** (auditor's catch): model install dirs first on PATH + guard hooks run as
+  bare `python` = fail-open via a model-installed `python` -> re-check each lookup through
+  a writable dir (PATH, module paths, hook configs); pin interpreters by absolute path.
+- **Avoid:** granting a capability without its launch flags (`--tmpfs /tmp` is noexec by
+  default: "run tools from /tmp" was dead on arrival) -> probe `/proc/mounts`.
+- **Better:** a ruling under the operator's broader directive (read-before-run for
+  downloads) is credited to the session; a new deny scanning key names runs only in the
+  container (the host scan broke the operator's test runs by file name).
+- **Mistake** (auditor's catch, in three hooks): a temp state dir pruned by mtime with no
+  link check = a deletion primitive via a planted junction -> lstat the dir, prune only
+  state-shaped names, pin a junction row; sweep every hook that deletes anything.

@@ -14,10 +14,14 @@ FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9
 
 # python3 runs the hooks (python -I), git and curl serve the session, ca-certificates
 # the TLS of npm and the lis-web tools. `python` is a link so `python -I` resolves.
-# These four are not version-pinned: apt takes bookworm's current (security) versions,
+# Ledger W-24b (operator ruling 2026-11-10: in the container the model downloads and
+# installs what its task needs): wget, jq, python3-pip, python3-venv, and unzip, zstd and
+# xz-utils to unpack release archives. No sudo: installs go to the user's home (below).
+# None of these is version-pinned: apt takes bookworm's current (security) versions,
 # checked against Debian's signed index.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 git ca-certificates curl \
+       wget jq unzip zstd xz-utils python3-pip python3-venv \
     && ln -s /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
@@ -69,6 +73,16 @@ COPY web/tools/ /opt/lis-web/tools/
 
 RUN useradd --create-home --home-dir /home/lis --shell /bin/bash lis \
     && mkdir /work && chown lis:lis /work
+# W-24b: the user's install space. npm -g goes to ~/.npm-global, pip to ~/.local (pip falls
+# back to a user install when the system site is not writable). Debian's pip refuses every
+# install outside a venv, user installs included (PEP 668, EXTERNALLY-MANAGED), unless
+# PIP_BREAK_SYSTEM_PACKAGES is set. PIP_USER=1 is not set: it makes pip inside a venv fail
+# ("Can not perform a '--user' install"). The user directories come LAST on PATH: python,
+# pwsh, node and claude resolve from the root-owned system directories first, so nothing
+# the model installs can stand in for them (the hooks also name /usr/bin/python3).
+ENV PATH=$PATH:/home/lis/.local/bin:/home/lis/.npm-global/bin \
+    NPM_CONFIG_PREFIX=/home/lis/.npm-global \
+    PIP_BREAK_SYSTEM_PACKAGES=1
 ENV LIS_CONTAINER=1
 USER lis
 WORKDIR /work

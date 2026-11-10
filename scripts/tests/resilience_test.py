@@ -271,7 +271,7 @@ WEB_DENIES = ['PowerShell', 'mcp__playwright__browser_evaluate',
               # any server's tools of those names, plugin servers included (audit W1)
               'mcp__*__browser_evaluate', 'mcp__*__browser_run_code_unsafe',
               'mcp__*__browser_file_upload']
-GUARD_HOOKS = ['lis-guard.py', 'loop-guard.py', 'verify-doc.py']
+GUARD_HOOKS = ['lis-guard.py', 'loop-guard.py', 'repeat-guard.py', 'verify-doc.py']
 PROFILE_HOOKS = [([], GUARD_HOOKS), (['-LisTask', 'review'], GUARD_HOOKS),
                  (['-LisTask', 'edit'], GUARD_HOOKS),
                  (['-LisTask', 'longrun'], GUARD_HOOKS + ['facts-inject.py']),
@@ -358,6 +358,14 @@ def check_hook_settings(name, cfg, want, err):
     guard = [rest for _, p, rest in hooks if p.endswith('/lis-guard.py')]
     check(f'hook copies {name}: lis-guard gets --hooks-dir <repo>/scripts/hooks',
           guard == [f' --hooks-dir "{REPO.replace(os.sep, "/")}/scripts/hooks"'], f'{guard}')
+    if 'repeat-guard.py' in want:   # ledger W-22: PostToolUse(Failure), Stop, SubagentStop
+        rg = [(ev, rest) for ev, p, rest in hooks if p.endswith('/repeat-guard.py')]
+        evs = ('PostToolUse', 'PostToolUseFailure', 'Stop', 'SubagentStop')
+        nomatch = [g for ev in evs for g in cfg['hooks'].get(ev, []) if 'matcher' in g
+                   and any('repeat-guard.py' in h['command'] for h in g['hooks'])]
+        check(f'hook copies {name}: repeat-guard on PostToolUse, PostToolUseFailure, Stop and '
+              'SubagentStop, no matcher', sorted(rg) == [(ev, '') for ev in evs]
+              and not nomatch, f'{rg} {nomatch}')
     vd = [rest for _, p, rest in hooks if p.endswith('/verify-doc.py')]
     check(f'hook copies {name}: verify-doc gets --script <repo>/scripts/verify-doc.py (audit C1)',
           vd == [f' --hook --script "{REPO.replace(os.sep, "/")}/scripts/verify-doc.py"'], f'{vd}')
@@ -508,6 +516,29 @@ def test_guard_copy():
           f'{got} vs {want}')
     check('guard copy: without --hooks-dir the copy decides otherwise (the anchor is needed)',
           bare != want, f'{bare} vs {want}')
+
+
+def test_hook_python():
+    """W-24b (audit C1): in the container the hook commands start with /usr/bin/python3, not
+    a `python` found on PATH (the model can install into ~/.local/bin). The container form
+    cannot run on the host (LIS_CONTAINER=1 needs the wrapper at /lis), so the source is
+    read: one $hookPython, /usr/bin/python3 when $inContainer, and every hook command uses it;
+    the host form (python -I) is checked by the -LisPrintArgs cases above."""
+    with open(WRAPPER, encoding='utf-8') as f:
+        text = f.read()
+    check('hook python: $hookPython is /usr/bin/python3 in the container, python on the host',
+          "$hookPython = if ($inContainer) { '/usr/bin/python3' } else { 'python' }" in text,
+          '')
+    # The hooks block: from the $hookPython assignment to the settings serialisation.
+    start = text.find('$hookPython = if')
+    end = text.find('$json = $cfg | ConvertTo-Json', start) if start >= 0 else -1
+    block = text[start:end] if 0 <= start < end else ''
+    entries = block.count("type = 'command'")
+    cmds = re.findall(r"type = 'command'; command = \"([^\n]*)", block)
+    check('hook python: every type = \'command\' hook entry after $hookPython (5 or more) has '
+          'a command starting with $hookPython -I',
+          entries >= 5 and len(cmds) == entries
+          and all(c.startswith('$hookPython -I `"') for c in cmds), f'{entries} {cmds}')
 
 
 FIXED_FLAGS = ['--host', '--port', '--api-key', '--api-key-file', '--connect', '--connect-code', '--tools', '--agent',
@@ -1197,10 +1228,10 @@ def test_relaunch():
             d = check_hook_settings('stub longrun', cfg, GUARD_HOOKS + ['facts-inject.py'], err)
             d = d and os.path.normpath(d)
             src = {n: 'scripts/hooks/' + n
-                   for n in ('lis-guard.py', 'loop-guard.py', 'facts-inject.py')}
+                   for n in ('lis-guard.py', 'loop-guard.py', 'repeat-guard.py', 'facts-inject.py')}
             src['verify-doc.py'] = 'scripts/verify-doc.py'
             names = sorted(os.listdir(d)) if d and os.path.isdir(d) else []
-            check('hook copies: the four hook scripts copied, the directory kept after exit',
+            check('hook copies: the five hook scripts copied, the directory kept after exit',
                   rc == 0 and len(calls) == 1 and names == sorted(src), f'{rc} {names} {err}')
             for n in names:
                 fp = os.path.join(d, n)
@@ -1255,6 +1286,7 @@ def main():
         test_wrapper_rules()
         test_wrapper_web_and_hooks()
         test_guard_copy()
+        test_hook_python()
         test_key_resolvers()
         test_fixed_flags()
         test_restart_window()

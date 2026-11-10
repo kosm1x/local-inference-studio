@@ -494,7 +494,8 @@ Batches (IDs in the ledger):
   22:14:52.215Z and piped into `python3 -c`, was denied by lis-guard). So every web
   session now
   carries the `autoMode` rules of `config/automode-web.json` (allow and soft_deny led
-  by `"$defaults"`, checked by the launcher; soft_deny names curl, wget, nc, ssh,
+  by `"$defaults"`, checked by the launcher; soft_deny named, until W-24b, curl,
+  wget, nc, ssh,
   interpreter HTTP clients, network pip/npm and the three GitHub hosts). The opt-in
   `-LisWebAuto` only pins `permissions.defaultMode` to `auto` and adds a banner line;
   it is refused without `-LisWeb` and in print mode, and `--permission-mode auto`
@@ -569,6 +570,84 @@ Batches (IDs in the ledger):
   checks red; the replay is unchanged.
   UNVERIFIED live until a web session hits it. Ledger 43 LANDED, 8 BUILT, 13 OPEN of
   64.
+  Query-drift deny and web burst cap (W-21, BUILT 2026-11-09): in the same web session
+  the model ran 31 web searches in a row, each the previous query plus a word or two, and
+  loop-guard stayed silent because it denies only exact repeats. It now treats a search
+  (any of the three lis-web search tools or WebSearch) whose words are a superset of, or
+  overlap at Jaccard 0.8 or more with, the previous search as a drift repeat, and a read
+  of the same page as the previous read likewise; the third drift repeat in a row is
+  denied, with an escalating reason. It also denies a 21st search in a row with no
+  non-web tool between them (`WEB_BURST_MAX = 20`, operator ruling pending). Fed through
+  the rule, the incident session's 31-search run gets its first deny at search 8 and 17
+  denies in all (1 before, at search 31). loop-guard_test 140/140 (69 before); 16 mutants
+  go red; the replay is unchanged. UNVERIFIED live until a web session hits it.
+  Ledger 43 LANDED, 9 BUILT, 13 OPEN of 65.
+  Reply-attractor block (W-22, BUILT 2026-11-10): in one web session on 2026-11-10 UTC the
+  model repeated one analysis paragraph 12 to 14 times in two loops (and a third, shorter
+  one at 06:11), each inside one turn and each reply with a cosmetically different tool
+  call, so loop-guard (tool inputs only) never fired. A new hook, `repeat-guard.py`, on
+  PostToolUse and PostToolUseFailure (the operative ones: Stop alone would have caught
+  none of the loops), Stop and SubagentStop, compares the last 6 assistant replies
+  (normalized with digits kept; the whole text, or its first 600 and last 400 chars when
+  longer) and blocks when 3 or more are 0.85 alike, telling the model to state in one
+  paragraph what it verified, what it did not and the one next action, then stop; once per
+  loop, live again after a reply that differs; dropped with loop-guard by
+  `-LisNoLoopGuard`. Replayed on the web transcript it blocks the FEN loop once (03:00:36,
+  8 minutes before its turn end), the drifting watch loop 3 times and the 06:11 repeat
+  once; on 188 local-model transcripts, never. The ladder's `loop_guard` field
+  (bench/ladder/grade.py) now also stands for repeat-guard. repeat-guard_test 104/104;
+  RATIO, MIN_SIMILAR, `stop_hook_active` and PREFIX mutants go red. UNVERIFIED live.
+  Ledger 43 LANDED, 10 BUILT, 13 OPEN of 66.
+  W-23 (2026-11-10, BUILT): lis-guard now says "stop" itself. A web session retried one
+  denied command 87 times in 10 minutes. lis-guard and loop-guard both denied with
+  hookSpecificOutput JSON (loop-guard 84 times), and the model's tool result showed only
+  lis-guard's reason; which deny Claude Code surfaces when several PreToolUse hooks deny
+  is UNVERIFIED (undocumented). So lis-guard counts identical denies per session (sha1 of
+  the command and cwd) and, from the third on, adds a sentence telling the model not to
+  run it again or a variation of it and to report the block. State in the temp dir, pruned
+  after a day; any state error leaves the reason as it was. After the audit (C1) the state
+  dir must be a real directory, not a link or junction, and the prune removes only state
+  names; a junction row pins it. The three state dir names are critical paths: planting a
+  link or deleting them denies.
+  W-24a (2026-11-10, BUILT): a container capability profile in lis-guard, after the
+  operator ruled that a web session must be able to install what it needs and finish its
+  task while the keys stay protected. With LIS_CONTAINER=1 only: session-written files
+  under /work and /tmp may run, a name-listing walk of /home/lis (find, ls -R, tree, du)
+  is not a home read unless it names .claude (content readers keep the deny), and rm -r/-f
+  or git checkout -- of literal paths under /work or /tmp is not a critical delete unless
+  the path or the tree under it holds a guard path; a walk that reaches its cap (depth 10
+  or 20000 entries) without a hit gives no decision, so a nested repository deeper than
+  that or later in walk order (directory order in the container; alphabetical only on
+  NTFS) is a residual. Inline code, pipes to a shell, uploads, credential scans, guard
+  files and kill shapes are unchanged, as is the host. In the container only, the
+  credential scan also names the four key variables (LIS_API_KEY, EXA_API_KEY,
+  JINA_API_KEY, BRAVE_SEARCH_API_KEY), except leading NAME=$KEY assignments that pass a
+  key into a child (`LLM_API_KEY=$LIS_API_KEY npm run dev`, operator ruling). The
+  key-exposure residual (W-8/W-9) is narrowed, not closed: a model-started process can
+  still read the four keys; `grep -r KEY /proc/1` and other /proc environment reads now
+  deny (closer round), while `busybox awk` with ENVIRON, `make -p` and /proc globs get no
+  decision; indirect /proc paths and state-dir plants by glob or alias are still lis-guard
+  allows or no decisions after three rounds of text rules, so a resolved-path rule is
+  proposed as W-27 (OPEN). OPEN W-25 (host too): `rm -i -rf x`, `rm -v -rf x` and `git
+  checkout HEAD -- a` get no decision. W-24b (the autoMode rules and the image) is the
+  main session's part.
+  Installs in the container (W-24b, BUILT 2026-11-10): a web session trying to install a
+  tool was denied by the classifier (huggingface.co untrusted, global npm, pip from PyPI,
+  npm "exfiltration") and by the image (no unzip, zstd or xz, no root). Operator ruling
+  2026-11-10: the model downloads and installs what its task needs; the four keys stay
+  protected; egress stays open (W-8). `config/automode-web.json` now allows curl/wget GET
+  downloads into /work or /tmp from the named GitHub, Hugging Face, npm, PyPI and Debian
+  hosts, a checksum check before use, npm, pip, archive extraction, running what the model
+  installed or authored, and running a downloaded script after reading all of it; it keeps
+  denying other hosts, unchecked downloads, unread scripts, uploads and other sends of
+  local data, a download piped into a shell, the key routes (expanding a key into a URL
+  included), writes to /lis, /opt, /etc and anything under ~/.claude, and docker. The
+  image adds wget, jq, unzip, zstd, xz-utils, pip and venv with a user install space LAST
+  on PATH and no sudo, and the container's hook commands name `/usr/bin/python3` (audit
+  C1). The rules are advice to the model under review (S-B2), not a gate; a lis-guard host
+  check on curl/wget URLs is proposed as W-24c (OPEN). LANDED waits on the operator's
+  rebuild (`pwsh -NoProfile -File scripts/web-image.ps1`) and a first session that
+  installs a tool. Ledger 43 LANDED, 12 BUILT, 13 OPEN of 68.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

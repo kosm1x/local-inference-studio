@@ -613,7 +613,7 @@ GLOB_TAILS = ('.test.js', '-error.log', '.spec.ts', '-ledger.md')
 GLOB_DIRS = ('src', 'tests', 'logs', 'docs/audits', 'out', 'a/b', '*', 'longfix/test', '$TEMP')
 GLOB_VERBS = ('ls {}', 'cat {}', 'head -5 {}', 'grep -n x {}', 'wc -l {}', 'diff a.txt {}',
               'cp /dev/null {}', ': > {}', 'chmod +w {}')
-RUN_HOOKS = ('lis-guard.py', 'loop-guard.py', 'verify-doc.py', 'facts-inject.py')
+RUN_HOOKS = ('lis-guard.py', 'loop-guard.py', 'repeat-guard.py', 'verify-doc.py', 'facts-inject.py')
 RUN_FILES = ([('lis-hooks-20261104-120000-4242', h) for h in RUN_HOOKS]
              + [(None, 'lis-settings-4242.json'), (None, 'lis-mcp-4242.json')])
 RUN_WRITES = ('cp /dev/null {}', ': > {}', 'chmod +w {}', 'printf x > {}', 'truncate -s 0 {}',

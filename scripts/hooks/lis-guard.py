@@ -45,6 +45,24 @@ Decision order for one Bash command:
   (d) anything else: no output, exit 0 -> no decision.
 (a) and (b) run first, so a scan hit keeps its own reason over (b1) and (b2).
 
+Container profile (W-24a), only with env LIS_CONTAINER=1 (the lis-web image): (b2) gives
+no deny for a file whose real path is under /work or /tmp (written in the same command
+or earlier), except a per-run lis-hooks-/lis-settings-/lis-mcp- path or a guard file
+(CRIT_FILES, HOOK_NAMES); a missing file and the cap still deny. A name-listing walk
+(find without an action option, ls -R, tree, du, Get-ChildItem) of /home/lis (or ~ and
+$HOME when HOME is /home/lis) is not a home read unless the segment names .claude;
+content readers (grep -r, rg, tar, cp -r) keep the deny. `rm -r/-f <paths>` and `git checkout -- <paths>` are not critical deletes
+when every path is a literal under /work or /tmp (not the root itself) that passes the
+same exceptions and no CRITICAL_PATH (container_undo). The credential scan also names
+the four keys of the lis-web env file (LIS_API_KEY, EXA_API_KEY, JINA_API_KEY,
+BRAVE_SEARCH_API_KEY), except as leading NAME=$KEY assignments before a command word
+that is not a dumper, echo or shell (container_key_prefix). Every other rule is the host's.
+
+Repeated denies (W-23): main() counts each deny per session (session_id) by the sha1 of
+the command and cwd in <tempdir>/lis-guard-denies/<session id>.json; from the third
+identical deny on, the reason tells the model to stop and report. State errors fail open,
+and so does a state dir that is a link or junction; the prune removes only state names.
+
 "No decision" is NOT "goes to the classifier": it hands the call back to Claude Code's
 own permission rules (deny > ask > allow), and only a call no rule decides reaches the
 auto-mode classifier.
@@ -64,6 +82,7 @@ import datetime
 import fnmatch
 import functools
 import glob
+import hashlib
 import itertools
 import json
 import os
@@ -72,6 +91,8 @@ import re
 import stat
 import shlex
 import sys
+import tempfile
+import time
 
 NOT_RETRYABLE = 'critical write; not retryable; report it to the operator instead'
 REWRITE_HIT = 'unexpanded shell metacharacter in a curl file argument'
@@ -236,7 +257,7 @@ CRED_DIR_NAMES = {'.ssh', '.aws', '.docker', '.gnupg', '.kube', '.claude', 'gh',
 # This repo's guard files, matched against glob words in write targets (echo x > scripts/tests/claude*.py).
 CRIT_FILES = ('scripts/hooks/lis-guard.py', 'scripts/hooks/loop-guard.py', 'scripts/verify-doc.py',
               'scripts/serve.ps1', 'scripts/stop.ps1', 'scripts/claude-local.ps1', 'scripts/register-task.ps1',
-              'scripts/watchdog.ps1', 'scripts/register-watchdog.ps1',
+              'scripts/watchdog.ps1', 'scripts/register-watchdog.ps1', 'scripts/hooks/repeat-guard.py',
               'scripts/tests/claude_settings_test.py', 'scripts/tests/install_verify_test.py',
               'scripts/tests/resilience_test.py', 'config/claude-settings.json',
               'config/automode-web.json', 'bench/ladder/run.ps1', 'scripts/statusline.mjs')
@@ -249,7 +270,7 @@ CRIT_FILES = ('scripts/hooks/lis-guard.py', 'scripts/hooks/loop-guard.py', 'scri
 # round 3). A glob part needs 3 letters besides its .py/.json extension (4 for the
 # directory alone); letters cannot fall in <x>, so they always spell part of the name, and
 # `ls */*.py` or `ls */lis*` stays undecided.
-HOOK_NAMES = ('lis-guard.py', 'loop-guard.py', 'verify-doc.py', 'facts-inject.py')
+HOOK_NAMES = ('lis-guard.py', 'loop-guard.py', 'repeat-guard.py', 'verify-doc.py', 'facts-inject.py')
 STAMP_CHARS = '0123456789-'
 
 
@@ -336,6 +357,13 @@ CRITICAL_VERBS = [(re.compile(p), n) for p, n in CRITICAL_VERBS]
 # A path that must not be written: user .claude/.ssh, Windows, Program Files*,
 # ProgramData, WSL-side /mnt/c mirrors of those, .env*, *.pem, *.key, token, .git, .curlrc/_curlrc.
 _ANCH = r"(?:^|[\s'\"=:])"
+# the three guards' state dirs (lis-guard, repeat-guard, loop-guard): a path segment equal
+# to one is a critical path part, so a delete, move, write or link naming it denies (a
+# planted link turns loop-guard off, a delete resets the counts); reads stay allowed
+STATE_DIR_PART = r'(?<![\w.-])lis-(?:loop-guard|repeat-guard|guard-denies)(?![\w.-])'
+STATE_DIR = re.compile('(?i)' + STATE_DIR_PART)
+STATE_MUTATORS = {'mv', 'move', 'ren', 'rename', 'mklink', 'ln', 'rmdir', 'rd', 'del', 'erase',
+                  'unlink', 'shred', 'chmod', 'chown', 'touch', 'truncate', 'install'}
 CRITICAL_PATH = re.compile(
     r'(?i)(?:\.claude\b|\.ssh\b'
     r'|' + _ANCH + r'(?:[a-z]:[\\/]|/[a-z]/|/mnt/[a-z]/)windows\b'
@@ -352,7 +380,8 @@ CRITICAL_PATH = re.compile(
     r'|tests[\\/]+(?:claude_settings|install_verify|resilience)_test\.py\b)'
     r'|config[\\/]+(?:claude-settings|automode-web)\.json\b|llama-server\.exe\b'
     r'|bench[\\/]+ladder[\\/]+run\.ps1\b'
-    r'|(?<![\w-])lis[-_]hooks[-_](?=[\d*?\[$%{(`"\'\\/]|$))')   # the per-run hook copies (S-B3)
+    r'|(?<![\w-])lis[-_]hooks[-_](?=[\d*?\[$%{(`"\'\\/]|$)'   # the per-run hook copies (S-B3)
+    r'|' + STATE_DIR_PART + ')')   # the guards' state dirs (closer W1)
 
 WRITE_VERBS = {'tee', 'mv', 'cp', 'chmod', 'chown', 'ln', 'install', 'truncate', 'touch'}
 PS_WRITE = re.compile(r'(?i)\b(?:Set-Content|Out-File|Add-Content|New-Item|Copy-Item|Move-Item|Rename-Item|Set-Acl'
@@ -1197,8 +1226,53 @@ RECURSIVE_FLAGGED = {'grep', 'egrep', 'fgrep', 'ls', 'get-childitem', 'gci', 'di
 HOME_ROOT = re.compile(r'(?i)^(?:~|\$HOME|\$env:USERPROFILE|%USERPROFILE%|[a-z]:[\\/]+users(?:[\\/]+[^\\/]+)?'
                        r'|/(?:mnt/)?[a-z]/users(?:/[^/]+)?|/home(?:/[^/]+)?|/root)'
                        r'(?:[\\/]+(?:\.config|\.cache|\.local|appdata(?:[\\/]+roaming)?))?[\\/]*$')
+CONTAINER_HOME = '/home/lis'
+NAME_WALKERS = {'find', 'ls', 'tree', 'du', 'get-childitem', 'gci', 'dir'}
+FIND_ACTIONS = {'-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprint0', '-fprintf', '-fls'}
+
+
+def container_home(x, seg, v, a):
+    """W-24a: in the lis-web container (LIS_CONTAINER=1) the session user's home, fresh per
+    run and with no credential file, is not a home directory for the recursive-read rule
+    of a name-listing walker v (find without an action option, ls, tree, du,
+    Get-ChildItem): /home/lis and its .config/.cache/.local, or ~ and $HOME when HOME is
+    /home/lis. A content reader (grep -r, rg, tar, cp -r ...) keeps the deny, since it
+    reads settings, transcripts and history without naming them (W-24 round 2), and so
+    does a segment that names .claude anywhere."""
+    if os.environ.get(CONTAINER_ENV, '') != '1' or re.search(r'(?i)\.claude(?![\w-])', seg) \
+            or v not in NAME_WALKERS or (v == 'find' and FIND_ACTIONS & set(a)):
+        return False
+    p = x.replace('\\', '/')
+    if os.environ.get('HOME') == CONTAINER_HOME:
+        p = re.sub(r'^(?:~|\$HOME)(?=/|$)', CONTAINER_HOME, p)
+    return p.rstrip('/') == CONTAINER_HOME or p.startswith(CONTAINER_HOME + '/')
+
+
 NET_VERBS = {'curl', 'wget', 'nc', 'ncat', 'socat', 'ftp', 'aria2c', 'http', 'https'}
 GIT_NET = {'fetch', 'pull', 'clone', 'ls-remote', 'remote', 'submodule', 'push'}
+# ps options whose next word is a value (ps -C node), not a BSD option word (ps e, ps eww)
+PS_VALUED = {'-C', '-G', '-g', '-o', '-O', '-p', '-q', '-s', '-t', '-U', '-u', '-k', '--sort',
+             '--format', '--pid', '--ppid', '--user', '--group', '--cols', '--columns', '--width'}
+
+
+PROC_PATH = re.compile(r'(?<![\w.])/proc(?:/[^\s\'"]*)?')
+PROC_WALK_ROOT = re.compile(r'/proc(?:/+(?:\d+|self|thread-self|task))*/*')
+
+
+def proc_env_read(v, a):
+    """True when an argument names a /proc path that reaches a process environment: a ..
+    segment (/proc/self/../self/environ), a last segment environ (/proc/self/task/1/environ),
+    or a recursive read of /proc, a pid, self, thread-self or a task dir with nothing after
+    it (grep -r KEY /proc/1 walks into environ). Globs are left to the glob rules (closer W2)."""
+    walk = (v in RECURSIVE_ALWAYS and v not in NAME_WALKERS - {'find'}) or (
+        v in RECURSIVE_FLAGGED and v not in NAME_WALKERS
+        and any(re.fullmatch(r'-\w*[rR]\w*|--recursive|--dereference-recursive|-Recurse', x) for x in a))
+    for x in a:
+        for m in PROC_PATH.finditer(x.strip('\'"')):
+            segs = m.group(0).rstrip('/').split('/')
+            if '..' in segs or segs[-1] == 'environ' or (walk and PROC_WALK_ROOT.fullmatch(m.group(0))):
+                return True
+    return False
 
 
 def segment_denied(toks, seg, ctx):
@@ -1213,10 +1287,13 @@ def segment_denied(toks, seg, ctx):
     # walks into the credential directories under it (audit A2: rg -uuu token C:/Users/x)
     if (v in RECURSIVE_ALWAYS or (v in RECURSIVE_FLAGGED and any(re.fullmatch(r'-\w*[rR]\w*|--recursive|-Recurse', x)
                                                               for x in a))) \
-            and any(HOME_ROOT.search(x.strip('\'"')) for x in a if not x.startswith('-')):
+            and any(HOME_ROOT.search(x.strip('\'"')) and not container_home(x.strip('\'"'), seg, v, a)
+                    for x in a if not x.startswith('-')):
         return 'recursive read of a home directory'
     if v in NET_DENIED_EXES:
         return f'{v} (remote shell or transfer tool)'
+    if proc_env_read(v, a):
+        return 'process environment read'
     # find that runs a command on files named like keys or tokens (find . -name '*.pem'
     # -exec cat {} +), and a link onto a credential directory (mklink /D s ~\.ssh) (A3 W5)
     if v == 'find' and any(x in ('-exec', '-execdir', '-ok', '-okdir') for x in a) and any(
@@ -1231,8 +1308,12 @@ def segment_denied(toks, seg, ctx):
     elif (v in ('env', 'printenv') and not [x for x in a if not x.startswith('-')]) or (v == 'set' and not a) \
             or (v in ('export', 'declare', 'typeset') and all(x.startswith('-') for x in a)
                 and (not a or any(re.fullmatch(r'-[a-zA-Z]*[px][a-zA-Z]*', x) for x in a))) \
-            or (v == 'compgen' and any(x in ('-v', '-e') or x == 'variable' for x in a)):
-        return 'environment dump'
+            or (v == 'compgen' and any(x in ('-v', '-e') or x == 'variable' for x in a)) \
+            or (v == 'jq' and any(re.search(r'(?<![\w.$])env\b|\$ENV\b', x) for x in a)) \
+            or (v in ('awk', 'gawk', 'mawk', 'nawk') and 'ENVIRON' in seg) \
+            or (v == 'ps' and any(re.fullmatch(r'[a-zA-Z]*e[a-zA-Z]*', x) and not (i and a[i - 1] in PS_VALUED)
+                                  for i, x in enumerate(a))):
+        return 'environment dump'           # jq env / $ENV, awk ENVIRON, ps e (BSD word): W2
     if ctx != 'ps' and re.search(r'\$\(|`', seg) and (
             v in NET_VERBS or (v == 'git' and git_sub(a) in GIT_NET)):
         return 'command substitution in a network command'
@@ -1448,7 +1529,50 @@ def critical_verb(cmd):
     for rx, name in CRITICAL_VERBS:
         if rx.search(cmd):
             return name
+    if os.environ.get(CONTAINER_ENV, '') == '1' and CONTAINER_KEY_RX.search(cmd):
+        return 'credential path'            # W-24a (f): the container's four keys
     return None
+
+
+# W-24a (f), container only: the lis-web env file's four names (server key, three web
+# keys). On the host they live in the hidden .env and are not scanned.
+_CKEY = r'(?:LIS_API_KEY|EXA_API_KEY|JINA_API_KEY|BRAVE_SEARCH_API_KEY)'
+CONTAINER_KEY_RX = re.compile(r'\b' + _CKEY + r'\b')
+# a leading NAME=$KEY, NAME="$KEY", NAME=${KEY} or NAME="${KEY}" before the command word
+KEY_ASSIGN = re.compile(r'([A-Za-z_]\w*)=(?:\$' + _CKEY + r'|\$\{' + _CKEY + r'\}|"\$' + _CKEY
+                        + r'"|"\$\{' + _CKEY + r'\}")(?=\s)')
+PLAIN_ASSIGN = re.compile(r'[A-Za-z_]\w*=[^\s\'"$`\\;|&<>(){}]*\s+')    # NODE_ENV=production
+KEY_NO_TOKEN = {'env', 'printenv', 'export', 'set', 'declare', 'typeset', 'readonly', 'echo',
+                'printf', 'eval', 'sh', 'bash', 'dash', 'zsh', 'ksh', 'ash', 'fish', 'busybox'}
+KEY_NO_WORD = KEY_NO_TOKEN | {'source', '.', 'exec', 'local', 'command', 'builtin'}
+
+
+def container_key_prefix(cmd):
+    """W-24a ruling 2: cmd with the key of each leading NAME=$KEY assignment masked, when the
+    container gate is on, the command has no substitution or inline code, and no segment's
+    command word (after its assignments) nor any of its words is a dumper, echo or shell
+    (KEY_NO_WORD / KEY_NO_TOKEN); else None. The caller scans the masked text again, so a
+    key named anywhere else still denies."""
+    if os.environ.get(CONTAINER_ENV, '') != '1' or re.search(r'`|\$\(|[<>]\(|\n', cmd) \
+            or inline_hit(cmd):
+        return None
+    out, pos = [], 0
+    for seg in split_segments(cmd):
+        i = cmd.find(seg, pos)
+        if i < 0:
+            return None
+        rest, lead, n = seg.lstrip(), seg[:len(seg) - len(seg.lstrip())], 0
+        while m := KEY_ASSIGN.match(rest) or PLAIN_ASSIGN.match(rest):
+            lead += m.group(1) + '=$LIS_KEY_REF ' if m.re is KEY_ASSIGN else m.group(0)
+            rest, n = rest[m.end():].lstrip(), n + (m.re is KEY_ASSIGN)
+        words = [exe(t) for t in strip_env(tokens(rest) or [], False)]
+        if n and (not words or re.match(r'\d*[<>&|]', words[0])):
+            return None                     # no command word: `X=$KEY`, `X=$KEY > f`
+        if words and (words[0] in KEY_NO_WORD or KEY_NO_TOKEN & set(words)):
+            return None                     # every segment: `X=$KEY cmd; echo $X` denies
+        out.append(cmd[pos:i] + lead + rest)
+        pos = i + len(seg)
+    return ''.join(out) + cmd[pos:]
 
 
 _CURL_BOOL = set('0123469#aBfgGIijJklLMnNOpqRsSvVZ')  # curl short options that take no value
@@ -1667,6 +1791,8 @@ def critical(cmd, ctx0='local', _alt=False):
             return why
         if v == 'rm' and any(CRITICAL_PATH.search(t) for t in nonflag):
             return 'rm of a critical path'
+        if STATE_DIR.search(seg) and (v in STATE_MUTATORS or (v == 'find' and FIND_ACTIONS & set(args))):
+            return 'write to a guard state dir'   # mv away, mklink /J, ln: closer W1
         # in-place edits and checkouts that rewrite a guard or other critical file (W2)
         crit_arg = any(CRITICAL_PATH.search(t) for t in nonflag)
         if v == 'sed' and crit_arg and any(t == '--in-place' or t.startswith('--in-place=')
@@ -2829,6 +2955,106 @@ def created_since(path, start):
         max(born if born is not None else st.st_ctime, st.st_mtime) > start
 
 
+CONTAINER_RUN_ROOTS = ('/work', '/tmp')
+PER_RUN_PART = re.compile(r'(?i)/lis[-_](?:hooks|settings|mcp)')
+
+
+def container_runnable(full):
+    """W-24a (operator ruling 2026-11-10: in the container the model installs and runs what
+    its task needs; the keys stay protected): True when LIS_CONTAINER=1 and the real path
+    of full is under /work or /tmp, and is neither a per-run launcher file (lis-hooks-,
+    lis-settings-, lis-mcp-) nor a guard file (a CRIT_FILES path, a HOOK_NAMES name)."""
+    if os.environ.get(CONTAINER_ENV, '') != '1':
+        return False
+    try:
+        rp = os.path.normcase(os.path.realpath(full))
+        roots = [os.path.normcase(os.path.realpath(r)).rstrip(os.sep) + os.sep
+                 for r in CONTAINER_RUN_ROOTS]
+    except (OSError, ValueError):
+        return False
+    pp = rp.replace('\\', '/').lower()
+    return (any(rp.startswith(r) for r in roots) and not PER_RUN_PART.search(pp)
+            and posixpath.basename(pp) not in HOOK_NAMES
+            and not any(pp.endswith('/' + f) for f in CRIT_FILES))
+
+
+UNDO_WALK_MAX, UNDO_WALK_DEPTH = 20000, 10
+
+
+def guard_below(rp):
+    """True when the tree under rp (an undo operand's real path) holds a .git, .claude or
+    .env* entry, a scripts/hooks dir, a hook or guard file (HOOK_NAMES, CRIT_FILES), or a
+    dir it cannot read (W-24a (d), audit W1: rm -rf scripts, pkgs/inner/.git). The walk
+    reads UNDO_WALK_MAX entries down to UNDO_WALK_DEPTH levels; a cap reached without a hit
+    is False, so the undo gets no decision (operator ruling: rm -rf node_modules, then npm
+    ci, is a routine undo) and a guard path deeper or later than the caps is a residual."""
+    errs, seen, base = [], 0, rp.rstrip('\\/').count(os.sep)
+    for dp, dns, fns in os.walk(rp, onerror=errs.append):
+        for name in dns + fns:
+            seen += 1
+            if seen > UNDO_WALK_MAX:
+                return False                # the entry cap: no decision
+            low, pp = name.lower(), (dp + '/' + name).replace('\\', '/').lower()
+            if low in ('.git', '.claude') or low.startswith('.env') \
+                    or pp.endswith('/scripts/hooks') or low in HOOK_NAMES \
+                    or any(pp.endswith('/' + f) for f in CRIT_FILES):
+                return True
+        if dp.count(os.sep) - base >= UNDO_WALK_DEPTH - 1:
+            dns[:] = []                     # the depth cap: no deeper, no decision
+    return bool(errs) and os.path.isdir(rp)
+
+
+UNDO_HITS = ('rm -r/-f', 'git checkout --')
+RM_OPT = re.compile(r'-[rRfv]+|--(?:recursive|force|verbose)')
+
+
+def container_undo(cmd, cwd):
+    """W-24a (d): in the lis-web container, undoing a change under /work or /tmp (rm -r/-f,
+    git checkout -- <paths>) is not a critical delete. Returns cmd with each such segment's
+    verb words replaced by `true`, its operands kept for every other rule to read, or None
+    (the deny stands) unless every segment the rm or checkout rule matches is exactly
+    `rm [-rfRv...] [--] <paths>` or `git checkout -- <paths>`, and each path is a literal
+    (no glob, ~, quote or $), not a CRITICAL_PATH, and resolves strictly under a run root
+    and passes container_runnable, and is not a git work tree's top (it holds .git: the
+    history the undo relies on). A cd in the command or a nested payload: None."""
+    if os.environ.get(CONTAINER_ENV, '') != '1' or re.search(r'[$`<>(){}\\\'"]', cmd) \
+            or cwd_moves(cmd, cwd):
+        return None
+
+    def ok(p):
+        if not p or p.startswith(('-', '~')) or re.search(r'[*?\[\]\x00]', p) or CRITICAL_PATH.search(p):
+            return False
+        full = resolve(p, cwd)
+        try:
+            rp = os.path.realpath(full)
+            top = os.path.lexists(os.path.join(rp, '.git'))
+        except (OSError, ValueError):
+            return False
+        # the resolved path too (scripts/./hooks, hooks under cwd scripts), and the tree under it
+        return not top and not CRITICAL_PATH.search(rp.replace('\\', '/')) \
+            and container_runnable(full) and not guard_below(rp)
+    out = cmd
+    undo_rx = [rx for rx, name in CRITICAL_VERBS if name in UNDO_HITS]
+    for seg in split_segments(cmd):
+        if not any(rx.search(seg) for rx in undo_rx):
+            continue
+        toks = tokens(seg) or []
+        i = 1
+        if toks[:3] == ['git', 'checkout', '--']:
+            i = 3
+        elif toks[:1] == ['rm']:
+            while i < len(toks) and RM_OPT.fullmatch(toks[i]):
+                i += 1
+            i += i < len(toks) and toks[i] == '--'
+        else:
+            return None
+        ops = toks[i:]
+        if not ops or not all(ok(p) for p in ops):
+            return None
+        out = out.replace(seg, 'true ' + ' '.join(ops), 1)
+    return out
+
+
 def present(full):
     """True when a file or directory is at full, or full.exe|.cmd|.bat|.com (bin/tool)."""
     try:
@@ -3027,6 +3253,10 @@ def decide_text(cmd, cwd=None):
     _UNDECIDED[0] = False
     _NOTE[0] = None
     hit = critical(cmd) or patch_hit(cmd, cwd)
+    if hit in UNDO_HITS and (masked := container_undo(cmd, cwd)) is not None:
+        hit = critical(masked) or patch_hit(cmd, cwd)   # W-24a (d): every other rule still reads it
+    if hit == 'credential path' and (masked := container_key_prefix(cmd)) is not None:
+        hit = critical(masked) or patch_hit(cmd, cwd)   # W-24a (f): a key passed to a child
     if hit:
         return 'deny', deny_reason(hit)
     if why := git_opt_hit(cmd):             # ledger S-B8: after the scan, so its reason stays
@@ -3090,6 +3320,8 @@ def decide_text(cmd, cwd=None):
         elif len(targets) > RUN_TARGET_CAP:
             return 'deny', CAP_REASON
         for shown, full, how in targets if start is not None else ():
+            if how != 'missing' and container_runnable(full):
+                continue                    # W-24a: /work or /tmp in the lis-web container
             if how == 'written':
                 return 'deny', WRITTEN_REASON.format(shown)
             if how == 'missing':
@@ -3108,6 +3340,74 @@ def decide_text(cmd, cwd=None):
             and all(seg_readonly(s, 'local', 0, True) for s in others)):
         return 'allow', 'lis-guard: loopback curl'
     return None
+
+
+# W-23: 87 byte-identical retries of one denied command in 10 minutes (2026-11-10). The
+# loop-guard deny that also fired never reached the model, so this hook says it itself.
+SESSION_RE = re.compile(r'^[A-Za-z0-9_-]{1,128}$')     # loop-guard's rule for session_id
+REPEAT_AT = 3
+REPEAT_SUFFIX = (' This exact command was denied {} times in this session. Do not run it again, '
+                 'and do not try a variation of it: report the block to the operator in one '
+                 'paragraph.')
+DENY_MAX_AGE_S = 24 * 3600
+
+
+DENY_STATE_NAME = re.compile(r'[a-z0-9_-]{1,128}\.json(?:\.\d+\.tmp)?')   # <sid>.json, its temp
+
+
+def deny_state_dir():
+    return os.path.join(tempfile.gettempdir(), 'lis-guard-denies')
+
+
+def real_dir(d):
+    """True when d is a directory itself: not a symlink or junction (a reparse point), and
+    no link in a parent (audit C1: a planted link aims the prune and the write elsewhere)."""
+    st = os.lstat(d)
+    return (stat.S_ISDIR(st.st_mode) and not os.path.islink(d)
+            and not getattr(st, 'st_file_attributes', 0) & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400)
+            and os.path.normcase(os.path.realpath(d)) == os.path.normcase(os.path.abspath(d)))
+
+
+def count_deny(sid, cmd, cwd):
+    """Record one deny of (cmd, cwd) for session sid and return its new count, or None
+    when sid is not a safe session id or the state cannot be read or written (fail open:
+    the deny stands, without the suffix). Corrupt state starts fresh; files older than
+    DENY_MAX_AGE_S are pruned. No lock: a lost update under a race only undercounts."""
+    if not (isinstance(sid, str) and SESSION_RE.fullmatch(sid)):
+        return None
+    try:
+        d = deny_state_dir()
+        os.makedirs(d, exist_ok=True)
+        if not real_dir(d):
+            sys.stderr.write('lis-guard: state dir is a link or not real; no state\n')
+            return None                     # a link at the state path: no prune, no write
+        now = time.time()
+        for name in os.listdir(d):
+            p = os.path.join(d, name)
+            try:
+                if DENY_STATE_NAME.fullmatch(name) and now - os.path.getmtime(p) > DENY_MAX_AGE_S:
+                    os.remove(p)
+            except OSError:
+                pass
+        path = os.path.join(d, sid.lower() + '.json')
+        try:
+            with open(path, 'r', encoding='ascii') as f:
+                s = json.load(f)
+            denied = s['denied']
+            if not (isinstance(denied, dict) and all(
+                    isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in denied.values())):
+                raise ValueError
+        except (OSError, ValueError, UnicodeDecodeError, KeyError, TypeError):
+            denied = {}
+        h = hashlib.sha1((cmd + '\0' + (cwd or '')).encode('utf-8', 'surrogatepass')).hexdigest()
+        denied[h] = denied.get(h, 0) + 1
+        tmp = f'{path}.{os.getpid()}.tmp'
+        with open(tmp, 'w', encoding='ascii') as f:
+            json.dump({'denied': denied}, f, separators=(',', ':'))
+        os.replace(tmp, path)
+        return denied[h]
+    except Exception:
+        return None
 
 
 def main():
@@ -3136,6 +3436,10 @@ def main():
     except Exception:  # an analysis bug must not block the session; the rules still judge
         hit = critical_verb(cmd)
         d = ('deny', deny_reason(hit)) if hit else None
+    if d and d[0] == 'deny':
+        n = count_deny(data.get('session_id'), cmd, cwd)
+        if n is not None and n >= REPEAT_AT:
+            d = (d[0], d[1] + REPEAT_SUFFIX.format(n))
     if d:
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
                                                  'permissionDecision': d[0],

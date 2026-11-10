@@ -600,7 +600,8 @@ WebSearch stay denied. Refused with `-LisWeb`: `-LisFull`, `-LisNoGuard`,
 `-LisUserScope`, `--permission-mode auto` (any spelling or case), any caller
 `--mcp-config` and an `--allowedTools` value naming WebFetch, WebSearch or `mcp__`.
 Banner on the host: `container: lis-web:2.1.318 (home not mounted; work=<cwd>;
-logs=<per-run dir>)`, with `(terminal)` after the tag under `-LisTerminal`; inside:
+logs=<per-run dir>)`, with `(terminal)` after the tag under `-LisTerminal` and
+`state=<state dir>; ` before `work=` under `-LisKeepState`; inside:
 `server: http://host.docker.internal:8080 (lis-web container)`, `web: lis-web (5
 tools) via /opt/lis-web/server.mjs` and `lis-web log: <path>`. Keys: the operator
 copies the three `KEY=VALUE` lines into `<repo>\.env` (gitignored; the names are
@@ -1459,13 +1460,20 @@ All other arguments go straight to `claude` (`-p`, `--max-turns` and so on). The
 wrapper options are `-LisContextTokens N` (default 114688, minimum 1024; set it to the
 server's `-Ctx` when that is smaller), `-LisFull` (refused with web access, above),
 `-LisNoGuard`, `-LisNoLoopGuard`, `-LisUserScope` (user scope on, below),
-`-LisTask NAME`, `-LisRelaunchMax N` (longrun, below), `-LisStartServer` and
-`-LisPrintArgs`. `-LisStartServer` (host only, skipped by `-LisPrintArgs`): when
+`-LisTask NAME`, `-LisRelaunchMax N` (longrun, below), `-LisStartServer`,
+`-LisKeepState` and `-LisPrintArgs`. `-LisStartServer` (host only, skipped by
+`-LisPrintArgs`): when
 `/health` is not ok, it starts the `LocalInferenceStudio-llama-server` task (unless it
 is already running) and waits up to 180 s for `/health`, before the key is read
 (proven 2026-11-09 01:10 against a stopped server: task started, `/health` ok in
 about 10 s, the session answered in 21 s wall; run folder
-`logs\web-20261109-011012-49848`). Success:
+`logs\web-20261109-011012-49848`). `-LisKeepState` (host only, with `-LisWeb`, built
+2026-11-09, ledger W-18): web sessions keep their transcripts and prompt history
+across runs in `<repo>\logs\web-state\<key>\` (one per work directory: the leaf name
+plus 8 hex digits of the path's SHA-1), mounted at `/home/lis/.claude/projects` and
+`/home/lis/.claude/history.jsonl`, so `--continue`, `--resume` and `/resume` should
+find the earlier runs (UNVERIFIED until the live proof); the policy files stay fresh
+per run (docs/web-access.md). Success:
 Claude Code answers and the server log shows the requests. A
 `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.
 

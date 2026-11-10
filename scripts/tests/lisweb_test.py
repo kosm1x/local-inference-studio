@@ -1,8 +1,8 @@
-"""Tests for -LisWeb, -LisTerminal and -LisStartServer of scripts/claude-local.ps1 (operator rulings
-2026-11-05: web access goes through web tools over MCP, and a web-enabled session runs in the
-lis-web container with no access to the operator's home folder; 2026-11-06: the tools are
-this repo's own lis-web server, web/, with the keys in a local <repo>\\.env, independent of
-any other checkout).
+"""Tests for -LisWeb, -LisTerminal, -LisStartServer and -LisKeepState of
+scripts/claude-local.ps1 (operator rulings 2026-11-05: web access goes through web tools
+over MCP, and a web-enabled session runs in the lis-web container with no access to the
+operator's home folder; 2026-11-06: the tools are this repo's own lis-web server, web/,
+with the keys in a local <repo>\\.env, independent of any other checkout).
 Run: python -I scripts/tests/lisweb_test.py
 
 Two halves. On the host, -LisWeb starts the container and never claude: the host cases run a
@@ -24,6 +24,7 @@ Optional argument: a wrapper file to test instead of scripts/claude-local.ps1 (m
 in-container half mounts it over /lis/scripts/claude-local.ps1).
 Exit 0 = all pass.
 """
+import hashlib
 import json
 import os
 import re
@@ -463,12 +464,17 @@ def env_file_path(name):
     return os.path.join(os.environ['TEMP'], name + '.env')
 
 
-def want_docker(lis, work, name, run_dir, inner, tty='-i', overlay=False):
+def want_docker(lis, work, name, run_dir, inner, tty='-i', overlay=False, state=None):
     mounts = [(lis, '/lis', True)]
     if overlay:
         mounts += [(os.path.join(run_dir, 'empty'), '/lis/.env', True)]
     mounts += [(os.path.join(run_dir, 'logs'), '/lis/logs', False),
-               (os.path.join(run_dir, 'home'), '/home/lis', False), (work, '/work', False)]
+               (os.path.join(run_dir, 'home'), '/home/lis', False)]
+    if state:
+        mounts += [(os.path.join(state, 'projects'), '/home/lis/.claude/projects', False),
+                   (os.path.join(state, 'history.jsonl'), '/home/lis/.claude/history.jsonl',
+                    False)]
+    mounts += [(work, '/work', False)]
     flat = []
     for src, dst, ro in mounts:
         flat += ['--mount', f'type=bind,source={src},target={dst}' + (',readonly' if ro else '')]
@@ -903,8 +909,10 @@ def test_start_server(root):
     doc = ' '.join(text.split('#>', 1)[0].split())
     check('start-server: the docstring lists the switch, says host only, the key-read order, '
           '-LisPrintArgs skips it and the plain preflight still runs',
-          '-LisRelaunchMax N, -LisStartServer and -LisPrintArgs, are taken out of $args here.'
-          in doc and 'minus -LisWeb, -LisTerminal, -LisStartServer and -LisPrintArgs' in doc
+          '-LisRelaunchMax N, -LisStartServer, -LisKeepState and -LisPrintArgs, are taken out '
+          'of $args here.' in doc
+          and 'minus -LisWeb, -LisTerminal, -LisStartServer, -LisKeepState and -LisPrintArgs'
+          in doc
           and '-LisStartServer (host only; refused in the lis-web container' in doc
           and 'after every launcher check and before the key below is read' in doc
           and 'so the key is read only after this.' in doc
@@ -925,6 +933,169 @@ def start_order_ok(text):
     ok = (len(calls) == 2 and len(keys) == 2 and image >= 0
           and image < calls[0] < keys[0] < calls[1] < keys[1])
     return ok, f'calls={calls} keys={keys} image={image}'
+
+
+def state_key(work):
+    """-LisKeepState's state directory name (docstring): the work leaf, lower-cased, each
+    character outside [a-z0-9] as '-', then '-' and the first 8 hex digits of the SHA-1 of
+    the full work path (lower-cased, UTF-8, no trailing separator)."""
+    full = os.path.abspath(work).rstrip('\\/').lower()
+    leaf = re.sub(r'[^a-z0-9]', '-', os.path.basename(full))
+    return leaf + '-' + hashlib.sha1(full.encode('utf-8')).hexdigest()[:8]
+
+
+STATE_RE = r'claude-local: container: \S+ \(home not mounted; state=(.*?); work='
+KEEP_TARGETS = ['/lis', '/lis/logs', '/home/lis', '/home/lis/.claude/projects',
+                '/home/lis/.claude/history.jsonl', '/work']
+KEEP_REFUSED = [['-LisKeepState'], ['-LisKeepState', '-LisTask', 'review', '-p', 'x'],
+                ['-LisKeepState:true', '-LisStartServer']]
+
+
+def test_keep_state(root, stub_dir):
+    """-LisKeepState (W-18): launcher-only; <repo>\\logs\\web-state\\<key>\\projects and
+    \\history.jsonl mounted read-write inside the fresh home; a launch creates them, never
+    truncates the history, and -LisPrintArgs writes nothing."""
+    lis, wrapper, work = make_tree(root)
+    states = os.path.join(lis, 'logs', 'web-state')
+    inner = ['-LisTask', 'review', '-p', 'hi', '--max-turns', '6']
+    state = os.path.join(states, state_key(work))
+    seen = []
+    for flag in ('-LisKeepState', '-LisKeepState:true'):
+        rc, out, err = run_wrapper(['-LisPrintArgs', '-LisWeb', flag] + inner, wrapper, work)
+        got = docker_args(out) or []
+        name = value_after(got, '--name') or ''
+        m = re.match(r'lis-web-(\d{8}-\d{6}-\d+)\Z', name)
+        run_dir = os.path.join(lis, 'logs', f'web-{m.group(1)}' if m else '?')
+        check(f'keep-state: -LisWeb {flag} -LisPrintArgs prints the docker run line with the '
+              'two state mounts and no -LisKeepState inside',
+              rc == 0 and bool(m)
+              and got == want_docker(lis, work, name, run_dir, inner, state=state)
+              and not [x for x in got if 'LisKeepState' in x],
+              f'{rc} {err}\n{json.dumps(got)}')
+        binds = [x for x in got if x.startswith('type=bind,')]
+        targets = [re.search(r',target=([^,]*)', x).group(1) for x in binds]
+        nested = [x for x in binds if '/home/lis/.claude/' in x]
+        check(f'keep-state: {flag}: projects then history.jsonl after the home mount and before '
+              'the work mount, read-write (no ,readonly)',
+              targets == KEEP_TARGETS and nested == [
+                  f'type=bind,source={state}\\projects,target=/home/lis/.claude/projects',
+                  f'type=bind,source={state}\\history.jsonl,'
+                  'target=/home/lis/.claude/history.jsonl'], json.dumps(binds))
+        s = re.search(STATE_RE, err)
+        seen.append(s.group(1) if s else None)
+        check(f'keep-state: {flag}: the banner gains state=<state dir>; before work=',
+              f'claude-local: container: {image_tag()} (home not mounted; state={state}; '
+              f'work={work}; logs={run_dir})' in err.splitlines(), err)
+        check(f'keep-state: {flag}: -LisPrintArgs writes nothing (no logs\\web-state, no run dir)',
+              not os.path.exists(states) and not os.path.exists(run_dir), err[-200:])
+    check('keep-state: the key is the same across two runs and the state dir sits under '
+          '<repo>\\logs\\web-state\\',
+          seen[0] is not None and seen[0] == seen[1] == state
+          and os.path.dirname(seen[0]) == states, seen)
+    odd = os.path.join(root, 'Odd Work.v2')
+    os.makedirs(odd)
+    rc, out, err = run_wrapper(['-LisPrintArgs', '-LisWeb', '-LisKeepState'] + inner,
+                               wrapper, odd)
+    s = re.search(STATE_RE, err)
+    key = os.path.basename(s.group(1)) if s else ''
+    check('keep-state: a work leaf with a space, a dot and capitals is sanitised (odd-work-v2), '
+          'the hash part is 8 lower hex digits of the full path\'s SHA-1',
+          rc == 0 and re.fullmatch(r'odd-work-v2-[0-9a-f]{8}', key) is not None
+          and key == state_key(odd) and key != state_key(work)
+          and os.path.dirname(s.group(1)) == states, f'{rc} {key} {err[-300:]}')
+    rc, out, err = run_wrapper(['-LisPrintArgs', '-LisWeb', '-LisKeepState:false'] + inner,
+                               wrapper, work)
+    got = docker_args(out) or []
+    name = value_after(got, '--name') or ''
+    m = re.match(r'lis-web-(\d{8}-\d{6}-\d+)\Z', name)
+    run_dir = os.path.join(lis, 'logs', f'web-{m.group(1)}' if m else '?')
+    check('keep-state: -LisKeepState:false equals absent (no state mount, no state= in the '
+          'banner, not passed inside)',
+          rc == 0 and got == want_docker(lis, work, name, run_dir, inner)
+          and 'web-state' not in json.dumps(got) + err and 'state=' not in err,
+          f'{rc} {err}\n{json.dumps(got)}')
+    # In-process (pwsh -Command): -LisKeepState:$true arrives as '-LisKeepState:' and a
+    # [bool], the parser's second branch, which pwsh -File never reaches.
+    cmd = (f"& '{wrapper}' -LisPrintArgs -LisWeb -LisKeepState:$true -LisTask review "
+           '--max-turns 6')
+    r = subprocess.run([PWSH, '-NoProfile', '-Command', cmd], capture_output=True, text=True,
+                       timeout=120, cwd=work, stdin=subprocess.DEVNULL)
+    got = docker_args(r.stdout) or []
+    name = value_after(got, '--name') or ''
+    m = re.match(r'lis-web-(\d{8}-\d{6}-\d+)\Z', name)
+    run_dir = os.path.join(lis, 'logs', f'web-{m.group(1)}' if m else '?')
+    short = ['-LisTask', 'review', '--max-turns', '6']
+    check('keep-state: in-process -LisKeepState:$true (pwsh -Command) prints the two state '
+          'mounts and keeps -LisKeepState out of the inner arguments',
+          r.returncode == 0 and bool(m)
+          and got == want_docker(lis, work, name, run_dir, short, state=state)
+          and not [x for x in got if 'LisKeepState' in x] and not os.path.exists(states),
+          f'{r.returncode} {r.stderr[-300:]}\n{json.dumps(got)}')
+    sub = os.path.join(stub_dir, 'keep')
+    os.makedirs(sub)
+    shutil.copy(os.path.join(stub_dir, 'docker-stub.ps1'), sub)
+    with open(os.path.join(sub, 'mode.txt'), 'w') as f:
+        f.write('ok\n')
+    env = dict(os.environ, LIS_DOCKER_EXE=os.path.join(sub, 'docker-stub.ps1'))
+    for extra in KEEP_REFUSED:
+        rc, out, err = run_wrapper(['-LisPrintArgs'] + extra, wrapper, work)
+        rc2, out2, err2 = run_wrapper(extra, wrapper, work, env)
+        check(f'keep-state: refused: {" ".join(extra)} (no -LisWeb), before any output or '
+              'docker call',
+              rc != 0 and not out.strip() and rc2 != 0 and not stub_calls(sub)
+              and "-LisKeepState needs -LisWeb, on the host: it mounts the persistent state "
+                  "into the lis-web container's home." in err
+              and 'claude-local:' not in err + err2 and not os.path.exists(states),
+              f'{rc} {rc2} {out}{err}{err2}')
+    calls_file = os.path.join(sub, 'calls.jsonl')
+    histories = []
+    for n in (1, 2):
+        if os.path.exists(calls_file):
+            os.remove(calls_file)
+        rc, out, err = run_wrapper(['-LisWeb', '-LisKeepState'] + inner, wrapper, work, env)
+        calls = stub_calls(sub)
+        run = calls[1] if len(calls) == 3 else []
+        name = value_after(run, '--name') or ''
+        m = re.match(r'lis-web-(\d{8}-\d{6}-\d+)\Z', name)
+        run_dir = os.path.join(lis, 'logs', f'web-{m.group(1)}' if m else '?')
+        hist = os.path.join(state, 'history.jsonl')
+        raw = open(hist, 'rb').read() if os.path.isfile(hist) else None
+        histories.append(raw)
+        check(f'keep-state: stub launch {n}: docker run with the printed line (the two state '
+              'mounts), then docker rm -f <name>; rc = the container\'s (7)',
+              rc == 7 and calls[0][:2] == ['image', 'inspect']
+              and run == want_docker(lis, work, name, run_dir, inner, state=state)
+              and calls[2] == ['rm', '-f', name], f'{rc} {err} {json.dumps(calls)}')
+        home = os.path.join(run_dir, 'home')
+        dot = os.path.join(home, '.claude')
+        check(f'keep-state: stub launch {n}: the per-run home stays fresh: exactly one entry, '
+              'the nested mounts\' parent .claude, itself empty on the host side',
+              os.path.isdir(home) and os.listdir(home) == ['.claude'] and os.path.isdir(dot)
+              and not os.listdir(dot), os.listdir(home) if os.path.isdir(home) else run_dir)
+        if n == 1:
+            check('keep-state: the first launch creates projects\\ and a zero-byte history.jsonl, '
+                  'nothing else',
+                  os.path.isdir(os.path.join(state, 'projects')) and raw == b''
+                  and sorted(os.listdir(state)) == ['history.jsonl', 'projects']
+                  and sorted(os.listdir(states)) == [state_key(work)], f'{raw!r} {err[-300:]}')
+            with open(hist, 'wb') as f:
+                f.write(b'{"a"}')
+            with open(os.path.join(state, 'projects', 'kept.jsonl'), 'wb') as f:
+                f.write(b'x\n')
+    check('keep-state: a second launch leaves a pre-written 5-byte history.jsonl and the '
+          'projects\\ contents untouched',
+          histories[1] == b'{"a"}'
+          and os.listdir(os.path.join(state, 'projects')) == ['kept.jsonl'], histories)
+    with open(WRAPPER, encoding='utf-8') as f:
+        doc = ' '.join(f.read().split('#>', 1)[0].split())
+    check('keep-state: the docstring documents the switch, the key rule, the fresh policy, '
+          'the residual and the UNVERIFIED nested-mount order',
+          '-LisKeepState (host only, with -LisWeb; ledger W-18)' in doc
+          and 'first 8 hex digits of the SHA-1 of the full work path' in doc
+          and 'so no policy file carries over' in doc
+          and 'content a web page injected into one session can reach the next one' in doc
+          and 'UNVERIFIED until the live proof: that docker orders the bind mounts by target '
+              'depth' in doc, '')
 
 
 def test_host_auto(root, stub_dir):
@@ -1192,6 +1363,13 @@ def main():
                       rc != 0 and not out.strip()
                       and '-LisStartServer works on the host only' in err
                       and 'claude-local:' not in err, f'{rc} {err}')
+            for extra in (['-LisKeepState'], ['-LisWeb', '-LisKeepState']):
+                rc, _, _, _, out, err = print_args(extra)
+                check(f'container: {" ".join(extra)} (a host switch) is refused inside, '
+                      'naming the host',
+                      rc != 0 and not out.strip()
+                      and '-LisKeepState works on the host only' in err
+                      and 'claude-local:' not in err, f'{rc} {err}')
     else:
         test_image_pin()
         test_automode_file()
@@ -1220,6 +1398,7 @@ def main():
                     test_host_launcher(os.path.join(tmp, 'launcher'), stub_dir)
                     test_terminal(os.path.join(tmp, 'terminal'), stub_dir)
                     test_start_server(os.path.join(tmp, 'start-server'))
+                    test_keep_state(os.path.join(tmp, 'keep-state'), stub_dir)
                     test_host_auto(os.path.join(tmp, 'auto'), stub_dir)
                     test_sweep(os.path.join(tmp, 'sweep'), stub_dir)
                 finally:

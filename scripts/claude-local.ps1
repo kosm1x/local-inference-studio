@@ -61,7 +61,8 @@
   time and pid; logs\ is gitignored), of which only the logs\ subfolder shows, read-write
   at /lis/logs (over the repo's own logs\, so neither logs\api-key nor older runs show),
   and the home\ subfolder read-write at /home/lis (claude's own state and transcripts;
-  fresh per run, never the operator's home); and the current directory read-write at
+  fresh per run except the -LisKeepState mounts below, never the operator's home); and
+  the current directory read-write at
   /work. No credential file is mounted: the env file, written just before docker runs and
   outside every mount, holds LIS_API_KEY (the first line of logs\api-key, else `local`,
   as for a host session) and, when <repo>\.env exists, its BRAVE_SEARCH_API_KEY,
@@ -79,11 +80,12 @@
   container paths), or when a path holds a comma or a double quote (docker's --mount
   syntax). The command inside is `pwsh -NoProfile -File /lis/scripts/claude-local.ps1
   -LisWeb` followed by the caller's arguments in order, minus -LisWeb, -LisTerminal,
-  -LisStartServer and -LisPrintArgs (a [bool] that pwsh -File split off a switch is
+  -LisStartServer, -LisKeepState and -LisPrintArgs (a [bool] that pwsh -File split off a switch is
   joined back: -LisNoLoopGuard:false). The
   wrapper exits with the container's exit code, prints "claude-local: container:
   lis-web:2.1.318 (home not mounted; work=<cwd>; logs=<per-run dir>)" (with -LisTerminal
-  "lis-web:2.1.318 (terminal) (home not mounted; ...)") to stderr, and
+  "lis-web:2.1.318 (terminal) (home not mounted; ...)"; with -LisKeepState "state=<state
+  dir>; " before "work=") to stderr, and
   sets no env var on the host; the server preflight runs inside. With -LisPrintArgs it
   prints that banner and the docker argument list ("docker arguments (JSON array, in
   order):", which names the env file but never its contents) and exits 0 without running
@@ -122,6 +124,35 @@
   when stdin or stdout is redirected (it needs a console), which -LisPrintArgs skips
   (it starts nothing). LIS_TEST_CONSOLE=1 (tests only) skips the console check, and only
   while LIS_DOCKER_EXE names a stub. An interactive run is UNVERIFIED live.
+  -LisKeepState (host only, with -LisWeb; ledger W-18): persistent session state across
+  web runs. The state directory is <repo>\logs\web-state\<key>\, one per work directory:
+  <key> is the work directory's leaf name lower-cased with every character outside
+  [a-z0-9] replaced by '-', then '-' and the first 8 hex digits of the SHA-1 of the full
+  work path ([IO.Path]::GetFullPath, lower-cased, trailing separator trimmed, UTF-8), so
+  a work directory Z:\tmp\lisweb-work gets lisweb-work-<8 hex>. Two more mounts, both
+  read-write, after the home entry and before the work entry: <state>\projects at
+  /home/lis/.claude/projects (the transcripts) and <state>\history.jsonl at
+  /home/lis/.claude/history.jsonl (the prompt history). Before docker runs the launcher
+  creates projects\ when missing and a zero-byte history.jsonl when missing, and never
+  truncates an existing one, and it creates <per-run dir>\home\.claude, the nested
+  mounts' parent, so docker does not create it (a directory docker makes could come out
+  root-owned for --user lis); -LisPrintArgs writes none of them. The overlap, junction and
+  comma checks above cover both sources. Everything else in the home stays fresh per
+  run: the .claude.json seed, the settings and the hook copies, so no policy file
+  carries over. The project key inside the container is always /work, so --continue,
+  --resume <id> and /resume then find the earlier runs of the same work directory.
+  UNVERIFIED until the live proof: that docker orders the bind mounts by target depth,
+  so the two nested mounts land inside the fresh home; that the resume flags find the
+  mounted transcripts; and that claude writes history.jsonl in place (a file bind mount
+  cannot be replaced by a rename). Auto-memory persistence is UNVERIFIED as well:
+  config/claude-settings.json puts Edit(~/.claude/**) under ask, which maps to
+  //home/lis/.claude/** in the container, so model-tool writes under
+  projects/-work/memory/ are refused in -p runs and prompt in terminal runs; the
+  transcripts and the history do not go through that rule (claude writes them itself).
+  Residual: the state carries the session's auto-memory and transcripts across runs,
+  so content a web page injected into one session can reach the next one through them;
+  the per-run policy files cannot be reached that way. It combines with -LisTerminal, -LisStartServer, -LisTask and -p
+  runs. Refused before any output without -LisWeb and inside the container.
   Inside the container (LIS_CONTAINER=1, the image's marker), -LisWeb builds the
   session: the per-run MCP file holds one stdio server, lis-web, instead of none:
   command node by absolute path (Get-Command; Windows would resolve a bare name through
@@ -338,7 +369,7 @@
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The script options, -LisContextTokens N, -LisFull, -LisNoGuard,
   -LisNoLoopGuard, -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisTask NAME,
-  -LisRelaunchMax N, -LisStartServer and -LisPrintArgs, are taken out of $args here.
+  -LisRelaunchMax N, -LisStartServer, -LisKeepState and -LisPrintArgs, are taken out of $args here.
   -LisContextTokens defaults to 114688: the default server ctx of 131072 (ruling 14)
   minus CLAUDE_CODE_MAX_OUTPUT_TOKENS 16384, so a prompt at Claude Code's limit plus a
   full-length reply still fits the server's window (the server runs without context
@@ -379,7 +410,7 @@ $tempRoot = if ($env:TEMP) { $env:TEMP } else { [IO.Path]::GetTempPath() }
 # -LisContextTokens N, -LisContextTokens:N (any case). In-process, PowerShell hands
 # -LisContextTokens:N over as '-LisContextTokens:' followed by N, so an empty inline
 # value takes the next token. The switches -LisFull, -LisNoGuard, -LisNoLoopGuard,
-# -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisStartServer and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
+# -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisStartServer, -LisKeepState and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
 # '-LisFull:' followed by a [bool]). All checks run before any env change.
 $LisContextTokens = 114688
 $LisFull = $false
@@ -394,13 +425,14 @@ $LisTask = $null
 $LisRelaunchMax = $null
 $LisPrintArgs = $false
 $LisStartServer = $false
+$LisKeepState = $false
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
 $seenSwitch = @{}
-# The $args positions of -LisWeb, -LisTerminal, -LisStartServer and -LisPrintArgs (values
+# The $args positions of -LisWeb, -LisTerminal, -LisStartServer, -LisKeepState and -LisPrintArgs (values
 # included): the host launcher passes every other token to the container's wrapper (docstring).
 $launcherOnly = [Collections.Generic.HashSet[int]]::new()
-$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisWebAuto|LisTerminal|LisStartServer|LisPrintArgs)(:(.*))?\z'
+$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisWebAuto|LisTerminal|LisStartServer|LisKeepState|LisPrintArgs)(:(.*))?\z'
 # pwsh -File passes -X:true|false as '-X' followed by a [bool] but -X:0 as '-X' followed
 # by the string '0', the same as '-X 0'. Only the process command line keeps the colon,
 # so when this script is the -File target ($MyInvocation.Line is empty) check it there.
@@ -424,7 +456,7 @@ for ($j = 0; $j -lt $args.Count; $j++) {
             # following [bool] is the value; a string after a bare switch is a prompt.
             $on = if ($args[$j + 1] -is [bool]) { $args[++$j] } else { $true }
             Set-Variable -Name $name -Value $on
-            if ($name -in 'LisWeb', 'LisTerminal', 'LisStartServer', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
+            if ($name -in 'LisWeb', 'LisTerminal', 'LisStartServer', 'LisKeepState', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
             continue
         }
         # -X:V, or in-process '-X:' followed by V (a [bool], a string or a number).
@@ -437,7 +469,7 @@ for ($j = 0; $j -lt $args.Count; $j++) {
         if ($v -is [bool]) { $on = $v }
         elseif (-not [bool]::TryParse("$v".TrimStart('$'), [ref]$on)) { throw "-$name value '$v' is not true or false." }
         Set-Variable -Name $name -Value $on
-        if ($name -in 'LisWeb', 'LisTerminal', 'LisStartServer', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
+        if ($name -in 'LisWeb', 'LisTerminal', 'LisStartServer', 'LisKeepState', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
         continue
     }
     # -LisRelaunchMax N, -LisRelaunchMax:N: the session supervisor's bound (0 to 3).
@@ -574,6 +606,17 @@ if ($LisStartServer -and $inContainer) {
     throw ('-LisStartServer works on the host only: the scheduled task ' +
         'LocalInferenceStudio-llama-server does not exist in the lis-web container.')
 }
+# -LisKeepState (docstring): the host launcher mounts the persistent state into the
+# container's home. Checked before any output.
+if ($LisKeepState) {
+    if ($inContainer) {
+        throw ('-LisKeepState works on the host only: the host launcher mounts the persistent ' +
+            "state into the lis-web container's home.")
+    }
+    if (-not $LisWeb) {
+        throw "-LisKeepState needs -LisWeb, on the host: it mounts the persistent state into the lis-web container's home."
+    }
+}
 if ($LisTask) {
     if ($LisFull) { throw "-LisTask cannot be combined with -LisFull: the profile sets --tools and the policy." }
     if ($LisNoGuard) {
@@ -702,6 +745,18 @@ if ($LisWeb -and -not $inContainer) {
     $stamp = '{0:yyyyMMdd-HHmmss}-{1}' -f (Get-Date), $PID
     $container = "lis-web-$stamp"
     $runDir = Join-Path $repo 'logs' "web-$stamp"
+    # -LisKeepState (docstring): <repo>\logs\web-state\<key>, one per work directory. Key =
+    # the work leaf lower-cased, each character outside [a-z0-9] as '-', then '-' and the
+    # first 8 hex digits of the SHA-1 of the full work path (lower-cased, UTF-8, no
+    # trailing separator).
+    $stateDir = $null
+    if ($LisKeepState) {
+        $workKey = [IO.Path]::GetFullPath($work).TrimEnd('\', '/').ToLowerInvariant()
+        $sha = [Security.Cryptography.SHA1]::HashData([Text.Encoding]::UTF8.GetBytes($workKey))
+        $leaf = [IO.Path]::GetFileName($workKey) -creplace '[^a-z0-9]', '-'
+        $stateDir = Join-Path $repo 'logs' 'web-state' (
+            "$leaf-" + [Convert]::ToHexString($sha).Substring(0, 8).ToLowerInvariant())
+    }
     # The env file (server key and web keys) lies outside every mount; deleted after the run.
     $envFile = Join-Path $tempRoot "$container.env"
     # Source, target, read-only. Only logs\ of the per-run directory shows at /lis/logs.
@@ -721,6 +776,13 @@ if ($LisWeb -and -not $inContainer) {
     if ($hasEnv) { $mounts += , @($emptyFile, '/lis/.env', $true) }
     $mounts += , @((Join-Path $runDir 'logs'), '/lis/logs', $false)
     $mounts += , @((Join-Path $runDir 'home'), '/home/lis', $false)
+    # -LisKeepState: transcripts and the prompt history, read-write, nested in the fresh home.
+    # Docker orders bind mounts by target depth, so these land inside /home/lis (UNVERIFIED
+    # until the live proof). Every other home file stays fresh per run.
+    if ($stateDir) {
+        $mounts += , @((Join-Path $stateDir 'projects'), '/home/lis/.claude/projects', $false)
+        $mounts += , @((Join-Path $stateDir 'history.jsonl'), '/home/lis/.claude/history.jsonl', $false)
+    }
     $mounts += , @($work, '/work', $false)
     # Paths compared case-insensitively with one trailing separator: equal, or one inside the other.
     function Test-LisOverlap([string]$A, [string]$B) {
@@ -773,7 +835,7 @@ if ($LisWeb -and -not $inContainer) {
         '--mount'
         "type=bind,source=$($m[0]),target=$($m[1])" + $(if ($m[2]) { ',readonly' })
     }
-    # The caller's arguments minus -LisWeb, -LisTerminal, -LisStartServer and -LisPrintArgs,
+    # The caller's arguments minus -LisWeb, -LisTerminal, -LisStartServer, -LisKeepState and -LisPrintArgs,
     # in order. A [bool] value (pwsh -File hands -X:false over as '-X' and $false) rejoins
     # its switch.
     $innerArgs = [Collections.Generic.List[string]]::new()
@@ -795,7 +857,7 @@ if ($LisWeb -and -not $inContainer) {
         @($mountArgs) + @($lisWebImage, 'pwsh', '-NoProfile', '-File', '/lis/scripts/claude-local.ps1',
         '-LisWeb') + @($innerArgs)
     $banner = "claude-local: container: $lisWebImage$(if ($LisTerminal) { ' (terminal)' }) " +
-        "(home not mounted; work=$work; logs=$runDir)"
+        "(home not mounted; $(if ($stateDir) { "state=$stateDir; " })work=$work; logs=$runDir)"
     if ($LisPrintArgs) {
         # Nothing is written or read and docker is not run; the env file is named, never shown.
         [Console]::Error.WriteLine($banner)
@@ -847,6 +909,16 @@ if ($LisWeb -and -not $inContainer) {
     }
     $null = New-Item -ItemType Directory -Path (Join-Path $runDir 'logs'), (Join-Path $runDir 'home')
     if ($hasEnv) { [IO.File]::WriteAllBytes($emptyFile, [byte[]]@()) }
+    # -LisKeepState (docstring): created when missing; an existing history is never truncated.
+    if ($stateDir) {
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $stateDir 'projects')
+        $history = Join-Path $stateDir 'history.jsonl'
+        if (-not (Test-Path -LiteralPath $history)) { [IO.File]::WriteAllBytes($history, [byte[]]@()) }
+        # The nested mounts' parent, made here so docker need not create /home/lis/.claude
+        # itself for them (a directory docker makes could come out root-owned, and the
+        # session runs as --user lis).
+        $null = New-Item -ItemType Directory -Path (Join-Path $runDir 'home' '.claude')
+    }
     # -LisTerminal (docstring): the fresh home skips claude's whole first-run onboarding:
     # the theme picker, the "Security notes" prompt-injection notice and the terminal-setup
     # question. The trust dialog is not seeded; the work directory's prompt may still show.

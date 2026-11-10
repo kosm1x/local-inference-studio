@@ -77,25 +77,30 @@ docker run --rm --init --name lis-web-<stamp> --cap-drop ALL
   pwsh -NoProfile -File /lis/scripts/claude-local.ps1 -LisWeb <args>
 ```
 
-(`<args>`: the caller's arguments in order, minus `-LisWeb`, `-LisTerminal` and
-`-LisPrintArgs`.)
+(`<args>`: the caller's arguments in order, minus `-LisWeb`, `-LisTerminal`,
+`-LisStartServer`, `-LisKeepState` and `-LisPrintArgs`.)
 
 | Host path | In the container | Mode |
 | --- | --- | --- |
 | this repo | `/lis` | read-only |
 | per-run `<dir>\empty` (zero bytes; only when `<repo>\.env` exists) | `/lis/.env` | read-only |
 | per-run `logs\web-<stamp>-<pid>\logs\` | `/lis/logs` | read-write |
-| per-run `<dir>\home` (fresh per run) | `/home/lis` | read-write |
+| per-run `<dir>\home` (fresh per run, except the `-LisKeepState` mounts) | `/home/lis` | read-write |
+| `logs\web-state\<key>\projects` (only with `-LisKeepState`) | `/home/lis/.claude/projects` | read-write |
+| `logs\web-state\<key>\history.jsonl` (only with `-LisKeepState`) | `/home/lis/.claude/history.jsonl` | read-write |
 | the current directory | `/work` | read-write |
 
-The mount list, in order (`<dir>` = the per-run directory; the second entry only when
-`<repo>\.env` exists):
+The mount list, in order (`<dir>` = the per-run directory, `<state>` =
+`<repo>\logs\web-state\<key>`; the second entry only when `<repo>\.env` exists, the
+fifth and sixth only with `-LisKeepState`):
 
 ```text
 --mount type=bind,source=<repo>,target=/lis,readonly
 --mount type=bind,source=<dir>\empty,target=/lis/.env,readonly
 --mount type=bind,source=<dir>\logs,target=/lis/logs
 --mount type=bind,source=<dir>\home,target=/home/lis
+--mount type=bind,source=<state>\projects,target=/home/lis/.claude/projects
+--mount type=bind,source=<state>\history.jsonl,target=/home/lis/.claude/history.jsonl
 --mount type=bind,source=<cwd>,target=/work
 ```
 
@@ -159,6 +164,32 @@ The mount list, in order (`<dir>` = the per-run directory; the second entry only
   file` in place of `swept` when the file is still there (locked). Accepted residual:
   a pid reused by an unrelated process leaves its stale file in place until a launch
   after that process ends. The exit code is the container's.
+- `-LisKeepState` (built 2026-11-09, host only, with `-LisWeb`; ledger W-18): the
+  fresh home loses every transcript at the end of the run, so `--continue`,
+  `--resume` and `/resume` found nothing. With the switch the launcher keeps one state
+  directory per work directory, `<repo>\logs\web-state\<key>\`, where `<key>` is the
+  work directory's leaf name lower-cased with every character outside `[a-z0-9]`
+  replaced by `-`, then `-` and the first 8 hex digits of the SHA-1 of the full work
+  path (lower-cased, no trailing separator): `Z:\tmp\lisweb-work` gets
+  `lisweb-work-6ee5b3b9`. Its `projects\` and `history.jsonl` are mounted read-write
+  at `/home/lis/.claude/projects` and `/home/lis/.claude/history.jsonl`, after the
+  home mount and before the work mount; the launcher creates them when missing (a
+  zero-byte history) and never truncates an existing one. It also creates
+  `<dir>\home\.claude`, the nested mounts' parent, so docker does not (a directory
+  docker makes could come out root-owned for `--user lis`). `-LisPrintArgs` writes
+  none of them. The mount checks above cover both sources. Everything else in the home
+  (the `.claude.json` seed, the settings and hook copies) stays fresh per run, so no
+  policy file carries over. The project key inside the container is always `/work`,
+  so the resume flags should find the earlier runs of the same work directory. The
+  banner gains `state=<state dir>;` before `work=`. UNVERIFIED until the live proof:
+  that docker orders the bind mounts by target depth (the nested mounts land inside
+  the fresh home), that the resume flags find the mounted transcripts, and that
+  claude writes `history.jsonl` in place (a file bind mount cannot be replaced by a
+  rename). Auto-memory persistence is UNVERIFIED too: `config/claude-settings.json`
+  puts `Edit(~/.claude/**)` under ask, which maps to `//home/lis/.claude/**` in the
+  container, so model-tool writes under `projects/-work/memory/` are refused in `-p`
+  runs and prompt in terminal runs. Transcripts and history do not go through that
+  rule (claude writes them itself). Refused without `-LisWeb` and inside the container.
 - Image: `container/Dockerfile`, `node:24-bookworm-slim` by digest, python3 (with a
   `python` link), git, curl and ca-certificates (unpinned, said in a comment),
   PowerShell `7.6.9-1.deb` (pinned) from Microsoft's apt repo (the repo .deb checked
@@ -207,8 +238,9 @@ The mount list, in order (`<dir>` = the per-run directory; the second entry only
   `-LisUserScope`, `--permission-mode auto` (any spelling or case), any caller
   `--mcp-config`, and an `--allowedTools` value naming WebFetch, WebSearch or `mcp__`.
 - Banner: on the host
-  `container: lis-web:2.1.318 (home not mounted; work=<cwd>; logs=<per-run dir>)`;
-  inside `server: http://host.docker.internal:8080 (lis-web container)`,
+  `container: lis-web:2.1.318 (home not mounted; work=<cwd>; logs=<per-run dir>)`
+  (`state=<state dir>; ` before `work=` under `-LisKeepState`); inside
+  `server: http://host.docker.internal:8080 (lis-web container)`,
   `web: lis-web (5 tools) via /opt/lis-web/server.mjs` and
   `lis-web log: /lis/logs/web-calls.log`.
 
@@ -637,6 +669,13 @@ Not closed (round-2 audit, 2026-11-05):
   on the host; the shortcut's empty scratch directory avoids it); the container's own
   layer is writable (`--read-only` plus the existing tmpfs would close it; `--rm`
   limits it to the run).
+- `-LisKeepState` (ledger W-18) opens a carry-over channel: the state directory holds
+  the session's transcripts, its auto-memory (kept under `projects\`; whether it
+  persists is UNVERIFIED, above) and the prompt history from one run to the next.
+  Content a web page injected into one session can reach a later session of the same
+  work directory through them. The per-run policy files (the settings, hook copies
+  and `.claude.json` seed) stay fresh and cannot be reached that way. Without the
+  switch nothing carries over.
 
 ## Operator actions
 

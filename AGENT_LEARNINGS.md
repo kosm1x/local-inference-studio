@@ -162,3 +162,14 @@
   (12 s + 6 s on the shared GPU): a `--continue` run that reports the first run's
   session id and answers from its turn proves the mount, the resume and the append in
   one shot; `-p` runs leave `history.jsonl` empty, so that claim stays UNVERIFIED.
+- **Mistake:** the c73 docs fold changed a ps1 docstring sentence that lisweb_test pins
+  and shipped without re-running that suite (HEAD failed 1 check until c74). -> A fold
+  that touches a file any test reads re-runs that test, docs-only or not.
+- **Mistake:** told the user the container runs lis-guard from the repo mount; S-B3
+  copies every hook at launch, so an open session keeps the old hook until relaunch.
+  -> Read the launcher docstring before describing a hook's load path.
+- **Better:** an explicit hook allow is scoped to where its premise holds (W-19:
+  loopback is safe only inside the container, so gate on LIS_CONTAINER=1); and the
+  auditor's adversarial probes on a NEW allow path found a pre-existing hole in the
+  shared parser (`\@` in the authority), so audit the helpers an allow trusts, not
+  only the new lines.

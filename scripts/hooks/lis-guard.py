@@ -53,14 +53,19 @@ or earlier), except a per-run lis-hooks-/lis-settings-/lis-mcp- path or a guard 
 $HOME when HOME is /home/lis) is not a home read unless the segment names .claude;
 content readers (grep -r, rg, tar, cp -r) keep the deny. `rm -r/-f <paths>` and `git checkout -- <paths>` are not critical deletes
 when every path is a literal under /work or /tmp (not the root itself) that passes the
-same exceptions and no CRITICAL_PATH (container_undo). The credential scan also names
+same exceptions and no CRITICAL_PATH (container_undo). W-25: the same holds for `find
+<paths> ... -delete` or `-exec rm {} ;`, `git restore [options] [--] <paths>` and `git
+checkout <ref> -- <paths>`, and the literal check reads each undo segment, not the whole
+command (an `echo "done"` beside it goes to the other rules). The credential scan also names
 the four keys of the lis-web env file (LIS_API_KEY, EXA_API_KEY, JINA_API_KEY,
 BRAVE_SEARCH_API_KEY), except as leading NAME=$KEY assignments before a command word
 that is not a dumper, echo or shell (container_key_prefix). Every other rule is the host's.
 
 Repeated denies (W-23): main() counts each deny per session (session_id) by the sha1 of
 the command and cwd in <tempdir>/lis-guard-denies/<session id>.json; from the third
-identical deny on, the reason tells the model to stop and report. State errors fail open,
+identical deny on, the reason tells the model to stop and report. W-25: an undo deny is
+also counted by the set of its paths (resolved), so `rm -rf x`, `rm -r x && echo b` and
+`find x -delete` count together and a varied retry escalates. State errors fail open,
 and so does a state dir that is a link or junction; the prune removes only state names.
 
 "No decision" is NOT "goes to the classifier": it hands the call back to Claude Code's
@@ -133,7 +138,8 @@ _SPAN = r'[^;|\n]{0,400}'   # bounded span, replaces unbounded [^;|]* (W1)
 _GIT = r'(?<![\w-])git(?:\s+(?:-C|-c)\s+\S+|\s+--[\w-]+(?:=\S+)?)*\s+'
 CRITICAL_VERBS = [
     (r'(?i)\bRemove-Item\b', 'Remove-Item'),
-    (r'(?<![\w-])rm\s+(?:-\w*[rRf]\w*|--recursive|--force)', 'rm -r/-f'),
+    # W-25: an option or operand may come first (rm -i -rf x, rm x -rf: GNU rm permutes)
+    (r'(?<![\w-])rm\s+(?:[^\s;|&]+[^\S\n]+){0,20}?(?:-\w*[rRf]\w*|--recursive|--force)', 'rm -r/-f'),
     (r'(?i)(?<![\w-])(?:del|erase)\s+(?:/\w+\s+)*/s\b', 'del /s'),
     (r'(?i)(?<![\w-])(?:rmdir|rd)\s+(?:/\w+\s+)*/s\b', 'rmdir /s'),
     (r'(?i)\b(?:Set|New|Remove)-ItemProperty\b' + _SPAN + r'\bHK(?:LM|CU|EY_)', 'registry write'),
@@ -157,7 +163,12 @@ CRITICAL_VERBS = [
     (_GIT + r'stash\s+(?:drop|clear)\b', 'git stash drop/clear'),
     (_GIT + r'update-ref\s+-d\b', 'git update-ref -d'),
     (_GIT + r'reflog\s+expire\b', 'git reflog expire'),
-    (_GIT + r'checkout\s+--\s', 'git checkout --'),
+    (_GIT + r'checkout\s+(?:[^\s;|&]+\s+){0,3}?--\s', 'git checkout --'),     # W-25: <ref> --
+    # W-25: recursive deletes and discards by other names (find -delete removed a 2.9 GB
+    # model file in the 2026-11-10 run; git restore is git checkout --)
+    (r'(?<![\w-])find\s+(?:[^;|&\n]{0,400}?\s)?-delete\b', 'find -delete'),
+    (r'(?<![\w-])find\s+(?:[^;|&\n]{0,400}?\s)?-(?:exec|execdir|ok|okdir)\s+(?:\S*/)?rm\b', 'find -exec rm'),
+    (_GIT + r'restore\b', 'git restore'),
     # uploads that need no host check (security audit B1); curl/wget/PowerShell web
     # uploads are host-checked in critical(), interpreter code in code_critical()
     (_GIT + r'push\b', 'git push'),
@@ -564,6 +575,7 @@ PS_RO_EXACT = {'$psversiontable', '$psversiontable.psversion', '$psversiontable.
 _RO_CWD = [None]                        # decide()'s cwd (False after a cd), for repo paths
 _UNDECIDED = [False]                    # set when a cd rewrite was too large (A10 W2)
 _NOTE = [None]                          # a no-decision note main() writes to stderr (S-B4)
+_DENY_PATHS = [None]                    # the undo paths of decide()'s deny, for W-23 (W-25)
 _PS_LIT = r'''(?:'[^'$`]*'|"[^"$`]*"|\d+)'''
 # { $_.X -eq 'y' } in Where-Object; @{n='X';e={[math]::Round($_.Y/1GB,1)}} in Select-Object;
 # each becomes a placeholder word that keeps the property name (\x01F<X>, \x01C<Y>)
@@ -3004,25 +3016,114 @@ def guard_below(rp):
     return bool(errs) and os.path.isdir(rp)
 
 
-UNDO_HITS = ('rm -r/-f', 'git checkout --')
-RM_OPT = re.compile(r'-[rRfv]+|--(?:recursive|force|verbose)')
+UNDO_HITS = ('rm -r/-f', 'git checkout --', 'find -delete', 'find -exec rm', 'git restore')
+# W-25: -i, -I, -v, -d and the long forms; --no-preserve-root is not an undo
+RM_OPT = re.compile(r'-[rRfviId]+|--(?:recursive|force|verbose|dir|one-file-system'
+                    r'|interactive(?:=(?:never|no|none|once|always|yes))?)')
+RESTORE_OPT = {'-S', '--staged', '-W', '--worktree'}
+UNDO_LITERAL = re.compile(r'[$`<>(){}\\\'"*?\[\]]')     # W-25: per undo segment
+UNDO_REDIRECT = re.compile(r'(?:\s+2>(?:&1|/dev/null))+\s*$')
+
+
+def undo_body(seg):
+    """W-25: seg without a trailing 2>&1 or 2>/dev/null (stderr merged or dropped: no
+    file write), and that text with find's `{}` and `\\;` words blanked, for the literal check."""
+    body = UNDO_REDIRECT.sub('', seg)
+    return body, re.sub(r'(?<!\S)(?:\{\}|\\;)(?!\S)', ' ', body)
+
+
+def undo_ops(toks):
+    """W-25: the path operands of one undo segment's tokens, or None unless it is exactly
+    `rm [opts] [--] <paths>` (options from RM_OPT anywhere before --), `git checkout [<ref>]
+    -- <paths>`, `git restore [-S|-W|-s X|--source[=]X ...] [--] <paths>` or `find <paths>
+    <tests>` where the tests are FIND_VALUED/FIND_BARE words, -delete and `-exec|-execdir
+    rm [opts] {} ;|+`, with no glob character in any find word and no CRITICAL_PATH test
+    value (-newer ~/.claude/x)."""
+    if toks[:2] == ['git', 'checkout']:
+        i = 3 if len(toks) > 3 and not toks[2].startswith('-') and toks[3] == '--' else 2
+        if toks[i:i + 1] != ['--']:
+            return None
+        ops = toks[i + 1:]
+    elif toks[:2] == ['git', 'restore']:
+        i = 2
+        while i < len(toks) and toks[i] != '--' and toks[i].startswith('-'):
+            if toks[i] in ('-s', '--source'):
+                i += 1                      # its value
+            elif not (toks[i] in RESTORE_OPT or toks[i].startswith('--source=')):
+                return None
+            i += 1
+        ops = toks[i + (toks[i:i + 1] == ['--']):]
+    elif toks[:1] == ['rm']:
+        ops, opts = [], True
+        for t in toks[1:]:
+            if opts and t == '--':
+                opts = False
+            elif opts and t.startswith('-'):
+                if not RM_OPT.fullmatch(t):
+                    return None
+            else:
+                ops.append(t)
+    elif toks[:1] == ['find']:
+        if any(re.search(r'[*?\[\]]', t) for t in toks):
+            return None
+        i = 1
+        while i < len(toks) and not toks[i].startswith('-') and toks[i] not in ('!', '('):
+            i += 1
+        ops, j = toks[1:i], i
+        while j < len(toks):
+            t = toks[j]
+            if t in FIND_VALUED and j + 1 < len(toks):
+                if CRITICAL_PATH.search(toks[j + 1]):
+                    return None             # W-25 audit: the masked text drops test values
+                j += 2
+            elif t in FIND_BARE or t == '-delete':
+                j += 1
+            elif t in ('-exec', '-execdir') and toks[j + 1:j + 2] == ['rm']:
+                k = j + 2
+                while k < len(toks) and RM_OPT.fullmatch(toks[k]):
+                    k += 1
+                if toks[k:k + 2] not in (['{}', ';'], ['{}', '+']):
+                    return None
+                j = k + 2
+            else:
+                return None
+    else:
+        return None
+    return ops or None
+
+
+def undo_paths(cmd, cwd):
+    """W-25 (the W-23 path key): the sorted resolved operands of every segment of cmd an
+    undo verb matches whose tokens are an undo_ops shape (quotes read as the shell would; an
+    operand holding $ or a backtick is computed, not a literal: left out), or None."""
+    undo_rx = [rx for rx, name in CRITICAL_VERBS if name in UNDO_HITS]
+    found = set()
+    for seg in split_segments(cmd):
+        if any(rx.search(seg) for rx in undo_rx):
+            ops = undo_ops(tokens(undo_body(seg)[0]) or [])
+            found.update(os.path.normpath(resolve(p, cwd)) for p in ops or () if not re.search(r'[$`]', p))
+    return sorted(found) or None
 
 
 def container_undo(cmd, cwd):
     """W-24a (d): in the lis-web container, undoing a change under /work or /tmp (rm -r/-f,
     git checkout -- <paths>) is not a critical delete. Returns cmd with each such segment's
     verb words replaced by `true`, its operands kept for every other rule to read, or None
-    (the deny stands) unless every segment the rm or checkout rule matches is exactly
-    `rm [-rfRv...] [--] <paths>` or `git checkout -- <paths>`, and each path is a literal
-    (no glob, ~, quote or $), not a CRITICAL_PATH, and resolves strictly under a run root
-    and passes container_runnable, and is not a git work tree's top (it holds .git: the
-    history the undo relies on). A cd in the command or a nested payload: None."""
-    if os.environ.get(CONTAINER_ENV, '') != '1' or re.search(r'[$`<>(){}\\\'"]', cmd) \
-            or cwd_moves(cmd, cwd):
+    (the deny stands) unless every segment an undo verb (UNDO_HITS) matches is an undo_ops
+    shape, and each path is a literal (no glob, ~, quote or $), not a CRITICAL_PATH, and
+    resolves strictly under a run root and passes container_runnable, and is not a git
+    work tree's top (it holds .git: the history the undo relies on). A cd in the command,
+    a heredoc or a nested payload: None. W-25: the literal check (quote, $, backtick,
+    <>(){}, backslash, glob) reads each undo segment, minus a trailing 2>&1 or 2>/dev/null
+    and find's `{}` and `\\;`; the other segments (echo "done", git status) are judged by
+    the other rules on the returned text, as before."""
+    if os.environ.get(CONTAINER_ENV, '') != '1' or '<<' in cmd or cwd_moves(cmd, cwd):
         return None
 
     def ok(p):
-        if not p or p.startswith(('-', '~')) or re.search(r'[*?\[\]\x00]', p) or CRITICAL_PATH.search(p):
+        # W-25 audit: a leading ':' is git pathspec magic (:/ is the work-tree top, :!x and
+        # :^x exclude), never a path the checks below can resolve
+        if not p or p.startswith(('-', '~', ':')) or re.search(r'[*?\[\]\x00]', p) or CRITICAL_PATH.search(p):
             return False
         full = resolve(p, cwd)
         try:
@@ -3038,17 +3139,10 @@ def container_undo(cmd, cwd):
     for seg in split_segments(cmd):
         if not any(rx.search(seg) for rx in undo_rx):
             continue
-        toks = tokens(seg) or []
-        i = 1
-        if toks[:3] == ['git', 'checkout', '--']:
-            i = 3
-        elif toks[:1] == ['rm']:
-            while i < len(toks) and RM_OPT.fullmatch(toks[i]):
-                i += 1
-            i += i < len(toks) and toks[i] == '--'
-        else:
+        body, lit = undo_body(seg)
+        if UNDO_LITERAL.search(lit):
             return None
-        ops = toks[i:]
+        ops = undo_ops(tokens(body) or [])
         if not ops or not all(ok(p) for p in ops):
             return None
         out = out.replace(seg, 'true ' + ' '.join(ops), 1)
@@ -3252,12 +3346,15 @@ def decide_text(cmd, cwd=None):
     _RO_CWD[0] = cwd
     _UNDECIDED[0] = False
     _NOTE[0] = None
+    _DENY_PATHS[0] = None
     hit = critical(cmd) or patch_hit(cmd, cwd)
     if hit in UNDO_HITS and (masked := container_undo(cmd, cwd)) is not None:
         hit = critical(masked) or patch_hit(cmd, cwd)   # W-24a (d): every other rule still reads it
     if hit == 'credential path' and (masked := container_key_prefix(cmd)) is not None:
         hit = critical(masked) or patch_hit(cmd, cwd)   # W-24a (f): a key passed to a child
     if hit:
+        if hit in UNDO_HITS:
+            _DENY_PATHS[0] = undo_paths(cmd, cwd)   # W-25: the W-23 path key
         return 'deny', deny_reason(hit)
     if why := git_opt_hit(cmd):             # ledger S-B8: after the scan, so its reason stays
         return 'deny', why
@@ -3349,6 +3446,10 @@ REPEAT_AT = 3
 REPEAT_SUFFIX = (' This exact command was denied {} times in this session. Do not run it again, '
                  'and do not try a variation of it: report the block to the operator in one '
                  'paragraph.')
+# W-25: varied retries of one denied undo (rm -rf x, rm -r x && echo b, find x -delete)
+REPEAT_PATHS_SUFFIX = (' A delete or undo of these same paths was denied {} times in this session. '
+                       'Do not run it again, and do not try a variation of it: report the block '
+                       'to the operator in one paragraph.')
 DENY_MAX_AGE_S = 24 * 3600
 
 
@@ -3368,11 +3469,13 @@ def real_dir(d):
             and os.path.normcase(os.path.realpath(d)) == os.path.normcase(os.path.abspath(d)))
 
 
-def count_deny(sid, cmd, cwd):
-    """Record one deny of (cmd, cwd) for session sid and return its new count, or None
-    when sid is not a safe session id or the state cannot be read or written (fail open:
-    the deny stands, without the suffix). Corrupt state starts fresh; files older than
-    DENY_MAX_AGE_S are pruned. No lock: a lost update under a race only undercounts."""
+def count_deny(sid, cmd, cwd, paths=None):
+    """Record one deny of (cmd, cwd) for session sid and return (its new count, the new
+    count of the undo paths key or None), or None when sid is not a safe session id or the
+    state cannot be read or written (fail open: the deny stands, without the suffix).
+    W-25: with paths (undo_paths), a second key, the sha1 of 'undo' NUL the paths joined
+    by NUL, is bumped too. Corrupt state starts fresh; files older than DENY_MAX_AGE_S are
+    pruned. No lock: a lost update under a race only undercounts."""
     if not (isinstance(sid, str) and SESSION_RE.fullmatch(sid)):
         return None
     try:
@@ -3401,11 +3504,15 @@ def count_deny(sid, cmd, cwd):
             denied = {}
         h = hashlib.sha1((cmd + '\0' + (cwd or '')).encode('utf-8', 'surrogatepass')).hexdigest()
         denied[h] = denied.get(h, 0) + 1
+        k = None
+        if paths:
+            k = hashlib.sha1('\0'.join(['undo'] + paths).encode('utf-8', 'surrogatepass')).hexdigest()
+            denied[k] = denied.get(k, 0) + 1
         tmp = f'{path}.{os.getpid()}.tmp'
         with open(tmp, 'w', encoding='ascii') as f:
             json.dump({'denied': denied}, f, separators=(',', ':'))
         os.replace(tmp, path)
-        return denied[h]
+        return denied[h], (denied[k] if k else None)
     except Exception:
         return None
 
@@ -3429,6 +3536,7 @@ def main():
     if len(cmd) > MAX_INPUT:
         sys.stderr.write('lis-guard: command over 32 KB; no decision\n')
         return 0
+    _DENY_PATHS[0] = None
     try:
         d = decide(cmd, cwd)
         if d is None and _NOTE[0]:
@@ -3437,9 +3545,11 @@ def main():
         hit = critical_verb(cmd)
         d = ('deny', deny_reason(hit)) if hit else None
     if d and d[0] == 'deny':
-        n = count_deny(data.get('session_id'), cmd, cwd)
-        if n is not None and n >= REPEAT_AT:
-            d = (d[0], d[1] + REPEAT_SUFFIX.format(n))
+        c = count_deny(data.get('session_id'), cmd, cwd, _DENY_PATHS[0])
+        if c is not None and c[0] >= REPEAT_AT:
+            d = (d[0], d[1] + REPEAT_SUFFIX.format(c[0]))
+        elif c is not None and c[1] is not None and c[1] >= REPEAT_AT:
+            d = (d[0], d[1] + REPEAT_PATHS_SUFFIX.format(c[1]))
     if d:
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
                                                  'permissionDecision': d[0],

@@ -660,6 +660,18 @@ Batches (IDs in the ledger):
   nothing to install). New W-25 row: an `&& echo` beside an undo line voids the container
   allowance, `find -delete` and `git restore` get no decision, and varied retries escape
   W-23. Ledger 43 LANDED, 12 BUILT, 14 OPEN of 69.
+  W-25 (2026-11-10, BUILT): the undo shapes of the first session on the rebuilt image. The
+  container's undo literal check now reads each undo segment, not the command, so `rm -rf
+  node_modules/llama-cpp && echo "removed"` is an undo again (a cd or heredoc still voids
+  it). `find -delete`, `find -exec rm` (which removed a 2.9 GB model file past the rm
+  rule), `git restore` and `git checkout <ref> --` join the undo verbs: denied on the
+  host, undos under /work or /tmp with the same walk, top and critical-path checks, never
+  a `:` pathspec (audit). W-23 also counts an undo deny by its path set, so varied
+  retries escalate. Accepted false positives (text scan): `grep -n rm f -r`, `echo "rm x
+  -rf"`, `git rm --cached -r x`, `git restore --staged a`, blocked.py runs. Queued
+  residuals: `git checkout .` or `HEAD a`, `git switch -f`, `unlink`, `shred -u`, `rsync
+  --delete`, rm with 20+ leading operands, `>/dev/null 2>&1` on a container undo.
+  Ledger 43 LANDED, 13 BUILT, 13 OPEN of 69.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

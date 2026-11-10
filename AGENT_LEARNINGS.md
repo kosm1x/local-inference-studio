@@ -156,3 +156,10 @@
   -> read `toolDenialKind` in the transcript (permission-rule vs hook vs automode).
 - **Better:** live proof of a hook = a monitor on the run transcript for hook reasons,
   then replay each decision through the run's own hook copy (`docker exec -i`).
+- **Mistake (W-25 build):** a path-literal check that resolves the operand and finds
+  nothing judges nothing: git pathspec magic (`:/`, `:!x`) passed the top, walk and
+  critical-path checks -> an operand grammar needs an explicit reject for every prefix
+  the tool itself interprets (`:` for git, `-` for options, `~`).
+- **Better:** the differential audit (old hook vs new hook over ~200 adversarial shapes,
+  host and container, three cwds) found the only real gap; the mutant table found two
+  unpinned branches. Keep both as the standing audit shape for guard changes.

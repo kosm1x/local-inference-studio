@@ -1307,6 +1307,12 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   leading `NAME=$KEY` assignments before a command word that is not a dumper, echo or
   shell (`LLM_API_KEY=$LIS_API_KEY npm run dev` gets no decision from the scan). The
   host does not scan these four names; `BRAVE_API_KEY` is unchanged everywhere.
+- W-25 (undo shapes): `find <paths> ... -delete` or `-exec rm {} ;`, `git restore` and
+  `git checkout <ref> -- <paths>` are critical deletes on the host, like `rm -r/-f` (whose
+  options may now come in any order: `rm -i -rf x`, `rm x -rf`). With LIS_CONTAINER=1 they
+  are W-24a undos under /work or /tmp (never a `:` pathspec), and the literal check reads
+  each undo segment, so an `&& echo "done"` or `git status` beside it is judged by the
+  other rules. A denied undo also counts (W-23) by its resolved path set.
 - PostToolUse hook (matcher `Write|Edit`, added with lis-guard, dropped by `-LisNoGuard`):
   `scripts/verify-doc.py --hook` checks every `.md` written or edited inside the working
   directory and hands its findings to the model as `additionalContext`, never blocking.

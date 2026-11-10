@@ -1,230 +1,156 @@
-# Agent learnings — local-inference-studio
+# Agent learnings - local-inference-studio
 
 ## Standing rules
-- Every built commit gets a scoped qa-auditor pass before push; warnings become a follow-up commit, never a silent amend of content.
-- Git commit messages go through a message file (`git commit -F <abs path>`), never a PowerShell here-string piped to `-F -` and never `git log --format=%B` round-tripped through `-replace` (both lose newlines or fail).
-- Anything that crosses into WSL from PowerShell is wrapped in `bash -c '...'`: PowerShell expands a bare `~` to the Windows profile before `wsl` sees it, so `wsl -- rm -rf ~/x` silently misses.
-- A bench number without a saved console log is UNVERIFIED: tee every `bench/run.ps1` run to `bench/results/<stamp>-<label>.log`.
-- A decode warm-up request is discarded before the median; the first request on a cold server is not a sample.
-- GPU work is single-tenant: a benching agent checks `nvidia-smi` compute apps and port 8081 before `stop.ps1`, and restores the Scheduled Task afterwards.
-- Vendor "fits a 16 GB GPU" claims are measured against the desktop's 1.3 to 2.0 GiB already resident, never against 16 GB.
-- A driver that starts `serve.ps1` with `Start-Process` passes ONE argument string with `-ExtraArgLine "-lv 4"` quoted inside it; an `-ArgumentList` array splits `'-lv 4'` into two tokens (llama-server then gets `--port 4` and a bare `-lv`). Check the first line of the server log (the command line) before trusting a driver loop.
+- Every built commit gets a scoped qa-auditor pass before push; warnings become a
+  follow-up commit, never a silent amend.
+- Commit messages go through a file (`git commit -F <abs path>`), never a PowerShell
+  here-string piped to `-F -` or a `git log --format=%B` round trip (newlines lost).
+- PowerShell expands a bare `~` before `wsl` sees it (wrap payloads in `bash -c`); via the
+  Bash tool, bash expands `$_` and `~` in `powershell -Command "..."`: single-quote it.
+- Tee every `bench/run.ps1` run to `bench/results/<stamp>-<label>.log` and cite the
+  logged run (no log = UNVERIFIED); a cold server's warm-up request is not a sample.
+- GPU work is single-tenant: check `nvidia-smi` compute apps and port 8081 before
+  `stop.ps1`, and restore the Scheduled Task afterwards.
+- A fit budget is serve.ps1's `vram free` start line (13.5 to 14.2 GB; the desktop holds
+  1.3 to 2.0 GiB) minus `--fit on`'s 1,024 MiB, never a card's or vendor's 16 GB or
+  17.18 GB; judge a fit by a decode probe and private RAM, not by loading (11-09 Gemma).
+- `Start-Process serve.ps1` takes ONE argument string with `-ExtraArgLine "-lv 4"` quoted
+  inside (an array gives `--port 4`); read the server log's first line before trusting it.
 - Scripted doc edits detect `\r\n` per file before matching, apply every edit before
   any `git add` and check the diff stat against the file list (10-24: 1 of 4 shipped).
-- A brief's claim about a model (MTP head, template, fit) is read from `config/models.md` or the GGUF header before dispatch, never from memory; the subagent verifies it again on arrival.
-- Code or doc text containing backslashes goes through the Write or Edit tool, never a Bash heredoc or `python -c`: the Bash tool collapses a doubled backslash to one (hit 4 times: 10-24 3d, 10-24 lean set, 10-25 permissions, 11-08 fold).
-- A permission allow prefix for a command that takes file-valued options cannot be made safe by a hook that reads tokens before the shell expands them; allow such commands only through the hook's own recogniser, never a glob rule.
-- A hook that allows commands gives no decision on any segment with a shell expansion (`$`, backtick, unquoted `{}`/`*?[]`/`~`), and every verb handler AND the env-prefix filter are allow-lists; no grammar over expansions survives audit (6 rounds, 2026-10-25).
-- Grade a run by its artefact against a fixed fact checklist, never by server health.
-- A ranking needs every contender to have a number on the same fixture (10-24 3d).
-- Every figure or quoted string in a doc is copied from a named artifact (JSON, log,
-  call log) in that artifact's order; a value remembered from the console, a wall
-  time or a build-context size nobody saved is not written (11-06, 11-07 audits).
-- How a session ended is read from docker events (`kill` signal, `die` exit code)
-  and the per-run `history.jsonl`, never from the reply or a recollection (11-07:
-  two runs a minute apart, one clean, one closed with the X).
-- Every added line passes the identity grep before commit and every brief states
-  the exact commit trailer (10-24: a subagent shipped an Opus trailer and a WSL
-  username to this public repo).
-- A brief that forbids a binary forbids it in version probes too; its version is
-  recorded from the real-run path only (10-26: `claude --version` in a toolchain probe).
-- `date` runs before every timestamp written anywhere, memory files included; a
-  commit is stamped from `git log`, never from recall (11-04: two guessed times).
+- A brief's model claim (MTP head, template, fit) is read from `config/models.md` or the
+  GGUF header before dispatch, and the subagent verifies it again on arrival.
+- Scripts and text with backslashes or quotes go through Write/Edit, never a heredoc or
+  `python -c` (`\\` collapses, quoting breaks; 10-24 x2, 10-25, 11-08 x2, 11-09).
+- An allow prefix the hook cannot fully read is the hole: allow file-valued commands via
+  the hook's recogniser only; after 3 failed grammars remove the prefix (10-25, 11-05).
+- No hook decision on any segment with an expansion (`$`, backtick, unquoted `{}*?[]~`);
+  new arg-reading rules start with it; verbs, arguments, env-prefix filter = allow-lists.
+- A new deny rule ships with a positive oracle (random instances, expansion spellings
+  too, must deny) and a converse one; unit-row mutation alone proves little (11-05 x2).
+- Grade a run from its artefacts against a fixed fact checklist (JSON `subtype`,
+  `permission_denials`, call log, per-run home; its end from docker `kill`/`die` and
+  `history.jsonl`), never the reply, server health or recollection; rank on one fixture.
+- Every figure, count, tool order or quoted string in a doc or brief is copied from a
+  named artifact in its order, after reading what the field holds and how it is defined;
+  never from memory. A behaviour claim is measured first, else marked UNVERIFIED.
+- Every added line passes the identity grep before commit and every brief states the
+  exact commit trailer (10-24: a wrong trailer and a WSL username shipped publicly).
+- A brief that forbids a binary forbids it in version probes too; record its version
+  from the real-run path only (10-26).
+- Run `date` before any timestamp (memory files too); stamp commits from `git log`.
+- The hook guard refuses any `-n` or one-letter count flag in a command that runs git
+  (read as skip-hooks): use bare counts or awk ranges (11-04 `tail`, 11-09 `sed -n`).
+- Before arming a loop or monitor, test its selector on a known state: compare the
+  extracted count with the list (c38: no test ran), run a filter on a quiet log (c51).
 
-## 2026-10-25 — PC recon runs 1 to 3 (65K+MTP+lean, then ruling 14 back to 131K)
-- **Avoid:** letting auto-compact fire mid-task on a 65,536 window: it triggered at ~36K; the model's own summary turned "J 135/4657, K 328/14902" into "mostly free" and the final report was written from the summary.
-- **Better:** report-producing tasks write facts to a file as they go; the raw tool output is the only thing compaction cannot be trusted to keep.
-- **Mistake:** the RUN 2 verdict named compaction as the whole cause and auto mode as the fix; RUN 3 (131K, no compaction, one classifier timeout) was still incomplete: 6 of 8 volumes missing, GPU "not checked". -> Grade every run against a fixed checklist of the facts the task must contain (every volume, GPU, CPU, RAM, OS, toolchain, services) before naming a cause.
-- **Mistake:** RUN 3 lost all three drive queries for three different reasons: one classifier timeout, one bash expansion of an unescaped `$_` inside `powershell -Command "..."`, one PowerShell precedence error (`-f $_.Size/1GB, ...`) hidden by `2>/dev/null`; the model fell back to `df` on C and Z. The first write-up blamed `$_` for both executed failures (audit catch). -> Read each failed call's result separately before naming one cause; a policy fix for `$_` covers one of the two.
-- **Mistake:** wrote "compacted at about 36K" from the monitor's last n_tokens; the transcript's `compact_boundary.preTokens` says 39,098. -> Compaction size comes from the transcript metadata, not from the last server line before it.
-- **Better:** the classifier cost is structural, not a RUN 2 accident: 7 classifier requests took about 240 s of RUN 3's 330 s of GPU time (2.7x the work). Auto mode on the local model is a cost figure the operator rules on, not a bug to fix.
-
+## 2026-10-25 - PC recon runs 1 to 3 (65K+MTP+lean, then ruling 14 back to 131K)
+- **Avoid:** auto-compact mid-task on 65,536 (the summary made "J 135/4657" "mostly
+  free"). -> Report tasks write facts to a file; local auto mode costs ~240 of 330 GPU s.
+- **Mistake:** one cause for 3 failed queries (timeout, bash `$_`, `-f` precedence behind
+  `2>/dev/null`); size off the monitor. -> Read each result; use `preTokens` (39,098).
 ## 2026-10-25 - Ruling 15 build: rule set A, lis-guard hook, perm bench
-- **Mistake:** in PowerShell, `$s = Invoke-RestMethod ...` overwrote `$S` (the scratch path): variables are case-insensitive, and the `--debug-file` went nowhere. -> Distinct names, never case variants.
-- **Mistake:** edited `scripts/hooks/lis-guard.py` while the AH bench was calling it per tool use, so one run could mix versions. -> Freeze every file a running bench reads; park edits in the scratchpad and re-run after.
-- **Better:** a hook `deny` whose reason says "not retryable; report it to the operator" ends the `-p` retry loop after one attempt (V13), where a bare ask-rule denial is retried to `--max-turns` (V7).
-- **Better:** the debug log names every permission path: `classifier_request_started/finished ... outcome=`, `tool_dispatch_start ... permissionDecisionMs=` and `Hook ... returned permissionDecision:`; the bench reads them instead of guessing from the server log.
-
+- **Mistake:** PowerShell `$s` overwrote `$S` (case-insensitive) -> distinct names; edited
+  lis-guard.py mid-bench -> freeze every file a running bench reads.
+- **Better:** a `deny` saying "not retryable; report it to the operator" ends the `-p`
+  retry loop (ask denials retry to `--max-turns`); the debug log names each path.
 ## 2026-10-25 - lis-guard audits R1 to R8, policy-text levers (merged)
-- **Mistake:** a verb-list grammar (`uniq a OUT`, `tree -o`, `rg --pre`, `curl -D` all
-  allowed), a 200 KB read cap followed by `allow`, broad allow prefixes sitting before
-  the hook, then three curl grammars and a `$(...)` placeholder that all failed audit
-  (word-split `-o F`, `${Y@P}`, brace-built `-{delete,delete}` deleting a scratch tree,
-  `GIT_EXTERNAL_DIFF` through a deny-list env filter). -> Per-verb ARGUMENT allow-lists;
-  a cap yields no decision; any `$`, backtick, brace, glob or `~` = no decision;
-  `ENV_SAFE` allow-list; after 3 strikes remove the allow prefix, not a 4th grammar.
-- **Mistake:** the local model reported counts it never computed and cited a stale
-  script with `2>/dev/null` on probes. -> Every number is copied from a tool output;
-  read a script before citing it; never silence stderr on a probe.
-- **Avoid:** `powershell -Command "... $_ ..."` and unquoted `~` in `wsl -- ssh -i ~/..`
-  through the Bash tool (bash expands both). -> Single-quote the payload, quote `'~/'`.
-
+- **Mistake:** a 200 KB read cap followed by `allow`; grammars beaten by word-split
+  `-o F`, `${Y@P}`, `-{delete,delete}`, `GIT_EXTERNAL_DIFF`. -> A cap yields no decision.
+- **Mistake:** a stale script cited, `2>/dev/null` on probes. -> Never silence stderr.
 ## 2026-11-04 - MTP A/B run (three arms, operator restarts)
-- **Mistake:** `git push` piped to `tail` with its one-letter count flag was refused
-  by the hook guard (read as skip-hooks). -> Bare counts beside `git`.
-- **Avoid:** calling a 1-of-3 tally the A/B result when every miss was a thrash exit, a
-  facts gate or a format line. -> Rule from the per-rep figures that move.
-- **Mistake:** a brief compressed a fetch report into two false card facts; a grader was
-  overruled from the rep's report (the rep had rewritten the fixture's contract
-  comment); proof figures came from memory; a stub matched a record shape the brief
-  described. -> Quote fetches verbatim; read the fixture and the diff first; "every
-  rep" figures come from a script over `bench/results`; stubs copy real records.
-- **Mistake:** new repo scripts shipped without `lis-guard_test.py`, whose deny table
-  scans every repo script. -> Run the full CLAUDE.md test list before such a commit;
-  never hex-escape a guarded literal to dodge the scan.
-
-## 2026-11-05 — S-B3 per-run hook copies: glob coverage (audit C1 rounds 2-3)
-- **Mistake:** modelled the stamp in `lis-hooks-<x>` as free text, so any `*`-led glob with 5 literals (`ls src/*.test.js`, `cat logs/*-error.log`) became a guard file and was denied; the corpus had deny rows only, no converse rows. -> A glob-to-name model gives its free slot the real alphabet (`[0-9-]` for a stamp or pid) and ships with converse rows plus a property oracle both ways (ordinary globs never deny; fnmatch-true globs always deny).
-- **Better:** before building a new matcher, measure the simpler route against the old guard (here: mirroring the copies under `scripts\hooks\`); the measurement showed which rows each route misses.
-
-## 2026-11-05 — S-O3 user scope off, S-B4 inline code and session-written files (c32)
-- **Mistake:** the brief assumed a pre-existing file edited in-run keeps its birthtime; measured false (the Edit tool rewrites the file: new birthtime on NTFS and ReFS), and the first fold then stated "only an in-place write keeps the birthtime", while the auditor measured NTFS tunneling (delete and recreate within 15 s keeps the OLD birthtime). -> A file-time rule is proven by measuring the exact tool's write path and the volume's quirks before a doc states it; judge birth AND mtime.
-- **Mistake:** the run-target rule stat'ed the file before the command ran, so `cp new.py f.py && python f.py` and every grouped form (`( )`, `{ }`, `if`, backticks, `bash -c --`) got no decision; found by the auditor, not the corpus. -> A rule over run targets judges the command's own writers and missing targets, and walks every grouping form the walker already handles for `$( )`.
-- **Mistake:** the new property invariant checked only the converse (ordinary commands never deny), so disabling the rule kept 23531 cases green. -> Every new deny rule ships with a positive oracle (random instances must deny) and a converse one; mutation over the unit rows alone proves little.
-- **Better:** when a settings scope is excluded, read what it carried (the debug log's "Adding N allow rule(s) to destination 'userSettings'") and name every bench whose inputs change; with user scope on, "no decision" means allow in a rep, and with it off, deny in a lean `-p` session.
-
-## 2026-11-05 — Restart proofs, the harness's own warnings (c34)
-- **Mistake:** the S-O3 live proof's debug log carried six `[WARN] [permissions]` lines (every `Write(path)` deny rule inert, the `git -C *` allow rules approving `-c`/`--exec-path`) and the proof was graded only on the figures it was run for; the warnings sat in a gitignored log for 18 hours. -> Every live proof gets a `[WARN]` grep of its debug log before the row is marked LANDED; the harness's own warnings are findings.
-- **Better:** a row that "waits on the next start" is proven from the log lines the restart wrote (stop marker, pin check, hash-marker reuse, vram line, launch) and the endpoints with the new key, not from the first `/health` ok; the live stop-marker order differed from the stub's (serve.ps1 quotes it after the exit line while it holds the log) and the row now states the measured order.
-- **Mistake:** the S-B8 rule read only tokens starting with `-` before the git subcommand, although the standing rule says a hook fails on any unquoted expansion; the auditor's `{-c,core.fsmonitor=...}` and `$'-c'` forms got no decision and bash ran them. -> Every new token-reading rule starts with the expansion clause (`$`, `{`, `[`, `*`, `?`, backtick before the judged position = deny) and its positive oracle includes expansion spellings.
-- **Mistake:** the docs' exploit example (`-c core.pager='touch pwned' log -1` "ran its pager") was written from the harness's warning, not from a run; git skips the pager without a TTY, while `-c core.fsmonitor=<cmd> status` does run. -> An exploit example in a doc is executed once in a scratch repo before it is written; otherwise it is marked UNVERIFIED.
-- **Better:** the third audit round hit the same class (expansion, re-quoted wsl payload, backslash-newline) and the 3-strike rule moved the fix off the tokenizer: the wildcard allow rules were removed (the hook already allows the benign forms, an undecided shape now meets no rule) and the hook judges the joined text as a second view. A rule that approves a prefix the hook cannot fully read is the hole; patching the reader is the 4th variation.
-- **Mistake:** two live-proof folders were written under `bench/results/` on the belief that the directory is gitignored; only loose-file patterns were, so six files with user paths and session ids sat untracked in a public repo. -> `git check-ignore -v <new path>` right after creating anything under an "ignored" directory; a pattern list is not a directory ignore.
-- **Mistake:** the trailing-star live-proof fold quoted the denial reasons as if `permission_denials` held them (it holds only the commands; the reasons were the model's reply) and wrote "before any rule" when the log shows no rule-evaluation step. -> Cite only fields the artifact holds (print them first); an ordering claim needs a log line that shows the order, else say the log does not show it.
-
-## 2026-11-05 — G run folded (c38)
-- **Mistake:** the test-list extraction regex (`^\s*python -I`) matched zero CLAUDE.md lines because the commands are backticked mid-line, and the loop was started before its command count was checked; it "completed" with no test run. -> Print the extracted command count and compare it with the list's length before the loop starts, never after.
-- **Better:** the R-C2 bar (2 h of wall time) was unreachable by the fixture's 79-module cap; saying so before the run and asking for the ruling let the run count without rework. A bar that no allowed input can meet is a ruling to request, not a run to repeat.
-
+- **Avoid:** a 1-of-3 tally as the A/B result when every miss was a thrash exit, facts
+  gate or format line. -> Rule from the per-rep figures that move.
+- **Mistake:** a grader overruled from the rep's report; a stub built from the brief. ->
+  Read fixture and diff; stubs copy real records; per-rep figures come from a script.
+- **Mistake:** new scripts shipped without `lis-guard_test.py` (it scans every repo
+  script). -> Run the full CLAUDE.md test list; never hex-escape a guarded literal.
+## 2026-11-05 - S-B3 per-run hook copies: glob coverage (audit C1 rounds 2-3)
+- **Mistake:** the `lis-hooks-<x>` stamp modelled as free text denied `ls src/*.test.js`.
+  -> Give a glob model's free slot the real alphabet (`[0-9-]`).
+- **Better:** measure the simpler route (mirrored copies) against the old guard first.
+## 2026-11-05 - S-O3 user scope off, S-B4 inline code and session-written files (c32)
+- **Mistake:** assumed an edit keeps birthtime (Edit rewrites), missed NTFS tunneling
+  (recreate in 15 s keeps it). -> Measure the tool's write path; judge birth AND mtime.
+- **Mistake:** the run-target rule stat'ed before the command ran. -> Judge the command's
+  own writers and missing targets; walk every grouping form (`( )`, `{ }`, `bash -c`).
+- **Better:** for an excluded settings scope, read what it carried ("Adding N allow
+  rule(s) to destination 'userSettings'") and name every bench whose inputs change;
+  with user scope on a no-decision is allow in a rep, off it is deny in a lean `-p` run.
+## 2026-11-05 - Restart proofs, the harness's own warnings (c34)
+- **Mistake:** six `[WARN] [permissions]` lines sat in a proof's debug log for 18 h. ->
+  `[WARN]` grep every live proof's debug log before LANDED.
+- **Better:** prove a "next start" row from the restart's log lines (stop marker, pin,
+  hash reuse, vram, launch), not the first `/health` ok; state the measured order.
+- **Mistake:** a `core.pager` exploit written from a warning (no pager without a TTY);
+  `bench/results/` subfolders assumed ignored. -> Run it in a scratch repo first; run
+  `git check-ignore -v <new path>` right after creating anything there.
+- **Mistake:** denial reasons quoted from `permission_denials` (it holds commands); an
+  order claimed with no log line. -> Print fields first; no log line, no order claim.
+## 2026-11-05 - G run folded (c38)
+- **Better:** a bar no allowed input meets (2 h vs a 79-module cap): ask the ruling first.
 ## 2026-11-05/06 - web access in a container, lis-web port (c39, c40)
-- **Mistake:** the helper server ran in the session's cwd (tsx read the work tree's
-  `tsconfig.json`) and the Jarvis mount exposed private source. -> Pin paths, chdir
-  away; list what each mount exposes, by owner; the fix was a port into `web/`.
-- **Avoid:** counting a regex secret filter as a control; what the container mounts is.
-- **Better:** prove `host.docker.internal:8080` from inside a container before planning
-  host network changes; container runs take relative names for file flags.
-
+- **Mistake:** the helper server read the work tree's `tsconfig.json`; the Jarvis mount
+  exposed private source. -> Pin paths, chdir away; list each mount's exposure by owner.
+- **Better:** a regex secret filter is no control, the mounts are; prove
+  `host.docker.internal:8080` from a container first; file flags take relative names.
 ## 2026-11-07 - keys imported, keyed proofs (c43)
-- **Mistake:** tried `ls -la .env` to verify the import by key names; the classifier
-  denies every `.env*` read, names included. -> Verify a secret file through the
-  consumer's own output (the server's `keys present:` stderr line), never the file.
-- **Mistake:** wrote "exa then jina" from the prompt's order; the call log had jina
-  first (the model chose). -> Quote tool order from the call log, not the prompt.
-- **Better:** two sessions, three search calls, judged from JSON `subtype`,
-  `permission_denials`, the call log and the cleanup counts, never from the reply.
-
+- **Mistake:** `ls -la .env` (`.env*` reads are denied). -> Check `keys present:` stderr.
 ## 2026-11-07 - W-10 interactive run, first web read, closed window (c45, c46)
-- **Better:** an interactive run with no `-p` JSON is judged from the per-run home
-  (`.claude.json` counts, the MCP log, the absent transcript).
-- **Mistake:** "nothing from your profile" read as network-silent; a fresh home fetched
-  a 14.7 MB plugin marketplace. -> List what the tool itself fetches first.
-- **Avoid:** leaving a setup wizard's allow lines unread (`/auto-mode` wrote a blanket
-  allow against an existing soft_deny).
-- **Mistake:** briefed "five curl fetches" from memory (four ran, one denied); matched
-  "closed after /exit" to the wrong run; called S-B2 closed by a `defaultMode` pin
-  (Shift+Tab reached auto mode). -> Count from the transcript; pin the artifact to its
-  run folder; a default is not a lock, test the runtime toggle.
-- **Mistake:** the commit-message column check ran in the same command as the commit
-  and six 73-75 column lines shipped. -> A check gates (`&&` on its exit code).
-
+- **Mistake:** "nothing from your profile" read as network-silent (a fresh home fetched
+  14.7 MB) -> list what the tool fetches; a `defaultMode` pin called a lock -> test the
+  runtime toggle (Shift+Tab); an /exit matched to the wrong run -> pin to its folder.
+- **Avoid:** a setup wizard's allow lines left unread (`/auto-mode` wrote a blanket
+  allow against a soft_deny); a column check beside the commit -> gate it with `&&`.
 ## 2026-11-08 - engine research, upgrade held, PR 30966, isolation assessment (c48)
-- **Mistake:** `cd "$TMPDIR" 2>/dev/null || cd <scratch dir>` wrote a diff to whichever
-  directory won; the next `sed` on the scratch path failed. -> One absolute scratch
-  path per write, never a `cd` fallback chain.
-- **Better:** a research report marks every figure M (card, date, source) or E, names
-  the weaker arm of each comparison (the EXL3 blog's llama.cpp side ran Q3_K_M with a
-  separate draft, slower than this repo), computes the bandwidth ceiling before any
-  install, and states an upgrade's gain class first (fixes vs speed): told "fixes, no
-  IQ3_XXS decode gain", the operator HELD b12198 in one line.
-- **Avoid:** rating a boundary by its documented residuals alone; walk the host-side
-  surfaces too (every loopback port behind `host.docker.internal`, a real work dir).
-
+- **Mistake:** a `cd "$TMPDIR" || cd <scratch dir>` chain wrote a diff wherever it landed.
+  -> One absolute scratch path per write, never a `cd` fallback chain.
+- **Better:** a research report marks each figure M (card, date, source) or E, names
+  each comparison's weaker arm (EXL3 blog: Q3_K_M plus a separate draft), computes the
+  bandwidth ceiling first, states an upgrade's gain class (b12198: fixes, so HELD).
+- **Avoid:** rating a boundary by its documented residuals alone; walk the host side
+  (every loopback port behind `host.docker.internal`, a real work dir).
 ## 2026-11-08 - HF model survey, four files deleted, fallbacks verified (c49)
-- **Better:** a header-only read of each GGUF tensor table (no model loaded) exposed
-  what no card states: eight 1-bit tensors in the on-disk ISTA IQ3_XXS, none in the
-  default. Read the tensor table before ranking a file or blaming its weights.
-- **Mistake:** the aggregating script grouped tensors by a kind allow-list and dropped
-  `attn_k`/`attn_v`, so its summary could not show the claim it was meant to check.
-  -> Verify a derived claim with a per-item listing, never a second aggregate.
-- **Better:** delete with the consumers in mind: manifest pruned, `-VerifyModels` 4 of
-  4, tests green, doc rows keep their figures with "deleted <date>" in the file cell.
-
+- **Better:** read a GGUF's tensor table (header only) before ranking a file or blaming
+  its weights: it showed eight 1-bit tensors in the ISTA IQ3_XXS, none in the default.
+- **Mistake:** an aggregate grouped by a kind allow-list dropped `attn_k`/`attn_v`. ->
+  Verify a derived claim with a per-item listing, never a second aggregate.
+- **Better:** delete for consumers: manifest, `-VerifyModels`, tests, "deleted <date>".
 ## 2026-11-08 - model test 1 on the ISTA file, 16 ladder reps, bench (c51-c60)
-- **Mistake:** the "past 64K" rung was launched at the ladder's 81920 budget, which caps
-  the window at 65,536 (the rep peaked at 49,092); a side note caught it, and the
-  48-module rep at 131,072 did pass 64K. -> Prove a context axis from the transcript's
-  peak prompt tokens, never from the budget figure.
-- **Mistake:** a monitor filter on `relaunch` matched the wrapper banner on every poll,
-  and the first bench run went to `tail` with no saved log (standing rule 7). -> Test a
-  filter on the quiet state before arming it; `tee` every bench run, cite the logged one.
-- **Mistake:** one rep 6 percent past 64K for 15 short requests was reported as the
-  past-64K result; a side note called it thin, and the next reps reached 93K and 102K.
-  -> State a context axis as the token range covered and the requests past the line.
-- **Mistake:** the restart line handed to the operator did not say a console window
-  may appear and must stay open; it was closed twice and the server died with it, with
-  no exit line in the log. -> Name the window in the handed line; a stop with no
-  `llama-server exited` line means the wrapper was killed, not a crash.
-- **Avoid:** chaining ladder reps back to back against a task-started server: `run.ps1`
-  refuses when the server log changed in the last 10 s, so rep 3 never ran. Sleep 15 s
-  between reps when the server logs to file.
-- **Mistake:** c54 quoted `lines_removed` 96/89 as evidence of the default's facts
-  rewrites; it is the work tree's git diff count (`grade.py`), and the run log's
-  trust line prints `facts_retracted` under that same label. The "whole-file Write"
-  read from it was wrong too (the transcript has the opening Write and one Edit over
-  `NEXT m01`). -> Read the grader's definition (longrun.py docstring) before naming a
-  field as evidence, and check a write claim against the transcript's tool calls.
-- **Better:** the fixture key is a function of the server identity: same key within a
-  series = same fixture, differing keys across models is by design. Check
-  `rep_key_inputs` in run.ps1 (and compare `fixture_sha256`) before calling a
-  cross-model comparison unfair.
-- **Mistake (model test 2 brief):** a strict-survival tally mixed rungs (one file's
-  count over both rungs against another's over one). -> Tally compaction boundaries
-  per rung, and say when a boundary falls outside the axis (`axis_exercised` false).
-- **Mistake:** compared ladder series across client and grader versions as if
-  like-for-like (c57 reading). -> Read `claude_version` and `bar_v` from every
-  .meta.json in a comparison before writing a table; a baseline older than the
-  current grader is history, not a comparator.
+- **Mistake:** the "past 64K" rung ran at the 81920 budget (window 65,536, peak 49,092);
+  one rep 6 percent past 64K for 15 requests was called the result. -> Prove a context
+  axis from transcript peak prompt tokens; state the range and the requests past it.
+- **Mistake:** a restart line omitted that its console window must stay open (closed
+  twice). -> Name it; no `llama-server exited` line = the wrapper was killed, no crash.
+- **Avoid:** back-to-back reps on a task-started server: `run.ps1` refuses when the
+  server log changed in the last 10 s. Sleep 15 s between reps.
+- **Mistake:** `lines_removed` 96/89 cited as facts rewrites (it is the git diff count;
+  the trust line prints `facts_retracted` under that label); a "whole-file Write" claimed
+  (one Write, one Edit). -> Read the grader's definition; check the transcript's calls.
+- **Better:** the fixture key derives from the server identity; check `rep_key_inputs`
+  in run.ps1 and `fixture_sha256` before calling a cross-model comparison unfair.
+- **Mistake:** a strict-survival tally mixed rungs; series across client and grader
+  versions compared as like-for-like. -> Tally per rung (say if `axis_exercised` is
+  false); read `claude_version` and `bar_v` in every .meta.json; old baselines = history.
 - **Better:** a default switch keeps the predecessor as a named fallback with its own
-  measured rules (KV, MTP) instead of folding them into "the default" (c60:
-  `$fallbackModel` in serve.ps1, q4_0 KV and MTP at 65536 keyed on it).
-
+  measured rules (c60: `$fallbackModel` in serve.ps1, q4_0 KV and MTP at 65536).
 ## 2026-11-08 - default switch to the ISTA GSQ-RCO file (ruling (c))
-- **Mistake:** a table-row edit holding Windows paths went through a Bash heredoc
-  into Python; Python warned on `\q` escapes. The result happened to be right, by
-  luck. -> Any replacement text with a backslash goes through the Edit tool.
-- **Better:** `install_verify_test.py` already cross-checks the manifest `default`
-  flag against the serve.ps1 `-Model` default; run it after any default change.
-- **Mistake:** the ruling text and the plain-language recommendation to the operator
-  never stated that the ISTA file is the STOCK (not abliterated) model while the ruled
-  default is abliterated; the operator asked and reverted the same day. -> List every
-  property of the current default that the candidate does not share, before
-  recommending a switch. Also: the chat offered options (a)(b)(c) that differed from
-  the ROADMAP's lettered options; the operator's letter must never be copied into a
-  doc whose letters mean something else.
-
-## 2026-11-09 - icon proof, -LisStartServer (W-17), down-path proof (c64-c66)
-- **Better:** a launcher that starts a server must run AFTER every launcher refusal
-  (so a refused launch starts nothing) and BEFORE any per-start secret is read
-  (serve.ps1 rewrites the key at each start). The audit caught the first ordering;
-  a static call-order test (call position < key-read position, per path) now pins it
-  and goes red on moved or deleted calls, with no live server needed.
-- **Mistake:** a Bash heredoc patch of a Python fold script failed on quoting; the
-  retry as a Write'd script worked first time. -> Scripts and any text with quotes or
-  backslashes go through Write, never a heredoc or inline `python -c`.
-- **Avoid:** blaming an agent for a stopped server before reading the evidence: the
-  PSReadLine history (last line `stop.ps1`, written 00:43:35) showed the operator's
-  console did it. Check history/log timestamps first, then ask.
-- **Avoid:** `sed -n` in a Bash command that also runs git; the hook refuses any `-n`
-  next to git. Use awk ranges instead.
-- **Mistake:** the Gemma fit estimate counted the card's 17.18 GB; the server only ever
-  sees 13.5 to 14.2 GB free on this desktop, and the pinned build's `--fit on` holds a
-  further 1,024 MiB back. -> Budget = the `vram free` line serve.ps1 logs at start minus
-  the fit margin; read it before estimating, and judge a fit by a decode probe plus the
-  process's private RAM, never by the load succeeding.
-- **Avoid:** leaving a bench running across a server swap; it benches whatever answers
-  on 8080. Stop the bench task first, then ask for the swap.
-- **Better:** a trial via serve.ps1 clears the stop marker, so the watchdog relaunches
-  the default about three minutes after the trial window closes (three failed 60 s
-  polls; logs/watchdog.log is the proof, not the task's LastRunTime). Verify the model
-  path from /props after every swap: a bare health check said nothing when the default
-  came back, and "within seconds" was a guess until the watchdog log was read.
+- **Better:** run `install_verify_test.py` after any default change (it cross-checks the
+  manifest `default` flag against the serve.ps1 `-Model` default).
+- **Mistake:** the recommendation never said the ISTA file is STOCK, the ruled default
+  abliterated; the operator reverted the same day. -> List every property the candidate
+  lacks first; never copy a chat's option letter into a doc whose letters differ.
+## 2026-11-09 - icon proof, W-17, Gemma trial, trims, shortcut window (c64-c71)
+- **Better:** a server-starting launcher runs AFTER every refusal, BEFORE any per-start
+  secret read (serve.ps1 rewrites the key); a static call-order test pins it, no server.
+- **Avoid:** blaming an agent for a stopped server: PSReadLine history (last line
+  `stop.ps1`, 00:43:35) showed the operator's console. Check timestamps first, then ask.
+- **Avoid:** a bench left across a server swap benches whatever answers on 8080: stop it.
+- **Better:** a serve.ps1 trial clears the stop marker, so the watchdog relaunches the
+  default ~3 min after the window (three failed 60 s polls; logs/watchdog.log is the
+  proof, not LastRunTime). Verify the model path from /props after every swap.
+- **Mistake:** wrote "relaunches within seconds" from one sighting; the log said three
+  minutes. -> A timing claim names the log line that measures it, or says UNVERIFIED.
+- **Better:** `wt.exe` opens a tab in whichever Windows Terminal window is already
+  open, so a shortcut session can land beside another and look like a different
+  terminal; `-w new` gives it its own window. Read the process parent before guessing.

@@ -319,10 +319,14 @@ Get-ChildItem $env:TEMP -Filter lis-web-*.env
   prompt was sent. The first interactive tool call ran 2026-11-07 16:13 (web-access.md
   "Proof"; ledger W-13, W-14).
 - Desktop shortcut (operator, 2026-11-07, works): target
-  `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe`, arguments `-d <workdir> pwsh
+  `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe`, arguments `-w new -d <workdir> pwsh
   -NoProfile -File <repo>\scripts\claude-local.ps1 -LisWeb -LisTerminal -LisStartServer
   -LisTask edit --permission-mode acceptEdits`, start in `<workdir>` (an empty directory
-  outside the profile). `-LisStartServer` starts the server's scheduled task when
+  outside the profile). `-w new` (added 2026-11-09 18:40) gives the session its own
+  Windows Terminal window; without it `wt.exe` adds a tab to whichever Windows Terminal
+  window is already open (the 18:35 launch landed as a tab beside another session,
+  which looked like a different terminal). `-LisStartServer` starts the server's
+  scheduled task when
   `/health` is not ok and waits up to 180 s for it (proven 2026-11-09 01:10 against a
   stopped server: started, served and answered in 21 s wall).
   Windows Terminal gives the font size; a bare `pwsh.exe` target opens

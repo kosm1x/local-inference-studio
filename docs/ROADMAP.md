@@ -528,7 +528,7 @@ Batches (IDs in the ledger):
   `/props` then showed the default file at n_ctx 131072 and the task State Running
   (run folder `logs\web-20261109-011012-49848`). The timeout, absent-task and
   disabled-task throws remain UNVERIFIED. Ledger 42 LANDED, 6 BUILT, 13 OPEN of 61.
-  Persistent web state (W-18, BUILT 2026-11-09): the fresh per-run home lost every
+  Persistent web state (W-18, LANDED 2026-11-09): the fresh per-run home lost every
   transcript at the end of a run, so `--continue`, `--resume` and `/resume` found
   nothing. `-LisKeepState` (host only, with `-LisWeb`) mounts
   `<repo>\logs\web-state\<key>\projects` and `history.jsonl` read-write inside the
@@ -536,9 +536,13 @@ Batches (IDs in the ledger):
   of the path's SHA-1); the policy files stay fresh per run. The desktop shortcut
   carries the switch (added 2026-11-09 19:15). Residual: transcripts and auto-memory
   carry injected content from one run to the next (auto-memory persistence UNVERIFIED:
-  `Edit(~/.claude/**)` is under ask). Proof pending: two `-p` runs from the same work
-  directory, the second with `--continue`, where the second reports the first run's
-  session id. Ledger 42 LANDED, 7 BUILT, 13 OPEN of 62.
+  `Edit(~/.claude/**)` is under ask). PROOF 2026-11-09 19:27: two `-p` runs from an
+  empty work directory, the second with `--continue`, reported the same session id
+  and the second answered with the first run's word (12 s and 6 s wall); the
+  transcript sits in the state directory, so the nested mount and the in-place
+  append hold. Still UNVERIFIED: the prompt-history write (`-p` runs leave
+  `history.jsonl` at 0 bytes) and auto-memory. Ledger 43 LANDED, 6 BUILT, 13 OPEN
+  of 62.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

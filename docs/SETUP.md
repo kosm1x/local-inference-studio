@@ -1471,8 +1471,9 @@ about 10 s, the session answered in 21 s wall; run folder
 2026-11-09, ledger W-18): web sessions keep their transcripts and prompt history
 across runs in `<repo>\logs\web-state\<key>\` (one per work directory: the leaf name
 plus 8 hex digits of the path's SHA-1), mounted at `/home/lis/.claude/projects` and
-`/home/lis/.claude/history.jsonl`, so `--continue`, `--resume` and `/resume` should
-find the earlier runs (UNVERIFIED until the live proof); the policy files stay fresh
+`/home/lis/.claude/history.jsonl`, so `--continue`, `--resume` and `/resume` find
+the earlier runs (proven 2026-11-09 19:27 with two `-p` runs; the prompt-history
+write is UNVERIFIED until an interactive run); the policy files stay fresh
 per run (docs/web-access.md). Success:
 Claude Code answers and the server log shows the requests. A
 `[claude-code:unrecognized_model] {"model":"local"}` line is harmless.

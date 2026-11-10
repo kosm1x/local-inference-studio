@@ -164,7 +164,8 @@ fifth and sixth only with `-LisKeepState`):
   file` in place of `swept` when the file is still there (locked). Accepted residual:
   a pid reused by an unrelated process leaves its stale file in place until a launch
   after that process ends. The exit code is the container's.
-- `-LisKeepState` (built 2026-11-09, host only, with `-LisWeb`; ledger W-18): the
+- `-LisKeepState` (built and proven 2026-11-09, host only, with `-LisWeb`; ledger
+  W-18): the
   fresh home loses every transcript at the end of the run, so `--continue`,
   `--resume` and `/resume` found nothing. With the switch the launcher keeps one state
   directory per work directory, `<repo>\logs\web-state\<key>\`, where `<key>` is the
@@ -181,12 +182,16 @@ fifth and sixth only with `-LisKeepState`):
   (the `.claude.json` seed, the settings and hook copies) stays fresh per run, so no
   policy file carries over. The project key inside the container is always `/work`,
   so the resume flags should find the earlier runs of the same work directory. The
-  banner gains `state=<state dir>;` before `work=`. UNVERIFIED until the live proof:
-  that docker orders the bind mounts by target depth (the nested mounts land inside
-  the fresh home), that the resume flags find the mounted transcripts, and that
-  claude writes `history.jsonl` in place (a file bind mount cannot be replaced by a
-  rename). Auto-memory persistence is UNVERIFIED too: `config/claude-settings.json`
-  puts `Edit(~/.claude/**)` under ask, which maps to `//home/lis/.claude/**` in the
+  banner gains `state=<state dir>;` before `work=`. Proven 2026-11-09 19:27 (ledger
+  W-18): two `-p` runs from an empty work directory, the second with `--continue`,
+  reported one session id and the second answered with the first run's word, and the
+  transcript sits in the state directory, 113,654 bytes after both runs, so docker
+  orders the bind mounts by target depth and the second run appended in place. Still
+  UNVERIFIED: the prompt-history write (`history.jsonl` stayed at 0 bytes; `-p` runs
+  write no history, and a file bind mount cannot be replaced by a rename), to be
+  read after the first interactive run. Auto-memory persistence is UNVERIFIED too:
+  `config/claude-settings.json` puts `Edit(~/.claude/**)` under ask, which maps to
+  `//home/lis/.claude/**` in the
   container, so model-tool writes under `projects/-work/memory/` are refused in `-p`
   runs and prompt in terminal runs. Transcripts and history do not go through that
   rule (claude writes them itself). Refused without `-LisWeb` and inside the container.

@@ -141,9 +141,10 @@
   run: the .claude.json seed, the settings and the hook copies, so no policy file
   carries over. The project key inside the container is always /work, so --continue,
   --resume <id> and /resume then find the earlier runs of the same work directory.
-  UNVERIFIED until the live proof: that docker orders the bind mounts by target depth,
-  so the two nested mounts land inside the fresh home; that the resume flags find the
-  mounted transcripts; and that claude writes history.jsonl in place (a file bind mount
+  Proven 2026-11-09 19:27 (ledger W-18, two -p runs, the second with --continue): the
+  nested mounts land inside the fresh home, the resume flags find the mounted
+  transcript and the second run appends to it in place. UNVERIFIED: the history.jsonl
+  write (0 bytes after -p runs, which write no prompt history; a file bind mount
   cannot be replaced by a rename). Auto-memory persistence is UNVERIFIED as well:
   config/claude-settings.json puts Edit(~/.claude/**) under ask, which maps to
   //home/lis/.claude/** in the container, so model-tool writes under

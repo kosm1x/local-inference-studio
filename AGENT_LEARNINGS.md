@@ -154,3 +154,11 @@
 - **Better:** `wt.exe` opens a tab in whichever Windows Terminal window is already
   open, so a shortcut session can land beside another and look like a different
   terminal; `-w new` gives it its own window. Read the process parent before guessing.
+- **Mistake:** a builder brief said "the shortcut carries the switch" and the subagent
+  wrote it as fact before the .lnk was edited; qa-auditor read the live file. -> A doc
+  claim about an operator artifact (shortcut, task, config) is written after the
+  artifact is read back, with its time stamp.
+- **Better:** the W-18 live proof needed two `-p` runs from an empty work directory
+  (12 s + 6 s on the shared GPU): a `--continue` run that reports the first run's
+  session id and answers from its turn proves the mount, the resume and the append in
+  one shot; `-p` runs leave `history.jsonl` empty, so that claim stays UNVERIFIED.

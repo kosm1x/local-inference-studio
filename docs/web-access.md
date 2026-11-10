@@ -334,6 +334,23 @@ UNVERIFIED too: no document in this repo shows it (the changelog line S-O3 relie
 says only that a settings file excluded with `--setting-sources` no longer supplies
 auto mode rules), and claude was not run to find out.
 
+Measured 2026-11-09 (ledger W-19): in a web session in auto mode the classifier denied
+every loopback POST curl with a JSON body (8 of 8, `curl -X POST
+http://localhost:3000/... -d '{...}'`), while GET curls to the same host passed, so
+the model wrote test scripts to files to exercise its own server. Inside the lis-web
+container only (LIS_CONTAINER=1); host sessions unchanged. There lis-guard now gives
+an explicit allow (`lis-guard: loopback curl`) for a curl whose every URL is
+loopback, with inline data (`-d`, `--data`, `--data-raw`, `--data-binary`, `--json`;
+a value starting with `@` is not inline), `-w`/`--write-out` only with a brace-free
+value (the existing scan denies any brace in `-w`), no `-L` on this allow (the old
+read-only GET allow keeps it), no file, credential, proxy, resolve or socket option
+and no shell redirect to a file, so the classifier is not consulted for it.
+Non-loopback uploads still deny; everything else is unchanged.
+A URL with an `@` or a backslash before its first `/` is never loopback now (Windows
+curl ends the host at a backslash, so `http://evil.com\@127.0.0.1/` went to evil.com
+while the hook read it as loopback); that closes the same hole in the existing GET
+allow. The live effect is UNVERIFIED until the next web session.
+
 ### B3, the session can edit its guard scripts, `serve.ps1` and `bin/`: closed
 
 The repo is mounted read-only at `/lis`, and the lis-web server under `/opt/lis-web` is

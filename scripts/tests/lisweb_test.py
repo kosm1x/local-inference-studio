@@ -1089,13 +1089,14 @@ def test_keep_state(root, stub_dir):
     with open(WRAPPER, encoding='utf-8') as f:
         doc = ' '.join(f.read().split('#>', 1)[0].split())
     check('keep-state: the docstring documents the switch, the key rule, the fresh policy, '
-          'the residual and the UNVERIFIED nested-mount order',
+          'the residual and the W-18 proof with its UNVERIFIED history write',
           '-LisKeepState (host only, with -LisWeb; ledger W-18)' in doc
           and 'first 8 hex digits of the SHA-1 of the full work path' in doc
           and 'so no policy file carries over' in doc
           and 'content a web page injected into one session can reach the next one' in doc
-          and 'UNVERIFIED until the live proof: that docker orders the bind mounts by target '
-              'depth' in doc, '')
+          and 'Proven 2026-11-09 19:27 (ledger W-18, two -p runs, the second with '
+              '--continue)' in doc
+          and 'UNVERIFIED: the history.jsonl write' in doc, '')
 
 
 def test_host_auto(root, stub_dir):

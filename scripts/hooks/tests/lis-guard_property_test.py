@@ -812,6 +812,7 @@ def tables_match(ck):
 
 def main():
     set_start(None)                     # hermetic: only (viii) sets it (ledger S-B4)
+    os.environ.pop(g.CONTAINER_ENV, None)   # hermetic: host behaviour (W-19 gate)
     rng = random.Random(SEED)
     ck = Checker()
     t0 = time.perf_counter()

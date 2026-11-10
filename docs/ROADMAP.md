@@ -543,6 +543,21 @@ Batches (IDs in the ledger):
   append hold. Still UNVERIFIED: the prompt-history write (`-p` runs leave
   `history.jsonl` at 0 bytes) and auto-memory. Ledger 43 LANDED, 6 BUILT, 13 OPEN
   of 62.
+  Loopback curl allow (W-19, BUILT 2026-11-09): in a 2026-11-09 web session in auto
+  mode the classifier denied every loopback POST curl with a JSON body (8 of 8; GETs
+  passed), since lis-guard gave no decision on them. Inside the lis-web container
+  only (LIS_CONTAINER=1); host sessions unchanged. There lis-guard now allows a curl
+  whose every URL is loopback, with inline data only, `-w` only with a brace-free
+  value (the existing scan denies any brace in `-w`), no `-L` on this allow (the old
+  read-only GET allow keeps it), no file, credential, proxy, resolve or socket option
+  and no shell redirect to a file (reason `lis-guard: loopback curl`); non-loopback
+  uploads still deny and everything else is unchanged. Also closed a pre-existing
+  host-parsing hole in `_url_host`: a URL with an `@` or a backslash before its first
+  `/` is never loopback, so `http://evil.com\@127.0.0.1/` (which Windows curl sends to
+  evil.com) no longer passes the read-only GET allow. lis-guard_test 2924/2924 (2842
+  before).
+  UNVERIFIED live until a loopback POST curl is allowed in the next `-LisWeb` auto
+  session. Ledger 43 LANDED, 7 BUILT, 13 OPEN of 63.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

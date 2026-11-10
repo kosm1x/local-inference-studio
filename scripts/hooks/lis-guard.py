@@ -1974,8 +1974,11 @@ def _url_host(u):
     if not m:
         return None
     auth = m.group(1)
-    if '@' in auth:
-        auth = auth.rsplit('@', 1)[1]
+    # an @ or a backslash before the first / -> None, never loopback: Windows curl ends the
+    # host at a backslash (http://evil.com\@127.0.0.1/ goes to evil.com), a ? or # can hide
+    # an @ from the parse above (http://127.0.0.1#@evil.com/), and userinfo has no loopback use
+    if re.search(r'[@\\]', u[m.start(1):].split('/', 1)[0]):
+        return None
     if auth.startswith('['):
         return auth[1:auth.find(']')].lower() if ']' in auth else auth[1:].lower()
     return auth.split(':', 1)[0].lower()
@@ -2017,6 +2020,54 @@ def curl_ok(args):
             return False
         url_seen = True
     return url_seen
+
+
+_LB_BOOL = set('sSiIfkvq')              # no -L: a loopback server could redirect the body off-host
+_LB_SHORT = {'X': 'x', 'H': 'h', 'm': 'm', 'w': 'w', 'd': 'd'}
+_LB_LONG_BOOL = {'--silent', '--show-error', '--include', '--head', '--fail',
+                 '--insecure', '--verbose'}
+_LB_LONG = {'--request': 'x', '--header': 'h', '--max-time': 'm', '--write-out': 'w',
+            '--data': 'd', '--data-raw': 'd', '--data-binary': 'd', '--json': 'd'}
+
+
+def curl_loopback_ok(args):
+    """W-19 (lis-web container only, see decide_text): curl with any method and inline
+    data to loopback URLs only. Auto mode denied
+    every loopback POST curl with a JSON body; a loopback request with inline data cannot
+    exfiltrate. Options only from the sets above (no file, credential, proxy, resolve or
+    socket option); a -d/--data*/--json, -H or -w value starting with @ reads a file -> no."""
+    i, urls = 0, 0
+    while i < len(args):
+        t = args[i]
+        i += 1
+        if t.startswith('--'):
+            name, eq, val = t.partition('=')
+            if name in _LB_LONG_BOOL and not eq:
+                continue
+            kind = _LB_LONG.get(name)
+        elif t.startswith('-') and len(t) > 1:
+            k = 1
+            while k < len(t) and t[k] in _LB_BOOL:
+                k += 1
+            if k == len(t):
+                continue
+            kind, val, eq = _LB_SHORT.get(t[k]), t[k + 1:], t[k + 1:]
+        else:
+            host = re.sub(r'^([a-zA-Z]+://)\[[0-9a-fA-F:.]+\]', r'\1', t)
+            if not re.match(r'(?i)https?://', t) or re.search(r'[{}\[\]]', host):
+                return False                # a non-http word or a curl URL glob
+            urls += 1
+            continue
+        if not kind:
+            return False
+        if not eq:
+            if i >= len(args):
+                return False
+            val = args[i]
+            i += 1
+        if kind in 'dhw' and val.startswith('@'):
+            return False
+    return urls > 0 and loopback_only(args)
 
 
 def flags_ok(a, flags, valued):
@@ -2079,7 +2130,7 @@ def shell_expands(s):
     return False
 
 
-def seg_readonly(seg, ctx, depth):
+def seg_readonly(seg, ctx, depth, curl_lb=False):
     if ctx == 'ps':
         return ps_readonly(seg)
     # Any shell expansion means the shell rewrites the segment after the hook reads it: a
@@ -2142,7 +2193,7 @@ def seg_readonly(seg, ctx, depth):
     if v == 'docker':
         return bool(a) and (a[0] in ('version', 'ps', 'images', 'info', '--version') or a[:2] == ['context', 'ls'])
     if v == 'curl':
-        return curl_ok(a)
+        return curl_ok(a) or (curl_lb and curl_loopback_ok(a))
     if v == 'wsl':
         return bool(a) and all(x in ('--list', '-l', '--verbose', '-v', '--status', '--version',
                                     '--running', '--quiet', '-q', '--online', '-o', '--all') for x in a)
@@ -2542,6 +2593,7 @@ def cwd_moves(cmd, cwd):
 # same command, or not on disk yet is denied; with the variable unset or malformed the
 # rule gives no decision, never a deny on a guess.
 SESSION_START_ENV = 'LIS_SESSION_START'
+CONTAINER_ENV = 'LIS_CONTAINER'         # '1' = the lis-web image's marker (W-19 gate)
 INLINE_REASON = ('lis-guard: {}: inline code is not run in this session; write it to a file under '
                  'the working directory for review, or use the task\'s existing test command.')
 WRITE_RUN_REASON = ('lis-guard: {} was created or modified in this session (its birth or '
@@ -3048,6 +3100,13 @@ def decide_text(cmd, cwd=None):
         return None                         # a UNC cwd: every relative path is a network path (A13 W2)
     if scripts_ok and ascii_ok and not allow_stop(cmd) and all(seg_readonly(s, 'local', 0) for s in others):
         return 'allow', 'lis-guard: read-only command'
+    # W-19: the classifier denied loopback POST curls; a loopback request with inline data
+    # cannot exfiltrate, so it is allowed here and the classifier is not consulted. Inside
+    # the lis-web container only (LIS_CONTAINER=1), where loopback holds only servers the
+    # model started; host sessions unchanged (host loopback is the whole workstation)
+    if (os.environ.get(CONTAINER_ENV, '') == '1' and scripts_ok and ascii_ok and not allow_stop(cmd)
+            and all(seg_readonly(s, 'local', 0, True) for s in others)):
+        return 'allow', 'lis-guard: loopback curl'
     return None
 
 

@@ -224,5 +224,7 @@
 - **Avoid:** leaving a bench running across a server swap; it benches whatever answers
   on 8080. Stop the bench task first, then ask for the swap.
 - **Better:** a trial via serve.ps1 clears the stop marker, so the watchdog relaunches
-  the default seconds after the trial window closes. Verify the model path from /props
-  after every swap; the health check alone said nothing when the default came back.
+  the default about three minutes after the trial window closes (three failed 60 s
+  polls; logs/watchdog.log is the proof, not the task's LastRunTime). Verify the model
+  path from /props after every swap: a bare health check said nothing when the default
+  came back, and "within seconds" was a guess until the watchdog log was read.

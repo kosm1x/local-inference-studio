@@ -655,8 +655,10 @@ Phase 3d loop fixture passed every contender it ran and cannot separate them):
    listed alternative in config/models.md. Two lessons: the fit estimate must start
    from the free VRAM serve.ps1 logs at start (13.5 to 14.2 GB here, not the card's
    17.18) minus the build's 1,024 MiB `--fit` margin; and a trial started through
-   serve.ps1 clears the stop marker, so the watchdog relaunches the default within
-   seconds of the trial window closing (seen 17:58), which doubles as the restore.
+   serve.ps1 clears the stop marker, so the watchdog (60 s polls, a restart after the
+   third failure, 3 an hour) relaunches the default about three minutes after the
+   trial window closes (watchdog.log 17:57:05, listening 17:59), a restore for free;
+   `Start-ScheduledTask` right after the Ctrl+C only shortens the wait.
    Cost of adopting it at 81920: the wrapper's `-LisContextTokens` default (114688, a
    margin under the server's 131072) would drop to about 71680 and every session
    would compact earlier; the alternative, i1-IQ2_M (10.92 GB) at 131072, is a 2-bit

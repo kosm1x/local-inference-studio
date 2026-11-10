@@ -644,8 +644,19 @@ Phase 3d loop fixture passed every contender it ran and cannot separate them):
    ARA (figures in config/models.md). Estimate: 16.5 to 17.1 GB at 131072 with q4_0
    KV, so the first run measures the fit and falls back to -Ctx 81920; bench and loop
    through `scripts/serve.ps1 -Model ... -KvType q4_0` (the embedded Gemma template,
-   no patched file). Bench pending: the server swap is operator-run. A spill to the
-   CPU makes the decode figure incomparable (the 26B-A4B and Q3_K_XL rows show it).
+   no patched file). RESULT 2026-11-09 (operator-run swap, four loads 17:48 to 18:09):
+   131072 spills to the CPU at 13.5 and at 15.0 GB free (13.2 and 13.9 tok/s probes);
+   81920 with `-ExtraArgLine '--fit-target 512'` and the desktop cleared to 14.8 GB
+   free runs all-GPU at 40.65 tok/s decode, 1,345 tok/s prefill, tools 20 of 20, VRAM
+   peak 15,713 MB (bench 20261109-181211); loop 3 of 3 PASS, median 9 turns, 48.3 s,
+   2 Edit calls without old_string in 3 runs (loop 20261109-181235, lis-ctx 71680).
+   Against the default (48.64 tok/s, 1,697 tok/s, 8 turns, 39.5 s, 0 format errors,
+   131072): slower on every axis and 38 % less context, so NOT ADOPTED; it stays a
+   listed alternative in config/models.md. Two lessons: the fit estimate must start
+   from the free VRAM serve.ps1 logs at start (13.5 to 14.2 GB here, not the card's
+   17.18) minus the build's 1,024 MiB `--fit` margin; and a trial started through
+   serve.ps1 clears the stop marker, so the watchdog relaunches the default within
+   seconds of the trial window closing (seen 17:58), which doubles as the restore.
    Cost of adopting it at 81920: the wrapper's `-LisContextTokens` default (114688, a
    margin under the server's 131072) would drop to about 71680 and every session
    would compact earlier; the alternative, i1-IQ2_M (10.92 GB) at 131072, is a 2-bit

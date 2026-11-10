@@ -216,3 +216,13 @@
   console did it. Check history/log timestamps first, then ask.
 - **Avoid:** `sed -n` in a Bash command that also runs git; the hook refuses any `-n`
   next to git. Use awk ranges instead.
+- **Mistake:** the Gemma fit estimate counted the card's 17.18 GB; the server only ever
+  sees 13.5 to 14.2 GB free on this desktop, and the pinned build's `--fit on` holds a
+  further 1,024 MiB back. -> Budget = the `vram free` line serve.ps1 logs at start minus
+  the fit margin; read it before estimating, and judge a fit by a decode probe plus the
+  process's private RAM, never by the load succeeding.
+- **Avoid:** leaving a bench running across a server swap; it benches whatever answers
+  on 8080. Stop the bench task first, then ask for the swap.
+- **Better:** a trial via serve.ps1 clears the stop marker, so the watchdog relaunches
+  the default seconds after the trial window closes. Verify the model path from /props
+  after every swap; the health check alone said nothing when the default came back.

@@ -51,8 +51,10 @@
   the image pins). It throws when the image is missing (`docker image inspect` fails),
   naming that build line, and otherwise runs `docker run --rm --init --name
   lis-web-<stamp> --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 512
-  --memory 6g --tmpfs /tmp --user lis -w /work --env-file <temp root>/lis-web-<stamp>.env`,
-  plus -i only when stdin is not a terminal (a -p run with piped stdin) and -t only with
+  --memory 6g --tmpfs /tmp:exec --user lis -w /work --env-file
+  <temp root>/lis-web-<stamp>.env` (/tmp is executable because the model installs tools
+  there, ledger W-24; it stays nosuid,nodev, verified 2026-11-10, and no-new-privileges
+  holds), plus -i only when stdin is not a terminal (a -p run with piped stdin) and -t only with
   -LisTerminal (-it, below), with
   these --mount type=bind entries and no other: this repo read-only at /lis; when
   <repo>\.env exists, the zero-byte file <per-run dir>\empty read-only at /lis/.env (so
@@ -859,7 +861,7 @@ if ($LisWeb -and -not $inContainer) {
     # forwards signals.
     $dockerArgs = @('run', '--rm') + @(if ($LisTerminal) { '-it' } elseif ([Console]::IsInputRedirected) { '-i' }) + @(
         '--init', '--name', $container, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
-        '--pids-limit', '512', '--memory', '6g', '--tmpfs', '/tmp', '--user', 'lis', '-w', '/work',
+        '--pids-limit', '512', '--memory', '6g', '--tmpfs', '/tmp:exec', '--user', 'lis', '-w', '/work',
         '--env-file', $envFile) +
         @($mountArgs) + @($lisWebImage, 'pwsh', '-NoProfile', '-File', '/lis/scripts/claude-local.ps1',
         '-LisWeb') + @($innerArgs)

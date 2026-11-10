@@ -72,7 +72,7 @@ internet, with the least new surface.
 
 ```text
 docker run --rm --init --name lis-web-<stamp> --cap-drop ALL
-  --security-opt no-new-privileges:true --pids-limit 512 --memory 6g --tmpfs /tmp
+  --security-opt no-new-privileges:true --pids-limit 512 --memory 6g --tmpfs /tmp:exec
   --user lis -w /work --env-file <per-run env file> <mounts> lis-web:2.1.318
   pwsh -NoProfile -File /lis/scripts/claude-local.ps1 -LisWeb <args>
 ```

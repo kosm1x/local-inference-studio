@@ -530,8 +530,8 @@ def want_docker(lis, work, name, run_dir, inner, tty='-i', overlay=False, state=
     for src, dst, ro in mounts:
         flat += ['--mount', f'type=bind,source={src},target={dst}' + (',readonly' if ro else '')]
     return (['run', '--rm', tty, '--init', '--name', name, '--cap-drop', 'ALL', '--security-opt',
-             'no-new-privileges:true', '--pids-limit', '512', '--memory', '6g', '--tmpfs', '/tmp',
-             '--user', 'lis', '-w', '/work', '--env-file', env_file_path(name)] + flat
+             'no-new-privileges:true', '--pids-limit', '512', '--memory', '6g', '--tmpfs',
+             '/tmp:exec', '--user', 'lis', '-w', '/work', '--env-file', env_file_path(name)] + flat
             + [image_tag(), 'pwsh', '-NoProfile', '-File', '/lis/scripts/claude-local.ps1',
                '-LisWeb'] + inner)
 

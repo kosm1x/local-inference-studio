@@ -3,8 +3,10 @@
 Rule, per session: keep the last WINDOW counted calls as hashes of (tool_name, canonical
 JSON of tool_input). An incoming call identical to >= THRESHOLD of them is denied; the
 first and second repeat always pass. Write/Edit/MultiEdit/NotebookEdit are never counted
-or denied; a mutation that differs from the previous one clears the window, because a
-re-read or a re-run test after a change is not a loop. A Bash/PowerShell command with a
+in the window; a mutation that differs from the previous one clears the window, because a
+re-read or a re-run test after a change is not a loop. A mutation identical to the
+previous two mutations (the third in a row; other calls in between do not break the run)
+is denied: it usually changes nothing on disk. A Bash/PowerShell command with a
 wait word at command position (sleep, until, timeout, Start-Sleep, Wait-Process,
 Wait-Job, Wait-Event) is a poll whose result changes with time, as is a POLL_TOOLS call:
 never counted or denied. A denied call is not added to the window, so a loop stays
@@ -54,7 +56,7 @@ def call_hash(tool_name, tool_input):
 
 
 def fresh():
-    return {'calls': [], 'denied': {}, 'last_mut': None}
+    return {'calls': [], 'denied': {}, 'last_mut': None, 'mut_repeat': 0}
 
 
 def load(path):
@@ -70,6 +72,10 @@ def load(path):
             and all(isinstance(v, int) for v in s['denied'].values())):
         return fresh()
     s.setdefault('last_mut', None)
+    s.setdefault('mut_repeat', 0)
+    r = s['mut_repeat']
+    if not (isinstance(r, int) and not isinstance(r, bool) and r >= 0):
+        return fresh()
     s['calls'] = s['calls'][-WINDOW:]
     return s
 
@@ -87,6 +93,15 @@ def reason(tool_name, n, denials):
             'set, say so instead of retrying a substitute.')
 
 
+def mut_reason(tool_name, tool_input, n):
+    path = tool_input.get('file_path') or tool_input.get('notebook_path')
+    target = path if isinstance(path, str) and path else 'the same input'
+    return (f'loop guard: this {tool_name} of {target} is identical to the previous {n} '
+            'Write/Edit calls. If another tool changed the file since, write different '
+            'content or use that tool; otherwise the file already has this content: stop '
+            'and continue with the next step.')
+
+
 def step(state, tool_name, tool_input):
     """Pure rule: returns (decision or None, new state). decision = (kind, reason)."""
     cmd = tool_input.get('command')
@@ -95,18 +110,25 @@ def step(state, tool_name, tool_input):
         return None, state
     h = call_hash(tool_name, tool_input)
     calls, denied = list(state['calls']), dict(state['denied'])
+    rep = state.get('mut_repeat', 0)
     if tool_name in MUTATION_TOOLS:
         if h != state.get('last_mut'):
-            calls, denied = [], {}
-        return None, {'calls': calls, 'denied': denied, 'last_mut': h}
+            calls, denied, rep = [], {}, -1
+        rep += 1
+        new = {'calls': calls, 'denied': denied, 'last_mut': h, 'mut_repeat': rep}
+        if rep >= 2:
+            return ('deny', mut_reason(tool_name, tool_input, rep)), new
+        return None, new
     n = calls.count(h)
     if n >= THRESHOLD:
         denied[h] = denied.get(h, 0) + 1
         return ('deny', reason(tool_name, n, denied[h] - 1)), {'calls': calls, 'denied': denied,
-                                                               'last_mut': state.get('last_mut')}
+                                                               'last_mut': state.get('last_mut'),
+                                                               'mut_repeat': rep}
     calls = (calls + [h])[-WINDOW:]
     denied = {k: v for k, v in denied.items() if k in calls}
-    return None, {'calls': calls, 'denied': denied, 'last_mut': state.get('last_mut')}
+    return None, {'calls': calls, 'denied': denied, 'last_mut': state.get('last_mut'),
+                  'mut_repeat': rep}
 
 
 def prune(d, now):

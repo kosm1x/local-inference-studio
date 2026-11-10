@@ -1273,31 +1273,33 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `*`, added with lis-guard, dropped by `-LisNoGuard` or `-LisNoLoopGuard`). It denies a
   tool call identical (tool name and canonical input) to 3 or more of the session's last
   12 counted calls, so the first and second repeat always run. Write, Edit, MultiEdit and
-  NotebookEdit are never counted; a new Write/Edit/MultiEdit/NotebookEdit clears the
-  window, so a re-read or a re-run test after an edit passes; edits made through Bash or
-  PowerShell (sed -i, scripts, git) do not. Bash and PowerShell commands with a wait
-  word at command position (`sleep`, `until`, `timeout`, `Start-Sleep`, `Wait-Process`,
-  `Wait-Job`, `Wait-Event`) are polls and are not counted, nor are `BashOutput` and
-  `TaskOutput` calls (tool names UNVERIFIED on 2.1.310). A quoted wait word also exempts
-  a command, so `grep -rn 'timeout' src/` is never counted (a miss in the safe direction).
-  The deny reason tells the model to use the earlier result, change approach or report
-  what blocks it, and to say so when the tool it wants is not in its tool set; after 2
-  denials of the same call it says to stop and answer. It stays a deny, never an ask: in
-  `-p` an ask is a hard denial whose reason the model does not see. State lives in
-  `%TEMP%\lis-loop-guard\<session_id>.json` (atomic write, pruned after 24 h). Bad
-  input, input over 1 MB or a missing session_id give no decision; corrupt state is
-  discarded (the window restarts); a lock left by a crashed hook means no decision for
-  about 10 s, until it is broken as stale. The hook is registered without
-  `onFailure: block`, so its failure never blocks a call.
-  Why: one identical call repeated on the 27B model is the loop seen in 5 of the 8
-  bench/compact runs (2026-10-26), 4 of which it held until `--max-turns`; replayed
-  through the hook, the first deny fires at call 8 to 63, and 28 to 55 of 61 turns would
-  have been saved had the model then answered (not verified live). bench/compact/run.ps1
-  passes `-LisNoLoopGuard` so its cases stay comparable with those captures, and
-  bench/loop/run.ps1 so its runs stay comparable with the 2026-10-24 baselines. Tests:
-  `python -I scripts/hooks/tests/loop-guard_test.py`; replay of the effort-low-forced
-  capture: `python -I scripts/hooks/tests/loop-guard_replay.py` (prints SKIP when the
-  gitignored capture is absent, as in a fresh clone).
+  NotebookEdit are never counted in the window; a new Write/Edit/MultiEdit/NotebookEdit
+  clears the window, so a re-read or a re-run test after an edit passes; edits made
+  through Bash or PowerShell (sed -i, scripts, git) do not. A mutation identical (tool
+  name and input) to the previous two mutations is denied, since it usually changes
+  nothing on disk; calls in between do not break the run, only a different mutation does
+  (W-20: on 2026-11-09 a web session wrote one file 14 times byte-identically). Bash and
+  PowerShell commands with a wait word at command position (`sleep`, `until`, `timeout`,
+  `Start-Sleep`, `Wait-Process`, `Wait-Job`, `Wait-Event`) are polls and are not counted,
+  nor are `BashOutput` and `TaskOutput` calls (tool names UNVERIFIED on 2.1.310). A quoted
+  wait word also exempts a command, so `grep -rn 'timeout' src/` is never counted (a miss
+  in the safe direction). The deny reason tells the model to use the earlier result,
+  change approach or report what blocks it, and to say so when the tool it wants is not in
+  its tool set; after 2 denials of the same call it says to stop and answer. It stays a
+  deny, never an ask: in `-p` an ask is a hard denial whose reason the model does not see.
+  State lives in `%TEMP%\lis-loop-guard\<session_id>.json` (atomic write, pruned after 24
+  h). Bad input, input over 1 MB or a missing session_id give no decision; corrupt state
+  is discarded (the window restarts); a lock left by a crashed hook means no decision for
+  about 10 s, until it is broken as stale. The hook is registered without `onFailure:
+  block`, so its failure never blocks a call. Why: one identical call repeated on the 27B
+  model is the loop seen in 5 of the 8 bench/compact runs (2026-10-26), 4 of which it held
+  until `--max-turns`; replayed through the hook, the first deny fires at call 8 to 63,
+  and 28 to 55 of 61 turns would have been saved had the model then answered (not verified
+  live). bench/compact/run.ps1 passes `-LisNoLoopGuard` so its cases stay comparable with
+  those captures, and bench/loop/run.ps1 so its runs stay comparable with the 2026-10-24
+  baselines. Tests: `python -I scripts/hooks/tests/loop-guard_test.py`; replay of the
+  effort-low-forced capture: `python -I scripts/hooks/tests/loop-guard_replay.py` (prints
+  SKIP when the gitignored capture is absent, as in a fresh clone).
 - SessionStart hook `scripts/hooks/facts-inject.py` (Python 3, stdlib, `python -I`;
   matchers `compact` and `startup`, added for `-LisTask longrun` only; ledger T-9 and
   R-W2). After each compaction, and at the start of a session the wrapper relaunched

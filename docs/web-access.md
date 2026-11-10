@@ -464,9 +464,10 @@ will reliably decline them. A web session keeps:
   finding."
 - The guard hooks: `lis-guard.py` (PreToolUse Bash, `onFailure: block`),
   `loop-guard.py` (it ran on `mcp__jarvis-web__web_read` in the 2026-11-05 proof) and the
-  verify-doc PostToolUse hook. `-LisWeb` refuses `-LisNoGuard`, `-LisFull`,
-  `--permission-mode auto`, and every profile refuses `bypassPermissions` and
-  `--dangerously-skip-permissions`.
+  verify-doc PostToolUse hook. loop-guard also denies a mutation identical to the
+  previous two (W-20: a 2026-11-09 web session wrote one file 14 times byte-identically).
+  `-LisWeb` refuses `-LisNoGuard`, `-LisFull`, `--permission-mode auto`, and every
+  profile refuses `bypassPermissions` and `--dangerously-skip-permissions`.
 - The settings deny of Agent, Workflow, WebFetch and WebSearch.
 - The container: what an injected page can reach is what is mounted ("The container")
   plus the open egress ("Residuals").

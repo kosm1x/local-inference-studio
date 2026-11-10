@@ -173,3 +173,11 @@
   auditor's adversarial probes on a NEW allow path found a pre-existing hole in the
   shared parser (`\@` in the authority), so audit the helpers an allow trusts, not
   only the new lines.
+- **Mistake:** a fix prompt for the local 27B model asked it to invent 10 legal chess
+  positions; it copied the two FENs in context 17 times (14 byte-identical Writes), and
+  neither compaction nor two user prompts broke the attractor. -> A prompt to this
+  model for knowledge-heavy content names a mechanical generation route (here: random
+  play + the engine's eval gap); the rewrite with that route landed first try.
+- **Better:** diagnose a model loop from the transcript hashes (same tool, same input,
+  same output-token count per turn = sampling attractor) before blaming the harness;
+  then close the harness gap that let it run (W-20: identical mutations were exempt).

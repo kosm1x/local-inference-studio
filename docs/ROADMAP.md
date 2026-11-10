@@ -558,6 +558,17 @@ Batches (IDs in the ledger):
   before).
   UNVERIFIED live until a loopback POST curl is allowed in the next `-LisWeb` auto
   session. Ledger 43 LANDED, 7 BUILT, 13 OPEN of 63.
+  Identical-mutation deny (W-20, BUILT 2026-11-09): in a 2026-11-09 web session the
+  model wrote one file 17 times in 18 minutes, the last 14 Writes byte-identical (same
+  path and content), and loop-guard never fired, because it exempted every mutation.
+  It now denies a Write, Edit, MultiEdit or NotebookEdit identical to the previous two
+  mutations; calls in between do not break the run, a different mutation resets it,
+  and the first and second identical mutation still pass. Residual: a file reverted by
+  a Bash tool between identical Writes gets its third Write denied, and a Read does not
+  reset the run. loop-guard_test 69/69 (51 before); a mutant without the deny turns 14
+  checks red; the replay is unchanged.
+  UNVERIFIED live until a web session hits it. Ledger 43 LANDED, 8 BUILT, 13 OPEN of
+  64.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

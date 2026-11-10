@@ -66,8 +66,41 @@ def core(fail):
     want('window slides (12 others)', seq([A] * 3 + [other(i) for i in range(12)] + [A])[-1], None)
     # mutation tools
     edit = ('Edit', {'file_path': 'src/text.js', 'old_string': 'a', 'new_string': 'b'})
-    want('identical Edit is never denied', seq([edit] * 6), [None] * 6)
-    want('Write is never denied', seq([('Write', {'file_path': 'x', 'content': 'y'})] * 5), [None] * 5)
+    want('identical Edit: third in a row denied', seq([edit] * 6), [None, None] + ['deny'] * 4)
+    want('identical Write: third in a row denied', seq([('Write', {'file_path': 'x', 'content': 'y'})] * 5),
+         [None, None] + ['deny'] * 3)
+    wa = ('Write', {'file_path': 'src/a.ts', 'content': 'X'})
+    wa2 = ('Write', {'file_path': 'src/a.ts', 'content': 'Y'})
+    wb = ('Write', {'file_path': 'src/b.ts', 'content': 'X'})
+    cat = ('Bash', {'command': 'cat src/a.ts'})
+    want('identical Write x3: third denied', seq([wa] * 3), [None, None, 'deny'])
+    want('identical Write x2: both pass', seq([wa] * 2), [None, None])
+    want('a differing Write passes', seq([wa, wa, wa2]), [None, None, None])
+    want('a differing Write resets the run', seq([wa, wa, wa2, wa2, wa]), [None] * 5)
+    want('a non-mutation does not reset the run', seq([wa, wa, cat, wa]), [None, None, None, 'deny'])
+    want('a denied Write stays denied until a different one',
+         seq([wa, wa, wa, wa, wa2]), [None, None, 'deny', 'deny', None])
+    same = ('Edit', {'file_path': 'src/a.ts', 'old_string': 'a', 'new_string': 'a'})
+    want('identical no-op Edit x3: third denied', seq([same] * 3), [None, None, 'deny'])
+    want('same content to another path is not identical', seq([wa, wa, wb]), [None, None, None])
+    s = g.fresh()
+    for name, ti in [wa, wa, wa2]:
+        _, s = g.step(s, name, ti)
+    want('a differing Write sets mut_repeat to 0', s.get('mut_repeat'), 0)
+    s, ds = g.fresh(), []
+    for name, ti in [wa] * 4:
+        d, s = g.step(s, name, ti)
+        ds.append(d)
+    rm = ds[2][1] if ds[2] else ''
+    CHECKS[0] += 1
+    if not ('loop guard' in rm and 'Write of src/a.ts' in rm
+            and 'identical to the previous 2 Write/Edit calls' in rm
+            and 'If another tool changed the file since' in rm
+            and 'stop and continue with the next step' in rm
+            and 'read the file back' not in rm
+            and all(ord(ch) < 128 for ch in rm)):
+        fail(f'identical mutation reason wording: {rm!r}')
+    want('a denied mutation keeps counting', s.get('mut_repeat'), 3)
     edits = [('Edit', {'file_path': 'src/text.js', 'old_string': str(i), 'new_string': 'z'}) for i in range(4)]
     want('re-run after each new edit is not a loop',
          seq([T, edits[0], T, edits[1], T, edits[2], T, edits[3], T]), [None] * 9)
@@ -180,7 +213,7 @@ def e2e(fail):
                 del p['session_id']
             return run_hook(env, p, raw)
 
-        CHECKS[0] += 15  # e2e checks below, one per block
+        CHECKS[0] += 16  # e2e checks below, one per block
         got = [call('s1')[1] for _ in range(4)]
         if got != [None, None, None, 'deny']:
             fail(f'e2e third repeat denied: {got}')
@@ -263,6 +296,10 @@ def e2e(fail):
         got = [call('s11', uni)[1] for _ in range(4)]
         if got != [None, None, None, 'deny']:
             fail(f'e2e non-ASCII tool name: {got}')
+        w = ('Write', {'file_path': 'src/a.ts', 'content': 'X'})
+        got = [call('s12', w)[1] for _ in range(3)]
+        if got != [None, None, 'deny']:
+            fail(f'e2e identical Write: {got}')
         if any(name.endswith(('.lock', '.tmp', '.stale')) for name in os.listdir(sd)):
             fail('e2e left a lock, tmp or stale file behind')
 
@@ -286,6 +323,38 @@ def sid_cases(fail):
             g.state_dir = old
 
 
+def old_state_case(fail):
+    """A state file written before mut_repeat existed loads and the rule still works."""
+    CHECKS[0] += 1
+    w = {'file_path': 'src/a.ts', 'content': 'X'}
+    with tempfile.TemporaryDirectory() as t:
+        p = os.path.join(t, 'old.json')
+        with open(p, 'w', encoding='ascii') as f:
+            json.dump({'calls': [], 'denied': {}, 'last_mut': g.call_hash('Write', w)}, f)
+        s, got = g.load(p), []
+        for _ in range(2):
+            d, s = g.step(s, 'Write', w)
+            got.append(d[0] if d else None)
+        if got != [None, 'deny']:
+            fail(f'old state file without mut_repeat: {got}')
+        # a mutation counter that is not a non-negative int is corrupt state: fresh window
+        for bad in ('x', None, True, -5, 1.5):
+            CHECKS[0] += 1
+            with open(p, 'w', encoding='ascii') as f:
+                json.dump({'calls': [], 'denied': {}, 'last_mut': g.call_hash('Write', w),
+                           'mut_repeat': bad}, f)
+            try:
+                s, got = g.load(p), []
+                fresh = s == g.fresh()
+                for _ in range(3):
+                    d, s = g.step(s, 'Write', w)
+                    got.append(d[0] if d else None)
+            except Exception as e:
+                got, fresh = repr(e), False
+            if not fresh or got != [None, None, 'deny']:
+                fail(f'mut_repeat {bad!r} must load as fresh state: fresh={fresh} got={got}')
+
+
 def main():
     fails = []
     core(fails.append)
@@ -293,6 +362,7 @@ def main():
     permission_case(fails.append)
     e2e(fails.append)
     sid_cases(fails.append)
+    old_state_case(fails.append)
     n = CHECKS[0] + 5  # rule, lock and e2e checks, plus the 5 mutation pins below
     # mutation pins: the core cases must go red when the constants are mutated
     for const, val in (('THRESHOLD', 4), ('WINDOW', 100), ('THRESHOLD', 2), ('WINDOW', 11)):

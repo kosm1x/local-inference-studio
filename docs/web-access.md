@@ -634,11 +634,11 @@ UNVERIFIED live until the first session on the new image. Open points and notes:
   first use (UNVERIFIED in the container), and PATH names them either way. Installs
   land in the per-run directory on the host (`logs\web-<stamp>-<pid>\home`) and are
   gone from the next run.
-- The launcher mounts /tmp with `--tmpfs /tmp:exec` once the operator's W-24 patch is
-  applied (verified 2026-11-10 in a throwaway container: the mount keeps nosuid,nodev
-  and an executable script in /tmp runs; with the default `--tmpfs /tmp` the mount is
-  noexec and refuses it). A tmpfs counts against `--memory 6g`, so a multi-GB model
-  download belongs in /work, not /tmp.
+- The launcher mounts /tmp with `--tmpfs /tmp:exec` (c78, 2026-11-10; verified in a
+  throwaway container and in the first run on the rebuilt image: the mount keeps
+  nosuid,nodev and an executable script in /tmp runs; with the default `--tmpfs /tmp`
+  the mount is noexec and refuses it). A tmpfs counts against `--memory 6g`, so a
+  multi-GB model download belongs in /work, not /tmp.
 - /work and the home are Windows bind mounts: npm `-g` bin links and venv
   interpreter links are symlinks there; whether Docker Desktop's mount creates them is
   not tested on this machine (UNVERIFIED).

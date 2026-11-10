@@ -149,3 +149,10 @@
 - **Mistake** (auditor's catch, in three hooks): a temp state dir pruned by mtime with no
   link check = a deletion primitive via a planted junction -> lstat the dir, prune only
   state-shaped names, pin a junction row; sweep every hook that deletes anything.
+- **Mistake:** a paste line for a resumed session told it to install llama-server, the
+  opposite of the operator's last prompt there -> read the session's last real prompt
+  (the `last-prompt` row) before writing a paste line.
+- **Avoid:** a settings deny (`Bash(curl * -d*)`) is final: a hook allow never reaches it
+  -> read `toolDenialKind` in the transcript (permission-rule vs hook vs automode).
+- **Better:** live proof of a hook = a monitor on the run transcript for hook reasons,
+  then replay each decision through the run's own hook copy (`docker exec -i`).

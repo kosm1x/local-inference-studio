@@ -648,6 +648,18 @@ Batches (IDs in the ledger):
   check on curl/wget URLs is proposed as W-24c (OPEN). LANDED waits on the operator's
   rebuild (`pwsh -NoProfile -File scripts/web-image.ps1`) and a first session that
   installs a tool. Ledger 43 LANDED, 12 BUILT, 13 OPEN of 68.
+  Readout 2026-11-10 (the first web session on the rebuilt image: run
+  web-20261110-155928-42540, the resumed chess session, mode acceptEdits, auto mode off).
+  The tmpfs patch is c78 cafc34b; the image check passes (the six tools, user dirs last on
+  PATH). W-24a live: a plain `rm -rf` under /work and `LLM_API_KEY="$LIS_API_KEY" npm run
+  dev:all` allowed, a key echo and a computed kill denied; the app ran in the container
+  and reached the host server (`llm_available: true`). W-19 cannot take effect as built:
+  lis-guard allowed the loopback POST and the per-run settings deny `Bash(curl * -d*)`
+  overrode it (a settings deny beats a hook allow); the ruling is owed. W-20 to W-22 were
+  present and never triggered; the W-24b download rules were not exercised (auto mode off,
+  nothing to install). New W-25 row: an `&& echo` beside an undo line voids the container
+  allowance, `find -delete` and `git restore` get no decision, and varied retries escape
+  W-23. Ledger 43 LANDED, 12 BUILT, 14 OPEN of 69.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

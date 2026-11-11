@@ -206,10 +206,10 @@ back unless `-LisFull` or `-LisUserScope` loads it.
   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1, CLAUDE_CODE_NO_FLICKER=0 (-LisNoMouse)` to
   the banner; nothing else. On 2026-11-11 a run with `CLAUDE_CODE_DISABLE_MOUSE=1`
   (the switch's first form; that name is no longer passed) did not restore the zoom.
-  The Claude Code 2.1.318 binary's renderer gate reads either of the two names as
-  fullscreen off (a fresh home, as every web run has, otherwise gets fullscreen);
-  whether the classic renderer brings the zoom back is UNVERIFIED until a session
-  runs with it.
+  A read of the Claude Code 2.1.318 binary shows its renderer gate taking either of
+  the two names as fullscreen off (a fresh home, as every web run has, otherwise
+  gets fullscreen). Live 2026-11-11: the operator ran a session with the switch and
+  reported that Ctrl+wheel zoom works.
 - Cons: Claude Code's fullscreen renderer (its own scrolling, flicker-free redraw) is
   off; scrolling is the terminal's scrollback.
 - Refused without `-LisWeb` and inside the container. Off by default.

@@ -159,3 +159,14 @@
   allow-list rewrite was the fix, later tail items go to residuals, not another round.
 - **Better:** curl's own behaviour settles a spelling dispute (the auditor POSTed to
   127.0.0.2 via `-:`, `--expand-url` and a quoted `<`): probe the tool on loopback first.
+## 2026-11-10 night - recon, proof session, readout + test-all tools (c83, c84)
+- **Mistake:** c82 subject line was 75 chars (rule: 72), pushed -> run the `awk
+  'length>72'` check on the message file before every commit, not only on bodies.
+- **Mistake:** a hand-rolled transcript count reported 8 compactions and 121 "settings"
+  denials; real: 4 (each writes a boundary and a summary row) and 110 hook denials
+  (`toolDenialKind` permission-rule covers hooks; read `permissionDecision.source`) ->
+  use `scripts/web-readout.py`, never an ad hoc counter, for figures that go in docs.
+- **Avoid:** dangerous-looking literals (`rm -rf`, a `.claude` path) in a new repo test:
+  lis-guard_test walks every script through the guard and fails on a new deny.
+- **Better:** a typed prompt list with probed expected verdicts landed four BUILT rows
+  in a five-minute session; prepare one whenever rows wait on a live event.

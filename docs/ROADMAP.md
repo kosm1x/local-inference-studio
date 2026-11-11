@@ -12,13 +12,15 @@ runs of 2026-11-10.
 - Default model since 2026-11-08: the OrcaRouter GSQ-RCO IQ3_XXS v2.1 file at 131072
   context, no MTP (Model test 2 results below); the Uncensored IQ3_XXS file is the
   named fallback. Engine research 2026-11-08: llama-server b11868 stays pinned.
-- All work since 2026-10-30 is the audit ledger (Audits 2026-10-30 below): 46 LANDED,
-  10 BUILT, 15 OPEN of 71. The web-access track (`-LisWeb`, the lis-web container, the
+- All work since 2026-10-30 is the audit ledger (Audits 2026-10-30 below): 47 LANDED,
+  9 BUILT, 15 OPEN of 71. The web-access track (`-LisWeb`, the lis-web container, the
   guard hooks; docs/web-access.md) holds rows W-1 to W-27.
-- BUILT rows wait on a live event: R-C1, R-W2, T-5, W-13, W-15, W-16, W-20 to W-23.
+- BUILT rows wait on a live event: R-C1, R-W2, T-5, W-13, W-16, W-20 to W-23.
 - Next buildable: W-27 (resolved-path read rule), W-24c (download host check), W-26,
   W-14. Operator-only: W-8 (container egress), W-9 (key placement), the P7 logon proof.
-- Every suite in CLAUDE.md passed on 2026-11-10 at `5a54b6d`.
+- Every suite in CLAUDE.md passed on 2026-11-10 at `5a54b6d`. One command runs them:
+  `scripts/test-all.ps1` (`-Full` adds the property and lisweb suites). A session's
+  scorecard comes from `scripts/web-readout.py <run dir or transcript>`.
 
 ## At a glance 2026-10-27
 
@@ -711,6 +713,17 @@ Batches (IDs in the ledger):
   objected (advice rule; W-24c is the enforced close). W-26 and W-27, cited in
   web-access.md since 2026-11-10, now have ledger rows (OPEN).
   Ledger 46 LANDED, 10 BUILT, 15 OPEN of 71.
+  Same night: W-15 LANDED (the operator saw the model name and the ctx percentage on
+  the status line in that run). Two tools added, each built and audited by separate
+  agents: `scripts/web-readout.py` (per transcript: tools, denials by kind, hook denials
+  by reason, compactions, the longest identical Bash run; `--grep` prints one verdict
+  per Bash call: `allowed`, `ran:error`, `denied:<hook or kind>`, `denied?:<kind>`,
+  `no-result`; key-like text is masked) and `scripts/test-all.ps1` (the fast suites in
+  about 4 minutes; a missing interpreter is a FAIL, not a short green run). The readout
+  corrected two figures of the hand count on the big 2026-11-09 session: 4 compactions,
+  not 8 (each writes two rows), and 110 of its 121 `permission-rule` denials were hook
+  denials (`permissionDecision.source` is `hook`), 10 were settings rules.
+  Ledger 47 LANDED, 9 BUILT, 15 OPEN of 71.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

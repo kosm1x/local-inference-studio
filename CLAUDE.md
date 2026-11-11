@@ -11,6 +11,10 @@ Constraints for agents working in this repo:
 - `container/` holds the lis-web image's Dockerfile; `scripts/web-image.ps1` builds it
   (operator-run; `claude-local.ps1 -LisWeb` runs web sessions in it).
 - Bench results are JSON under `bench/results/` (gitignored); schema in `bench/README.md`.
+- `pwsh -NoProfile -File scripts/test-all.ps1` runs the fast suites below in one go
+  (`-Full` adds the property and lisweb suites, `-Only <text>` filters by path).
+- `python -I scripts/web-readout.py <run dir or .jsonl>` prints a web session's
+  scorecard (tools, denials, hook reasons); `--grep <regex>` gives one verdict per call.
 - Tests, run from the repo root exactly as written:
   `python -I scripts/hooks/tests/lis-guard_test.py`,
   `python -I scripts/hooks/tests/lis-guard_property_test.py`,
@@ -28,6 +32,7 @@ Constraints for agents working in this repo:
   `python -I bench/ladder/tests/bait_test.py`,
   `python -I scripts/tests/verify-doc_test.py`,
   `python -I scripts/tests/verify_claims_report_test.py`,
+  `python -I scripts/tests/web-readout_test.py`,
   `python -I scripts/tests/resilience_test.py`,
   `python -I scripts/tests/claude_settings_test.py`,
   `python -I scripts/tests/install_verify_test.py`,

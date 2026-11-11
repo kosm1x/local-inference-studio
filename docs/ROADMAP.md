@@ -3,6 +3,23 @@
 Each phase lists its goal, steps, done-check and open rulings. A phase is done
 only when its done-check passes on this machine.
 
+## At a glance 2026-11-10
+
+Newer than the 2026-10-27 block below, which stays as the record of the phases and the
+trust ladder. Sources: `config/models.md`, docs/audits/2026-10-30-ledger.md, the test
+runs of 2026-11-10.
+
+- Default model since 2026-11-08: the OrcaRouter GSQ-RCO IQ3_XXS v2.1 file at 131072
+  context, no MTP (Model test 2 results below); the Uncensored IQ3_XXS file is the
+  named fallback. Engine research 2026-11-08: llama-server b11868 stays pinned.
+- All work since 2026-10-30 is the audit ledger (Audits 2026-10-30 below): 46 LANDED,
+  10 BUILT, 15 OPEN of 71. The web-access track (`-LisWeb`, the lis-web container, the
+  guard hooks; docs/web-access.md) holds rows W-1 to W-27.
+- BUILT rows wait on a live event: R-C1, R-W2, T-5, W-13, W-15, W-16, W-20 to W-23.
+- Next buildable: W-27 (resolved-path read rule), W-24c (download host check), W-26,
+  W-14. Operator-only: W-8 (container egress), W-9 (key placement), the P7 logon proof.
+- Every suite in CLAUDE.md passed on 2026-11-10 at `5a54b6d`.
+
 ## At a glance 2026-10-27
 
 Read this first; the Status section below keeps the full record. Results checked
@@ -682,6 +699,18 @@ Batches (IDs in the ledger):
   loopback, and eight flag-first ask rows (`curl -d*`, `-F*`, `-T*`, `-X*`, `--data*`,
   `--form*`, `--json*`, `--upload-file*`) prompt on the host. Tests 660, 3754 and 25031
   pass (3 property cases to deny). Proof pending = the live POST in a `-LisWeb` session.
+  Proof session 2026-11-10 22:32 (run `web-20261110-223159-8824`, auto mode on, six
+  typed prompts): the container undo `mkdir -p proofdir && rm -rf proofdir && echo done`
+  ran; `find . -name '*.proof' -delete` was denied by lis-guard twice and the model
+  reported it instead of retrying; the loopback POST ran with no denial (exit 7, nothing
+  listening); `curl -sS -d probe=1 https://example.com/` was denied as a network upload;
+  a jq 1.7.1 binary came down from its GitHub release with no prompt and printed its
+  version. W-19, W-24 and W-25 are LANDED. Not exercised: the third identical deny
+  (W-23 escalates at 3; the model stopped at 2), a classifier decision that names a rule
+  line (W-13). Residual: the downloaded binary ran with no checksum check and nothing
+  objected (advice rule; W-24c is the enforced close). W-26 and W-27, cited in
+  web-access.md since 2026-11-10, now have ledger rows (OPEN).
+  Ledger 46 LANDED, 10 BUILT, 15 OPEN of 71.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

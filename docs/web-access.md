@@ -589,7 +589,7 @@ integrity, not provenance: the file is the one the host serves, unaltered on the
 but any account can publish a release on GitHub, a model on Hugging Face or a package
 on npm or PyPI, so a listed host is no sign the file is safe to run. The classifier
 runs on the model under review (S-B2), so these rules are advice to the model, not an
-enforced gate. Proposed, ledger W-24c (OPEN): lis-guard checks the host of every curl
+enforced gate. Proposed, W-24c (queued in ledger row W-24): lis-guard checks the host of every curl
 or wget URL against the same list and denies the rest.
 
 The read-before-run rule is the same residual in script form. It is a judgment by the
@@ -647,7 +647,7 @@ UNVERIFIED live until the first session on the new image. Open points and notes:
 
 Queued, OPEN:
 
-- W-26: verify-doc runs `git ls-files` in the session's working directory, where
+- W-26 (ledger row, OPEN): verify-doc runs `git ls-files` in the session's working directory, where
   /work/.git/config is model-writable (a `core.fsmonitor` command runs on every git
   call); fix later with `git -c core.fsmonitor= -c core.hooksPath=` or a fixed
   `GIT_CONFIG_GLOBAL`.

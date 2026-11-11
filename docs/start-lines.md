@@ -196,6 +196,18 @@ back unless `-LisFull` or `-LisUserScope` loads it.
   under `-LisWeb` the docker argument list instead, and exits. The MCP config JSON
   prints only inside the container. Starts neither claude nor docker.
 
+### `-LisNoMouse` (modifier, web lines only)
+
+- Use when: the terminal's Ctrl+wheel font zoom is wanted during a web session.
+  Observed 2026-11-10 in a `-LisWeb -LisTerminal` session: the zoom stopped once Claude
+  Code had loaded, while Ctrl+Plus and Ctrl+Minus kept working.
+- What: adds `-e CLAUDE_CODE_DISABLE_MOUSE=1` to the docker line and
+  `; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)` to the banner; nothing else. The
+  variable's name appears in the Claude Code 2.1.318 binary; its effect is UNVERIFIED
+  until a session runs with it.
+- Cons: by its name it turns off Claude Code's own wheel scrolling and mouse clicks.
+- Refused without `-LisWeb` and inside the container. Off by default.
+
 ### `-LisWebAuto` (modifier, web lines only)
 
 - Use when: an attended web session (`-LisWeb -LisTerminal`) where a prompt per call

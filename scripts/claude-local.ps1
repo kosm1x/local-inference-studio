@@ -82,7 +82,7 @@
   container paths), or when a path holds a comma or a double quote (docker's --mount
   syntax). The command inside is `pwsh -NoProfile -File /lis/scripts/claude-local.ps1
   -LisWeb` followed by the caller's arguments in order, minus -LisWeb, -LisTerminal,
-  -LisStartServer, -LisKeepState and -LisPrintArgs (a [bool] that pwsh -File split off a switch is
+  -LisNoMouse, -LisStartServer, -LisKeepState and -LisPrintArgs (a [bool] that pwsh -File split off a switch is
   joined back: -LisNoLoopGuard:false). The
   wrapper exits with the container's exit code, prints "claude-local: container:
   lis-web:2.1.318 (home not mounted; work=<cwd>; logs=<per-run dir>)" (with -LisTerminal
@@ -126,6 +126,19 @@
   when stdin or stdout is redirected (it needs a console), which -LisPrintArgs skips
   (it starts nothing). LIS_TEST_CONSOLE=1 (tests only) skips the console check, and only
   while LIS_DOCKER_EXE names a stub. An interactive run is UNVERIFIED live.
+  -LisNoMouse (host only, with -LisWeb; off by default): the docker line gets
+  `-e CLAUDE_CODE_DISABLE_MOUSE=1` after the --env-file pair (a plain pair on the command
+  line, not a line in the env file; the value is not a secret), and the banner line ends
+  in "; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)" after its closing parenthesis. Inside
+  the container Claude Code turns on terminal mouse reporting, so the host terminal's
+  Ctrl+wheel font zoom stops working (observed 2026-11-10 in a -LisTerminal session:
+  Ctrl+wheel zoom stopped once Claude Code had loaded; Ctrl+Plus/Minus kept working). The
+  name appears in the Claude Code 2.1.318 binary; its effect is UNVERIFIED until a live
+  session runs with it: by its name it turns Claude Code's mouse handling off, so the
+  session gives up Claude Code's own wheel scrolling and mouse clicks. The switch itself
+  is not passed into the container's wrapper or to claude. Refused before any output
+  without -LisWeb and inside the container; absent or -LisNoMouse:false, the docker line
+  and the banner are unchanged.
   -LisKeepState (host only, with -LisWeb; ledger W-18): persistent session state across
   web runs. The state directory is <repo>\logs\web-state\<key>\, one per work directory:
   <key> is the work directory's leaf name lower-cased with every character outside
@@ -377,7 +390,7 @@
   prefix matches (-m for -MaxContextTokens), and [CmdletBinding()] would drop $args
   and let common parameters (-Verbose, -Debug, -ProgressAction, ...) capture claude's
   -v/-d/-p. The script options, -LisContextTokens N, -LisFull, -LisNoGuard,
-  -LisNoLoopGuard, -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisTask NAME,
+  -LisNoLoopGuard, -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisNoMouse, -LisTask NAME,
   -LisRelaunchMax N, -LisStartServer, -LisKeepState and -LisPrintArgs, are taken out of $args here.
   -LisContextTokens defaults to 114688: the default server ctx of 131072 (ruling 14)
   minus CLAUDE_CODE_MAX_OUTPUT_TOKENS 16384, so a prompt at Claude Code's limit plus a
@@ -419,7 +432,7 @@ $tempRoot = if ($env:TEMP) { $env:TEMP } else { [IO.Path]::GetTempPath() }
 # -LisContextTokens N, -LisContextTokens:N (any case). In-process, PowerShell hands
 # -LisContextTokens:N over as '-LisContextTokens:' followed by N, so an empty inline
 # value takes the next token. The switches -LisFull, -LisNoGuard, -LisNoLoopGuard,
-# -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisStartServer, -LisKeepState and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
+# -LisStrictSlot, -LisUserScope, -LisWeb, -LisWebAuto, -LisTerminal, -LisNoMouse, -LisStartServer, -LisKeepState and -LisPrintArgs take :true|false the same way (in-process -LisFull:$false arrives as
 # '-LisFull:' followed by a [bool]). All checks run before any env change.
 $LisContextTokens = 114688
 $LisFull = $false
@@ -430,6 +443,7 @@ $LisUserScope = $false
 $LisWeb = $false
 $LisWebAuto = $false
 $LisTerminal = $false
+$LisNoMouse = $false
 $LisTask = $null
 $LisRelaunchMax = $null
 $LisPrintArgs = $false
@@ -438,10 +452,10 @@ $LisKeepState = $false
 $claudeArgs = [System.Collections.Generic.List[object]]::new()
 $seen = $false
 $seenSwitch = @{}
-# The $args positions of -LisWeb, -LisTerminal, -LisStartServer, -LisKeepState and -LisPrintArgs (values
+# The $args positions of -LisWeb, -LisTerminal, -LisNoMouse, -LisStartServer, -LisKeepState and -LisPrintArgs (values
 # included): the host launcher passes every other token to the container's wrapper (docstring).
 $launcherOnly = [Collections.Generic.HashSet[int]]::new()
-$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisWebAuto|LisTerminal|LisStartServer|LisKeepState|LisPrintArgs)(:(.*))?\z'
+$switchRe = '(?s)^-(LisFull|LisNoGuard|LisNoLoopGuard|LisStrictSlot|LisUserScope|LisWeb|LisWebAuto|LisTerminal|LisNoMouse|LisStartServer|LisKeepState|LisPrintArgs)(:(.*))?\z'
 # pwsh -File passes -X:true|false as '-X' followed by a [bool] but -X:0 as '-X' followed
 # by the string '0', the same as '-X 0'. Only the process command line keeps the colon,
 # so when this script is the -File target ($MyInvocation.Line is empty) check it there.
@@ -465,7 +479,7 @@ for ($j = 0; $j -lt $args.Count; $j++) {
             # following [bool] is the value; a string after a bare switch is a prompt.
             $on = if ($args[$j + 1] -is [bool]) { $args[++$j] } else { $true }
             Set-Variable -Name $name -Value $on
-            if ($name -in 'LisWeb', 'LisTerminal', 'LisStartServer', 'LisKeepState', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
+            if ($name -in 'LisWeb', 'LisTerminal', 'LisNoMouse', 'LisStartServer', 'LisKeepState', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
             continue
         }
         # -X:V, or in-process '-X:' followed by V (a [bool], a string or a number).
@@ -478,7 +492,7 @@ for ($j = 0; $j -lt $args.Count; $j++) {
         if ($v -is [bool]) { $on = $v }
         elseif (-not [bool]::TryParse("$v".TrimStart('$'), [ref]$on)) { throw "-$name value '$v' is not true or false." }
         Set-Variable -Name $name -Value $on
-        if ($name -in 'LisWeb', 'LisTerminal', 'LisStartServer', 'LisKeepState', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
+        if ($name -in 'LisWeb', 'LisTerminal', 'LisNoMouse', 'LisStartServer', 'LisKeepState', 'LisPrintArgs') { foreach ($k in $j0..$j) { $null = $launcherOnly.Add($k) } }
         continue
     }
     # -LisRelaunchMax N, -LisRelaunchMax:N: the session supervisor's bound (0 to 3).
@@ -608,6 +622,11 @@ if ($LisTerminal) {
                 'Leave it out, or drop -LisTerminal for a -p run.')
         }
     }
+}
+# -LisNoMouse (docstring): the host launcher sets CLAUDE_CODE_DISABLE_MOUSE=1 on the
+# container. Checked before any output.
+if ($LisNoMouse -and (-not $LisWeb -or $inContainer)) {
+    throw '-LisNoMouse needs -LisWeb, on the host: it sets CLAUDE_CODE_DISABLE_MOUSE=1 on the lis-web container.'
 }
 # -LisStartServer (docstring): the scheduled task exists on the host only. Checked before
 # any output.
@@ -844,7 +863,7 @@ if ($LisWeb -and -not $inContainer) {
         '--mount'
         "type=bind,source=$($m[0]),target=$($m[1])" + $(if ($m[2]) { ',readonly' })
     }
-    # The caller's arguments minus -LisWeb, -LisTerminal, -LisStartServer, -LisKeepState and -LisPrintArgs,
+    # The caller's arguments minus -LisWeb, -LisTerminal, -LisNoMouse, -LisStartServer, -LisKeepState and -LisPrintArgs,
     # in order. A [bool] value (pwsh -File hands -X:false over as '-X' and $false) rejoins
     # its switch.
     $innerArgs = [Collections.Generic.List[string]]::new()
@@ -862,11 +881,12 @@ if ($LisWeb -and -not $inContainer) {
     $dockerArgs = @('run', '--rm') + @(if ($LisTerminal) { '-it' } elseif ([Console]::IsInputRedirected) { '-i' }) + @(
         '--init', '--name', $container, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
         '--pids-limit', '512', '--memory', '6g', '--tmpfs', '/tmp:exec', '--user', 'lis', '-w', '/work',
-        '--env-file', $envFile) +
+        '--env-file', $envFile) + @(if ($LisNoMouse) { '-e', 'CLAUDE_CODE_DISABLE_MOUSE=1' }) +
         @($mountArgs) + @($lisWebImage, 'pwsh', '-NoProfile', '-File', '/lis/scripts/claude-local.ps1',
         '-LisWeb') + @($innerArgs)
     $banner = "claude-local: container: $lisWebImage$(if ($LisTerminal) { ' (terminal)' }) " +
-        "(home not mounted; $(if ($stateDir) { "state=$stateDir; " })work=$work; logs=$runDir)"
+        "(home not mounted; $(if ($stateDir) { "state=$stateDir; " })work=$work; logs=$runDir)" +
+        $(if ($LisNoMouse) { '; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)' })
     if ($LisPrintArgs) {
         # Nothing is written or read and docker is not run; the env file is named, never shown.
         [Console]::Error.WriteLine($banner)

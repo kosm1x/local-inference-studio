@@ -1,4 +1,4 @@
-"""Tests for -LisWeb, -LisTerminal, -LisStartServer and -LisKeepState of
+"""Tests for -LisWeb, -LisTerminal, -LisNoMouse, -LisStartServer and -LisKeepState of
 scripts/claude-local.ps1 (operator rulings 2026-11-05: web access goes through web tools
 over MCP, and a web-enabled session runs in the lis-web container with no access to the
 operator's home folder; 2026-11-06: the tools are this repo's own lis-web server, web/,
@@ -936,6 +936,78 @@ def test_terminal(root, stub_dir):
           bool(name) and not os.path.exists(env_file_path(name)), name)
 
 
+NO_MOUSE = ['-e', 'CLAUDE_CODE_DISABLE_MOUSE=1']
+NO_MOUSE_NOTE = '; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)'
+MOUSE_REFUSED = [['-LisNoMouse'], ['-LisNoMouse:true', '-LisTask', 'review', '-p', 'x']]
+
+
+def test_no_mouse(root):
+    """-LisNoMouse: launcher-only; -e CLAUDE_CODE_DISABLE_MOUSE=1 after the --env-file pair
+    and a banner note; absent or :false changes nothing; refused without -LisWeb."""
+    lis, wrapper, work = make_tree(root)
+    inner = ['-LisTask', 'review', '--max-turns', '6']
+
+    def run(caller, cmd=None):
+        if cmd:
+            r = subprocess.run([PWSH, '-NoProfile', '-Command', cmd], capture_output=True,
+                               text=True, timeout=120, cwd=work, stdin=subprocess.DEVNULL)
+            rc, out, err = r.returncode, r.stdout, r.stderr
+        else:
+            rc, out, err = run_wrapper(['-LisPrintArgs'] + caller, wrapper, work)
+        got = docker_args(out) or []
+        name = value_after(got, '--name') or ''
+        m = re.match(r'lis-web-(\d{8}-\d{6}-\d+)\Z', name)
+        run_dir = os.path.join(lis, 'logs', f'web-{m.group(1)}' if m else '?')
+        base = want_docker(lis, work, name, run_dir, inner, '-it')
+        at = base.index('--env-file') + 2
+        banner = (f'claude-local: container: {image_tag()} (terminal) (home not mounted; '
+                  f'work={work}; logs={run_dir})')
+        return rc, got, err, bool(m), base, base[:at] + NO_MOUSE + base[at:], banner, run_dir
+
+    cmd = (f"& '{wrapper}' -LisPrintArgs -LisWeb -LisTerminal -LisNoMouse:$true -LisTask review "
+           '--max-turns 6')
+    for label, caller, c in (('-LisNoMouse', ['-LisNoMouse'], None),
+                             ('-LisNoMouse:true', ['-LisNoMouse:true'], None),
+                             ('in-process -LisNoMouse:$true', [], cmd)):
+        rc, got, err, ok, _, want, banner, run_dir = run(
+            ['-LisWeb', '-LisTerminal'] + caller + inner, c)
+        check(f'no-mouse: {label}: the docker line gains -e CLAUDE_CODE_DISABLE_MOUSE=1 once, '
+              'after the --env-file pair, and no -LisNoMouse inside',
+              rc == 0 and ok and got == want and got.count('-e') == 1
+              and got.count('CLAUDE_CODE_DISABLE_MOUSE=1') == 1
+              and not [x for x in got if 'LisNoMouse' in x], f'{rc} {err}\n{json.dumps(got)}')
+        check(f'no-mouse: {label}: the banner ends in the note; -LisPrintArgs writes nothing',
+              banner + NO_MOUSE_NOTE in err.splitlines() and not os.path.exists(run_dir), err)
+    for label, caller in (('absent', []), ('-LisNoMouse:false', ['-LisNoMouse:false'])):
+        rc, got, err, ok, base, _, banner, _ = run(['-LisWeb', '-LisTerminal'] + caller + inner)
+        check(f'no-mouse: {label}: the docker line and the banner are unchanged (no -e pair, '
+              'no note, not passed inside)',
+              rc == 0 and ok and got == base and '-e' not in got
+              and 'CLAUDE_CODE_DISABLE_MOUSE' not in json.dumps(got) + err
+              and banner in err.splitlines() and NO_MOUSE_NOTE not in err
+              and not [x for x in got if 'LisNoMouse' in x], f'{rc} {err}\n{json.dumps(got)}')
+    for extra in MOUSE_REFUSED:
+        rc, out, err = run_wrapper(['-LisPrintArgs'] + extra, wrapper, work)
+        check(f'no-mouse: refused: {" ".join(extra)} (no -LisWeb), before any output',
+              rc != 0 and not out.strip()
+              and '-LisNoMouse needs -LisWeb, on the host: it sets CLAUDE_CODE_DISABLE_MOUSE=1 '
+                  'on the lis-web container.' in err
+              and 'claude-local:' not in err, f'{rc} {out}{err}')
+    with open(WRAPPER, encoding='utf-8') as f:
+        doc = ' '.join(f.read().split('#>', 1)[0].split())
+    check('no-mouse: the docstring documents the switch, the plain -e pair, the UNVERIFIED '
+          'effect and what the session gives up, and lists it with the other switches',
+          '-LisNoMouse (host only, with -LisWeb; off by default)' in doc
+          and '`-e CLAUDE_CODE_DISABLE_MOUSE=1` after the --env-file pair' in doc
+          and 'observed 2026-11-10 in a -LisTerminal session' in doc
+          and 'The name appears in the Claude Code 2.1.318 binary; its effect is UNVERIFIED '
+              'until a live session runs with it' in doc
+          and 'The switch itself is not passed' in doc
+          and 'ends in "; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)"' in doc
+          and "Claude Code's own wheel scrolling and mouse clicks" in doc
+          and '-LisWebAuto, -LisTerminal, -LisNoMouse, -LisTask NAME,' in doc, '')
+
+
 START_TEXT = ('claude-local: server down; started the scheduled task',
               'claude-local: server task running', 'waiting up to')
 
@@ -982,8 +1054,8 @@ def test_start_server(root):
           '-LisPrintArgs skips it and the plain preflight still runs',
           '-LisRelaunchMax N, -LisStartServer, -LisKeepState and -LisPrintArgs, are taken out '
           'of $args here.' in doc
-          and 'minus -LisWeb, -LisTerminal, -LisStartServer, -LisKeepState and -LisPrintArgs'
-          in doc
+          and 'minus -LisWeb, -LisTerminal, -LisNoMouse, -LisStartServer, -LisKeepState and '
+              '-LisPrintArgs' in doc
           and '-LisStartServer (host only; refused in the lis-web container' in doc
           and 'after every launcher check and before the key below is read' in doc
           and 'so the key is read only after this.' in doc
@@ -1435,6 +1507,10 @@ def main():
             check('container: -LisTerminal (a host switch) is refused inside',
                   rc != 0 and not out.strip() and '-LisTerminal needs -LisWeb, on the host' in err,
                   f'{rc} {err}')
+            rc, _, _, _, out, err = print_args(['-LisWeb', '-LisNoMouse'])
+            check('container: -LisNoMouse (a host switch) is refused inside',
+                  rc != 0 and not out.strip() and '-LisNoMouse needs -LisWeb, on the host' in err,
+                  f'{rc} {err}')
             for extra in (['-LisStartServer'], ['-LisWeb', '-LisStartServer']):
                 rc, _, _, _, out, err = print_args(extra)
                 check(f'container: {" ".join(extra)} (a host switch) is refused inside, '
@@ -1476,6 +1552,7 @@ def main():
                     test_refusals(wrapper, work)
                     test_host_launcher(os.path.join(tmp, 'launcher'), stub_dir)
                     test_terminal(os.path.join(tmp, 'terminal'), stub_dir)
+                    test_no_mouse(os.path.join(tmp, 'no-mouse'))
                     test_start_server(os.path.join(tmp, 'start-server'))
                     test_keep_state(os.path.join(tmp, 'keep-state'), stub_dir)
                     test_host_auto(os.path.join(tmp, 'auto'), stub_dir)

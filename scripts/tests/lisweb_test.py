@@ -936,14 +936,18 @@ def test_terminal(root, stub_dir):
           bool(name) and not os.path.exists(env_file_path(name)), name)
 
 
-NO_MOUSE = ['-e', 'CLAUDE_CODE_DISABLE_MOUSE=1']
-NO_MOUSE_NOTE = '; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)'
+NO_MOUSE = ['-e', 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1', '-e', 'CLAUDE_CODE_NO_FLICKER=0']
+NO_MOUSE_NOTE = ('; classic renderer: CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1, '
+                 'CLAUDE_CODE_NO_FLICKER=0 (-LisNoMouse)')
+NO_MOUSE_NAMES = ('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN', 'CLAUDE_CODE_NO_FLICKER')
 MOUSE_REFUSED = [['-LisNoMouse'], ['-LisNoMouse:true', '-LisTask', 'review', '-p', 'x']]
 
 
 def test_no_mouse(root):
-    """-LisNoMouse: launcher-only; -e CLAUDE_CODE_DISABLE_MOUSE=1 after the --env-file pair
-    and a banner note; absent or :false changes nothing; refused without -LisWeb."""
+    """-LisNoMouse: launcher-only; -e CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 and
+    -e CLAUDE_CODE_NO_FLICKER=0 after the --env-file pair and a banner note;
+    CLAUDE_CODE_DISABLE_MOUSE never; absent or :false changes nothing; refused without
+    -LisWeb."""
     lis, wrapper, work = make_tree(root)
     inner = ['-LisTask', 'review', '--max-turns', '6']
 
@@ -971,10 +975,13 @@ def test_no_mouse(root):
                              ('in-process -LisNoMouse:$true', [], cmd)):
         rc, got, err, ok, _, want, banner, run_dir = run(
             ['-LisWeb', '-LisTerminal'] + caller + inner, c)
-        check(f'no-mouse: {label}: the docker line gains -e CLAUDE_CODE_DISABLE_MOUSE=1 once, '
-              'after the --env-file pair, and no -LisNoMouse inside',
-              rc == 0 and ok and got == want and got.count('-e') == 1
-              and got.count('CLAUDE_CODE_DISABLE_MOUSE=1') == 1
+        check(f'no-mouse: {label}: the docker line gains -e CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 '
+              'and -e CLAUDE_CODE_NO_FLICKER=0 once each, in that order, after the --env-file '
+              'pair, no CLAUDE_CODE_DISABLE_MOUSE anywhere and no -LisNoMouse inside',
+              rc == 0 and ok and got == want and got.count('-e') == 2
+              and got.count('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1') == 1
+              and got.count('CLAUDE_CODE_NO_FLICKER=0') == 1
+              and 'CLAUDE_CODE_DISABLE_MOUSE' not in json.dumps(got)
               and not [x for x in got if 'LisNoMouse' in x], f'{rc} {err}\n{json.dumps(got)}')
         check(f'no-mouse: {label}: the banner ends in the note; -LisPrintArgs writes nothing',
               banner + NO_MOUSE_NOTE in err.splitlines() and not os.path.exists(run_dir), err)
@@ -984,27 +991,34 @@ def test_no_mouse(root):
               'no note, not passed inside)',
               rc == 0 and ok and got == base and '-e' not in got
               and 'CLAUDE_CODE_DISABLE_MOUSE' not in json.dumps(got) + err
+              and not [n for n in NO_MOUSE_NAMES if n in json.dumps(got) + err]
               and banner in err.splitlines() and NO_MOUSE_NOTE not in err
               and not [x for x in got if 'LisNoMouse' in x], f'{rc} {err}\n{json.dumps(got)}')
     for extra in MOUSE_REFUSED:
         rc, out, err = run_wrapper(['-LisPrintArgs'] + extra, wrapper, work)
         check(f'no-mouse: refused: {" ".join(extra)} (no -LisWeb), before any output',
               rc != 0 and not out.strip()
-              and '-LisNoMouse needs -LisWeb, on the host: it sets CLAUDE_CODE_DISABLE_MOUSE=1 '
-                  'on the lis-web container.' in err
+              and '-LisNoMouse needs -LisWeb, on the host: it sets' in err
+              and 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1' in err
+              and 'CLAUDE_CODE_NO_FLICKER=0' in err and 'lis-web container.' in err
+              and 'CLAUDE_CODE_DISABLE_MOUSE' not in err
               and 'claude-local:' not in err, f'{rc} {out}{err}')
     with open(WRAPPER, encoding='utf-8') as f:
         doc = ' '.join(f.read().split('#>', 1)[0].split())
-    check('no-mouse: the docstring documents the switch, the plain -e pair, the UNVERIFIED '
-          'effect and what the session gives up, and lists it with the other switches',
+    check('no-mouse: the docstring documents the switch, the two plain -e pairs, the '
+          '2026-11-11 run, the UNVERIFIED effect and what the session gives up, and lists '
+          'it with the other switches',
           '-LisNoMouse (host only, with -LisWeb; off by default)' in doc
-          and '`-e CLAUDE_CODE_DISABLE_MOUSE=1` after the --env-file pair' in doc
-          and 'observed 2026-11-10 in a -LisTerminal session' in doc
-          and 'The name appears in the Claude Code 2.1.318 binary; its effect is UNVERIFIED '
-              'until a live session runs with it' in doc
+          and '`-e CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` and then '
+              '`-e CLAUDE_CODE_NO_FLICKER=0` after the --env-file pair' in doc
+          and 'Observed 2026-11-10 in a -LisTerminal session' in doc
+          and 'On 2026-11-11 a run with CLAUDE_CODE_DISABLE_MOUSE=1' in doc
+          and 'renderer gate reads either of the two names as fullscreen off' in doc
+          and 'is UNVERIFIED until a session runs with it' in doc
           and 'The switch itself is not passed' in doc
-          and 'ends in "; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)"' in doc
-          and "Claude Code's own wheel scrolling and mouse clicks" in doc
+          and f'ends in "{NO_MOUSE_NOTE}"' in doc
+          and "Claude Code's fullscreen renderer (its own scrolling, flicker-free redraw) "
+              'is off' in doc
           and '-LisWebAuto, -LisTerminal, -LisNoMouse, -LisTask NAME,' in doc, '')
 
 

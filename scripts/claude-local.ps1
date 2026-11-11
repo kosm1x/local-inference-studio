@@ -127,18 +127,22 @@
   (it starts nothing). LIS_TEST_CONSOLE=1 (tests only) skips the console check, and only
   while LIS_DOCKER_EXE names a stub. An interactive run is UNVERIFIED live.
   -LisNoMouse (host only, with -LisWeb; off by default): the docker line gets
-  `-e CLAUDE_CODE_DISABLE_MOUSE=1` after the --env-file pair (a plain pair on the command
-  line, not a line in the env file; the value is not a secret), and the banner line ends
-  in "; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)" after its closing parenthesis. Inside
-  the container Claude Code turns on terminal mouse reporting, so the host terminal's
-  Ctrl+wheel font zoom stops working (observed 2026-11-10 in a -LisTerminal session:
-  Ctrl+wheel zoom stopped once Claude Code had loaded; Ctrl+Plus/Minus kept working). The
-  name appears in the Claude Code 2.1.318 binary; its effect is UNVERIFIED until a live
-  session runs with it: by its name it turns Claude Code's mouse handling off, so the
-  session gives up Claude Code's own wheel scrolling and mouse clicks. The switch itself
-  is not passed into the container's wrapper or to claude. Refused before any output
-  without -LisWeb and inside the container; absent or -LisNoMouse:false, the docker line
-  and the banner are unchanged.
+  `-e CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` and then `-e CLAUDE_CODE_NO_FLICKER=0`
+  after the --env-file pair (plain pairs on the command line, not lines in the env
+  file; the values are not secrets), and the banner line ends in "; classic renderer:
+  CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1, CLAUDE_CODE_NO_FLICKER=0 (-LisNoMouse)" after
+  its closing parenthesis. Observed 2026-11-10 in a -LisTerminal session: the host
+  terminal's Ctrl+wheel font zoom stopped once Claude Code had loaded; Ctrl+Plus/Minus
+  kept working. On 2026-11-11 a run with CLAUDE_CODE_DISABLE_MOUSE=1 (the switch's
+  first form; that name is no longer passed) did not restore it. The Claude Code
+  2.1.318 binary's renderer gate reads either of the two names as fullscreen off (a
+  fresh home, as every web run has, otherwise gets fullscreen); whether the classic
+  renderer brings the zoom back is UNVERIFIED until a session runs with it. Cost:
+  Claude Code's fullscreen renderer (its own scrolling, flicker-free redraw) is off,
+  and scrolling is the terminal's scrollback. The switch itself is not passed into the
+  container's wrapper or to claude. Refused before any output without -LisWeb and
+  inside the container; absent or -LisNoMouse:false, the docker line and the banner are
+  unchanged.
   -LisKeepState (host only, with -LisWeb; ledger W-18): persistent session state across
   web runs. The state directory is <repo>\logs\web-state\<key>\, one per work directory:
   <key> is the work directory's leaf name lower-cased with every character outside
@@ -623,10 +627,11 @@ if ($LisTerminal) {
         }
     }
 }
-# -LisNoMouse (docstring): the host launcher sets CLAUDE_CODE_DISABLE_MOUSE=1 on the
-# container. Checked before any output.
+# -LisNoMouse (docstring): the host launcher sets CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
+# and CLAUDE_CODE_NO_FLICKER=0 on the container. Checked before any output.
 if ($LisNoMouse -and (-not $LisWeb -or $inContainer)) {
-    throw '-LisNoMouse needs -LisWeb, on the host: it sets CLAUDE_CODE_DISABLE_MOUSE=1 on the lis-web container.'
+    throw ('-LisNoMouse needs -LisWeb, on the host: it sets CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 ' +
+        'and CLAUDE_CODE_NO_FLICKER=0 on the lis-web container.')
 }
 # -LisStartServer (docstring): the scheduled task exists on the host only. Checked before
 # any output.
@@ -881,12 +886,13 @@ if ($LisWeb -and -not $inContainer) {
     $dockerArgs = @('run', '--rm') + @(if ($LisTerminal) { '-it' } elseif ([Console]::IsInputRedirected) { '-i' }) + @(
         '--init', '--name', $container, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
         '--pids-limit', '512', '--memory', '6g', '--tmpfs', '/tmp:exec', '--user', 'lis', '-w', '/work',
-        '--env-file', $envFile) + @(if ($LisNoMouse) { '-e', 'CLAUDE_CODE_DISABLE_MOUSE=1' }) +
+        '--env-file', $envFile) + @(if ($LisNoMouse) {
+            '-e', 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1', '-e', 'CLAUDE_CODE_NO_FLICKER=0' }) +
         @($mountArgs) + @($lisWebImage, 'pwsh', '-NoProfile', '-File', '/lis/scripts/claude-local.ps1',
         '-LisWeb') + @($innerArgs)
     $banner = "claude-local: container: $lisWebImage$(if ($LisTerminal) { ' (terminal)' }) " +
         "(home not mounted; $(if ($stateDir) { "state=$stateDir; " })work=$work; logs=$runDir)" +
-        $(if ($LisNoMouse) { '; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)' })
+        $(if ($LisNoMouse) { '; classic renderer: CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1, CLAUDE_CODE_NO_FLICKER=0 (-LisNoMouse)' })
     if ($LisPrintArgs) {
         # Nothing is written or read and docker is not run; the env file is named, never shown.
         [Console]::Error.WriteLine($banner)

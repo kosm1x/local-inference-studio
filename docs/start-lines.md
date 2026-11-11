@@ -201,11 +201,17 @@ back unless `-LisFull` or `-LisUserScope` loads it.
 - Use when: the terminal's Ctrl+wheel font zoom is wanted during a web session.
   Observed 2026-11-10 in a `-LisWeb -LisTerminal` session: the zoom stopped once Claude
   Code had loaded, while Ctrl+Plus and Ctrl+Minus kept working.
-- What: adds `-e CLAUDE_CODE_DISABLE_MOUSE=1` to the docker line and
-  `; CLAUDE_CODE_DISABLE_MOUSE=1 (-LisNoMouse)` to the banner; nothing else. The
-  variable's name appears in the Claude Code 2.1.318 binary; its effect is UNVERIFIED
-  until a session runs with it.
-- Cons: by its name it turns off Claude Code's own wheel scrolling and mouse clicks.
+- What: adds `-e CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` and then
+  `-e CLAUDE_CODE_NO_FLICKER=0` to the docker line and `; classic renderer:
+  CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1, CLAUDE_CODE_NO_FLICKER=0 (-LisNoMouse)` to
+  the banner; nothing else. On 2026-11-11 a run with `CLAUDE_CODE_DISABLE_MOUSE=1`
+  (the switch's first form; that name is no longer passed) did not restore the zoom.
+  The Claude Code 2.1.318 binary's renderer gate reads either of the two names as
+  fullscreen off (a fresh home, as every web run has, otherwise gets fullscreen);
+  whether the classic renderer brings the zoom back is UNVERIFIED until a session
+  runs with it.
+- Cons: Claude Code's fullscreen renderer (its own scrolling, flicker-free redraw) is
+  off; scrolling is the terminal's scrollback.
 - Refused without `-LisWeb` and inside the container. Off by default.
 
 ### `-LisWebAuto` (modifier, web lines only)

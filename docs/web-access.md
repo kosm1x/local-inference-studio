@@ -79,7 +79,8 @@ docker run --rm --init --name lis-web-<stamp> --cap-drop ALL
 
 (`<args>`: the caller's arguments in order, minus `-LisWeb`, `-LisTerminal`,
 `-LisStartServer`, `-LisKeepState`, `-LisNoMouse` and `-LisPrintArgs`. With
-`-LisNoMouse` the line gains `-e CLAUDE_CODE_DISABLE_MOUSE=1` after the env file pair.)
+`-LisNoMouse` the line gains `-e CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` and then
+`-e CLAUDE_CODE_NO_FLICKER=0` after the env file pair.)
 
 | Host path | In the container | Mode |
 | --- | --- | --- |

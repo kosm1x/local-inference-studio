@@ -941,6 +941,18 @@ NO_MOUSE_NOTE = ('; classic renderer: CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1, '
                  'CLAUDE_CODE_NO_FLICKER=0 (-LisNoMouse)')
 NO_MOUSE_NAMES = ('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN', 'CLAUDE_CODE_NO_FLICKER')
 MOUSE_REFUSED = [['-LisNoMouse'], ['-LisNoMouse:true', '-LisTask', 'review', '-p', 'x']]
+MOUSE_REFUSAL = ('-LisNoMouse needs -LisWeb, on the host: it sets '
+                 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 and CLAUDE_CODE_NO_FLICKER=0 on the '
+                 'lis-web container.')
+
+
+def thrown_text(err):
+    """The message of a throw as pwsh prints it: the text after the '|' of each message
+    line, ANSI stripped, wrapped lines joined with one space (pwsh wraps at a space and
+    drops it). The ' NNN | ' source echo and the 'Line |' header are not message lines."""
+    err = re.sub(r'\x1b\[[0-9;]*m', '', err)
+    return ' '.join(ln.split('|', 1)[1].strip() for ln in err.splitlines()
+                    if ln.lstrip().startswith('|'))
 
 
 def test_no_mouse(root):
@@ -998,23 +1010,26 @@ def test_no_mouse(root):
         rc, out, err = run_wrapper(['-LisPrintArgs'] + extra, wrapper, work)
         check(f'no-mouse: refused: {" ".join(extra)} (no -LisWeb), before any output',
               rc != 0 and not out.strip()
-              and '-LisNoMouse needs -LisWeb, on the host: it sets' in err
-              and 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1' in err
-              and 'CLAUDE_CODE_NO_FLICKER=0' in err and 'lis-web container.' in err
+              and MOUSE_REFUSAL in thrown_text(err)
               and 'CLAUDE_CODE_DISABLE_MOUSE' not in err
               and 'claude-local:' not in err, f'{rc} {out}{err}')
     with open(WRAPPER, encoding='utf-8') as f:
         doc = ' '.join(f.read().split('#>', 1)[0].split())
     check('no-mouse: the docstring documents the switch, the two plain -e pairs, the '
-          '2026-11-11 run, the UNVERIFIED effect and what the session gives up, and lists '
+          '2026-11-11 runs, the binary read and what the session gives up, and lists '
           'it with the other switches',
           '-LisNoMouse (host only, with -LisWeb; off by default)' in doc
           and '`-e CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` and then '
               '`-e CLAUDE_CODE_NO_FLICKER=0` after the --env-file pair' in doc
           and 'Observed 2026-11-10 in a -LisTerminal session' in doc
           and 'On 2026-11-11 a run with CLAUDE_CODE_DISABLE_MOUSE=1' in doc
-          and 'renderer gate reads either of the two names as fullscreen off' in doc
-          and 'is UNVERIFIED until a session runs with it' in doc
+          and 'A read of the Claude Code 2.1.318 binary shows its renderer gate taking '
+              'either of the two names as fullscreen off (a fresh home, as every web run '
+              'has, otherwise gets fullscreen).' in doc
+          and 'Live 2026-11-11: the operator ran a session with the switch and reported '
+              'that Ctrl+wheel zoom works.' in doc
+          and 'UNVERIFIED' not in doc.split('-LisNoMouse (host only', 1)[1]
+                                    .split('-LisKeepState (host only', 1)[0]
           and 'The switch itself is not passed' in doc
           and f'ends in "{NO_MOUSE_NOTE}"' in doc
           and "Claude Code's fullscreen renderer (its own scrolling, flicker-free redraw) "
@@ -1523,7 +1538,7 @@ def main():
                   f'{rc} {err}')
             rc, _, _, _, out, err = print_args(['-LisWeb', '-LisNoMouse'])
             check('container: -LisNoMouse (a host switch) is refused inside',
-                  rc != 0 and not out.strip() and '-LisNoMouse needs -LisWeb, on the host' in err,
+                  rc != 0 and not out.strip() and MOUSE_REFUSAL in thrown_text(err),
                   f'{rc} {err}')
             for extra in (['-LisStartServer'], ['-LisWeb', '-LisStartServer']):
                 rc, _, _, _, out, err = print_args(extra)

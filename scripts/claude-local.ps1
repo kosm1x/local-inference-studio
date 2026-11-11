@@ -134,15 +134,15 @@
   its closing parenthesis. Observed 2026-11-10 in a -LisTerminal session: the host
   terminal's Ctrl+wheel font zoom stopped once Claude Code had loaded; Ctrl+Plus/Minus
   kept working. On 2026-11-11 a run with CLAUDE_CODE_DISABLE_MOUSE=1 (the switch's
-  first form; that name is no longer passed) did not restore it. The Claude Code
-  2.1.318 binary's renderer gate reads either of the two names as fullscreen off (a
-  fresh home, as every web run has, otherwise gets fullscreen); whether the classic
-  renderer brings the zoom back is UNVERIFIED until a session runs with it. Cost:
-  Claude Code's fullscreen renderer (its own scrolling, flicker-free redraw) is off,
-  and scrolling is the terminal's scrollback. The switch itself is not passed into the
-  container's wrapper or to claude. Refused before any output without -LisWeb and
-  inside the container; absent or -LisNoMouse:false, the docker line and the banner are
-  unchanged.
+  first form; that name is no longer passed) did not restore it. A read of the Claude
+  Code 2.1.318 binary shows its renderer gate taking either of the two names as
+  fullscreen off (a fresh home, as every web run has, otherwise gets fullscreen). Live
+  2026-11-11: the operator ran a session with the switch and reported that Ctrl+wheel
+  zoom works. Cost: Claude Code's fullscreen renderer (its own scrolling, flicker-free
+  redraw) is off, and scrolling is the terminal's scrollback. The switch itself is not
+  passed into the container's wrapper or to claude. Refused before any output without
+  -LisWeb and inside the container; absent or -LisNoMouse:false, the docker line and
+  the banner are unchanged.
   -LisKeepState (host only, with -LisWeb; ledger W-18): persistent session state across
   web runs. The state directory is <repo>\logs\web-state\<key>\, one per work directory:
   <key> is the work directory's leaf name lower-cased with every character outside

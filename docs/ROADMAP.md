@@ -655,7 +655,8 @@ Batches (IDs in the ledger):
   dev:all` allowed, a key echo and a computed kill denied; the app ran in the container
   and reached the host server (`llm_available: true`). W-19 cannot take effect as built:
   lis-guard allowed the loopback POST and the per-run settings deny `Bash(curl * -d*)`
-  overrode it (a settings deny beats a hook allow); the ruling is owed. W-20 to W-22 were
+  overrode it (a settings deny beats a hook allow); the ruling is owed
+  (ruled the same day: patterns dropped, see the W-19 ruling paragraph). W-20 to W-22 were
   present and never triggered; the W-24b download rules were not exercised (auto mode off,
   nothing to install). New W-25 row: an `&& echo` beside an undo line voids the container
   allowance, `find -delete` and `git restore` get no decision, and varied retries escape
@@ -672,6 +673,15 @@ Batches (IDs in the ledger):
   residuals: `git checkout .` or `HEAD a`, `git switch -f`, `unlink`, `shred -u`, `rsync
   --delete`, rm with 20+ leading operands, `>/dev/null 2>&1` on a container undo.
   Ledger 43 LANDED, 13 BUILT, 13 OPEN of 69.
+  Ruling 2026-11-10 (W-19, BUILT): "Drop the curl -d deny patterns, let the guard decide."
+  The 14 curl upload denies left the per-run settings, so the container's `loopback curl`
+  allow reaches the session. Three audits found the upload rule blind to route options
+  (`--url=`, `--proxy`, `-x`, `--connect-to`, `--resolve`, their `--expand-` forms), `-:`,
+  words curl takes as URLs (IPs in any form, `evilhost`, a quoted `'<'`), proxy variables
+  and wrapper words; lis-guard now denies a curl upload unless every target word is
+  loopback, and eight flag-first ask rows (`curl -d*`, `-F*`, `-T*`, `-X*`, `--data*`,
+  `--form*`, `--json*`, `--upload-file*`) prompt on the host. Tests 660, 3754 and 25031
+  pass (3 property cases to deny). Proof pending = the live POST in a `-LisWeb` session.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

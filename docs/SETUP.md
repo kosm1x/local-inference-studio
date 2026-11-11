@@ -721,7 +721,10 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   `*--libcurl*`, `* -K*`, `*--config*`, `*--etag-save*`, `*--hsts*`, `*--alt-svc*`,
   `*@*` (a second URL with `user@`, `-d @file`, `-F f=@file`, `-w @-`), `* -T*`,
   `*--upload-file*`, `* -c*` (also `-cj`), `* -w*`, `*--write-out*`, `* -X*`, `* -d*`,
-  `*--data*`, `*--json*`; `curl -sS .../health -o /dev/null` is a `-p` denial. Rules
+  `*--data*`, `*--json*`; and, flag first (W-19), `Bash(curl -d*)`, `-F*`, `-T*`,
+  `-X*`, `--data*`, `--form*`, `--json*`, `--upload-file*`: with no upload deny in
+  settings these rows are the host's upload prompt, and a hook allow passes them;
+  `curl -sS .../health -o /dev/null` is a `-p` denial. Rules
   match per pipeline segment and case-sensitively (VERIFIED live 2026-10-25: `-d '...'`
   does not trip `-D*`), and the policy command `curl -sS .../props ... | grep -o ...`
   runs with no denial and no classifier call on the hook's allow. An ask rule wins over
@@ -760,8 +763,11 @@ runs). Measured in `docs/permissions-assessment-plan-2026-10-25.md` section 0a.
   which can run a `$(...)` held in it.
   `deny`: WebSearch, WebFetch, Agent, Workflow; Bash `git push` (any form, `git -C * push`
   and `git -c * push` included), `gh` and `gh.exe` whole, `docker.exe` and
-  `docker-compose` whole, `ssh`, `scp`, `sftp` (with `.exe`), and curl upload flags
-  (`-d`, `--data*`, `-F`, `--form*`, `-T`, `--upload-file`, `--json`). `docker` and
+  `docker-compose` whole, `ssh`, `scp`, `sftp` (with `.exe`); no curl upload flag is
+  denied here since W-19 (2026-11-10: a settings deny beats a hook allow, so the
+  container's loopback allow never reached the session): lis-guard denies an upload to
+  a non-loopback host (route options, proxy variables, bare host words and wrapper
+  words included) and the ask rows prompt for the rest. `docker` and
   `wsl` are denied by form, not whole, so the survey's read-only checks keep running:
   `docker run|exec|cp|push|login|build|buildx|compose|save|load|import|export|commit|
   volume|network|system|container|image|create|start`, `docker context use|create|import`

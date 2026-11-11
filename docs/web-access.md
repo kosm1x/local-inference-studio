@@ -405,7 +405,8 @@ listing, which lis-guard allows; see "W-24b: classifier rules and image tools" b
 Unchanged inside the container (each confirmed by reading the code and by a
 container test row): inline code (`python3 -c`, `node -e`, code on stdin); a
 `curl`/`wget ... | sh|bash` pipe; network uploads (`curl -d`/`--data*`/`-F`/`-T`/
-`--upload-file` and `wget --post-file` to a non-loopback host, `nc`, `scp`, `ssh`,
+`--upload-file` and `wget --post-file` to a non-loopback host, a route option, proxy
+variable or bare host word included, `nc`, `scp`, `ssh`,
 `git push`); the credential-path scan in commands and in scripts a command runs (a
 script whose line names `$HF_TOKEN` is still denied); `env`, `printenv` and
 `/proc/self/environ`, and, new on the host and in the container (audit W2), `jq env`,

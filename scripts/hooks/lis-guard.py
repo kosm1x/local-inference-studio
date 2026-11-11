@@ -989,11 +989,137 @@ def wget_uploads(a):
     return False
 
 
+# W-19 audit: options that send a curl request somewhere other than its URL words, matched
+# as a prefix of the long name (--proxy covers --proxy1.0 and --proxy-*)
+_CURL_ROUTE = ('--url', '--proxy', '--preproxy', '--connect-to', '--resolve', '--socks4',
+               '--socks5', '--noproxy')
+# curl long options that take the next word as their value (exact names; --expand-* too).
+# Any other long option is read as a flag, so the word after it counts as a URL (deny side)
+_CURL_VALUED_LONG = frozenset((
+    '--abstract-unix-socket', '--alt-svc', '--aws-sigv4', '--cacert', '--capath', '--cert',
+    '--cert-type', '--ciphers', '--config', '--connect-timeout', '--continue-at', '--cookie',
+    '--cookie-jar', '--create-file-mode', '--crlfile', '--curves', '--data', '--data-ascii',
+    '--data-binary', '--data-raw', '--data-urlencode', '--delegation', '--dns-interface',
+    '--dns-ipv4-addr', '--dns-ipv6-addr', '--dns-servers', '--doh-url', '--dump-header',
+    '--ech', '--egd-file', '--engine', '--etag-compare', '--etag-save', '--expect100-timeout',
+    '--form', '--form-string', '--ftp-account', '--ftp-alternative-to-user', '--ftp-method',
+    '--ftp-port', '--ftp-ssl-ccc-mode', '--happy-eyeballs-timeout-ms', '--header',
+    '--hostpubmd5', '--hostpubsha256', '--hsts', '--interface', '--ip-tos', '--ipfs-gateway',
+    '--json', '--keepalive-cnt', '--keepalive-time', '--key', '--key-type', '--knownhosts',
+    '--krb', '--libcurl', '--limit-rate', '--local-port', '--login-options', '--mail-auth',
+    '--mail-from', '--mail-rcpt', '--max-filesize', '--max-redirs', '--max-time',
+    '--netrc-file', '--oauth2-bearer', '--output', '--output-dir', '--parallel-max', '--pass',
+    '--pinnedpubkey', '--proto', '--proto-default', '--proto-redir', '--pubkey', '--quote',
+    '--random-file', '--range', '--rate', '--referer', '--request', '--request-target',
+    '--retry', '--retry-delay', '--retry-max-time', '--sasl-authzid', '--service-name',
+    '--sigalgs', '--speed-limit', '--speed-time', '--stderr', '--telnet-option',
+    '--tftp-blksize', '--time-cond', '--tls-max', '--tls13-ciphers', '--tlsauthtype',
+    '--tlspassword', '--tlsuser', '--trace', '--trace-ascii', '--trace-config',
+    '--unix-socket', '--upload-file', '--user', '--user-agent', '--variable',
+    '--vlan-priority', '--write-out'))
+# a bare IPv4, a bracketed IPv6 or host:port word, which curl takes as a URL (wget_local)
+_HOSTISH = re.compile(r'^(?:(\d{1,3}(?:\.\d{1,3}){3})|\[([0-9a-fA-F:.]*)\]|([\w.-]+):\d+)'
+                      r'(?::\d+)?(?:[/?#]|$)')
+# the bare words curl reads as a loopback URL: localhost, 127.0.0.1 or [::1], port, path
+_BARE_LOOPBACK = re.compile(r'(?i)^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[/?#].*)?$', re.S)
+
+
+def curl_local(args):
+    """loopback_only for a curl upload, read in the deny direction (W-19 audit): False when
+    a route option is present (space, = or a -x in a short bundle), or when any word that is
+    not an option or a valued option's value is other than a scheme URL with a loopback host
+    or a bare localhost / 127.0.0.1 / [::1] (with a port or path): curl sends the body to
+    every such word as a URL (evilhost, evil.com., 167772161, 0x0a000001, user@evil.com,
+    $EVIL). `-:` (--next) takes no value; after `--` every word is a URL."""
+    if not loopback_only(args):
+        return False
+    skip, opts = False, True
+    for t in args:
+        if skip:
+            skip = False
+            continue
+        if opts and t == '--':
+            opts = False
+            continue
+        if m := re.match(r'\d*(?:&>>?|>>?|<)&?', t):  # a shell redirection, not a curl word
+            skip = m.end() == len(t)                 # `> out`: the target is the next word
+            continue
+        if opts and t.startswith('--'):
+            name = t.split('=', 1)[0]
+            if re.sub(r'^--expand-', '--', name).startswith(_CURL_ROUTE):   # --expand-url too
+                return False
+            skip = '=' not in t and (name in _CURL_VALUED_LONG or name.startswith('--expand-'))
+            continue
+        if opts and t.startswith('-') and len(t) > 1:
+            for k, ch in enumerate(t[1:], 2):
+                if ch == 'x':
+                    return False
+                if ch not in _CURL_BOOL and ch != ':':
+                    skip = k > len(t) - 1       # the value is the next word
+                    break
+            continue
+        if not (_url_host(t) in LOOPBACK or _BARE_LOOPBACK.match(t)):
+            return False
+    return True
+
+
+def wget_local(args):
+    """loopback_only for a wget upload, deny direction (W-19 audit): no -e/--execute (it can
+    set a proxy, also in a short bundle) and no non-loopback IPv4, [IPv6] or host:port word."""
+    for t in args:
+        if t.startswith('--execute') or (re.match(r'-[^-]', t) and 'e' in t):
+            return False
+        m = _HOSTISH.match(t)
+        if m and next(h for h in m.groups() if h is not None).lower() not in LOOPBACK:
+            return False
+    return loopback_only(args)
+
+
+_PROXY_ENV = re.compile(r'(?i)^(?:https?|all|ftp|socks\w*)_proxy=')
+
+
+def _quote_redirs(seg):
+    """seg with each quoted or backslash-escaped < or > replaced by \\x01: shlex strips the
+    quotes, so '<' and an unquoted < (a redirection) are the same token after it."""
+    out, q, esc = [], None, False
+    for c in seg:
+        hide = esc or q is not None
+        if esc:
+            esc = False
+        elif c == '\\' and q != "'":
+            esc = True
+        elif q is None and c in '\'"':
+            q = c
+        elif c == q:
+            q = None
+        out.append('\x01' if hide and c in '<>' else c)
+    return ''.join(out)
+
+
+def seg_upload(toks, seg=None):
+    """upload_hit for a segment as typed (W-19 audit): env, command, exec, nohup, time, nice,
+    timeout and busybox words are read through, and a proxy variable assigned before a
+    curl or wget upload sends the body to that proxy, so it is not loopback. With seg, a
+    quoted < or > word reaches curl_local as \\x01, a target, not a redirection."""
+    if seg is not None and (mt := tokens(_quote_redirs(seg))) and len(mt) == len(toks):
+        toks = mt
+    rt = unwrap(strip_env(toks, False) or [])
+    if rt and exe(rt[0]) == 'busybox':
+        rt = rt[1:]
+    if not rt:
+        return None
+    v = exe(rt[0])
+    if any(_PROXY_ENV.match(t) for t in toks[:len(toks) - len(rt)]) and (
+            (v == 'curl' and curl_uploads(rt[1:])) or (v == 'wget' and wget_uploads(rt[1:]))):
+        return 'network upload to a non-loopback host'
+    return upload_hit(v, rt[1:])
+
+
 def upload_hit(v, args):
     """Deny reason for a network upload or copy tool in one tokenised segment."""
-    if v == 'curl' and curl_uploads(args) and not loopback_only(args):
+    if v == 'curl' and curl_uploads(args) and not curl_local(args):
         return 'network upload to a non-loopback host'
-    if v == 'wget' and wget_uploads(args) and not loopback_only(args):
+    if v == 'wget' and wget_uploads(args) and not wget_local(args):
         return 'network upload to a non-loopback host'
     if v in NET_TOOLS:
         return f'{v} (network copy or raw socket)'
@@ -1795,6 +1921,7 @@ def critical(cmd, ctx0='local', _alt=False):
         toks = tokens(seg)
         if not toks:
             continue
+        typed = toks
         toks = strip_env(toks, False) or toks
         v = exe(toks[0])
         args = toks[1:]
@@ -1823,7 +1950,7 @@ def critical(cmd, ctx0='local', _alt=False):
                 return f'{v} into a critical path'
         if v == 'curl' and (why := _curl_target_critical(args)):
             return why
-        if why := upload_hit(v, args):
+        if why := seg_upload(typed, seg):
             return why
         if v == 'nvidia-smi' and any((f in ('-f', '--filename') and j + 1 < len(args) and CRITICAL_PATH.search(args[j + 1]))
                                      or (f.startswith('--filename=') and CRITICAL_PATH.search(f))

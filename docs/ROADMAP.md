@@ -21,6 +21,9 @@ runs of 2026-11-10.
 - Every suite in CLAUDE.md passed on 2026-11-10 at `5a54b6d`. One command runs them:
   `scripts/test-all.ps1` (`-Full` adds the property and lisweb suites). A session's
   scorecard comes from `scripts/web-readout.py <run dir or transcript>`.
+- Web terminal 2026-11-11: `-LisNoMouse` (opt-in, on the desktop shortcut's line)
+  runs Claude Code's classic renderer in the container, which keeps the terminal's
+  Ctrl+wheel font zoom; confirmed live by the operator (docs/start-lines.md).
 
 ## At a glance 2026-10-27
 
@@ -724,6 +727,16 @@ Batches (IDs in the ledger):
   not 8 (each writes two rows), and 110 of its 121 `permission-rule` denials were hook
   denials (`permissionDecision.source` is `hook`), 10 were settings rules.
   Ledger 47 LANDED, 9 BUILT, 15 OPEN of 71.
+  Zoom fix 2026-11-11 (no ledger row; operator report): in a `-LisWeb -LisTerminal`
+  session Ctrl+wheel stopped zooming once Claude Code had loaded. First build
+  (`eb8c92f`) passed `CLAUDE_CODE_DISABLE_MOUSE=1`: no effect in a live run. Its
+  evidence was wrong: the mouse sequences found in the 2.1.318 binary belong to a
+  bundled package-manager screen. A read of the renderer gate in the same binary
+  showed a fresh home (every web run) getting the fullscreen renderer; `bb8e837` makes
+  `-LisNoMouse` pass `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` and
+  `CLAUDE_CODE_NO_FLICKER=0`, and the operator confirmed the zoom. `4e3b8b3` updates
+  the help text and makes the refusal test assert the whole message. Residual: that
+  check is a substring match, so words added at either end of the message pass.
   Ruling 2026-11-06 (W-11, BUILT): "Use the same keys from Jarvis search, but leave the
   agent-controller independent of it. They are not sensitive keys, just import the .env
   from Jarvis' repo and make it local." The five tools are ported into `web/` (the

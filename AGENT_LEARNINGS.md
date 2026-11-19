@@ -170,3 +170,16 @@
   lis-guard_test walks every script through the guard and fails on a new deny.
 - **Better:** a typed prompt list with probed expected verdicts landed four BUILT rows
   in a five-minute session; prepare one whenever rows wait on a live event.
+## 2026-11-11 - Ctrl+wheel zoom in the web terminal (c85 to c88)
+- **Mistake:** shipped `-LisNoMouse` on a grep hit (`?1000h` in the binary) that belonged
+  to a bundled package-manager screen; the live run showed no effect -> read the code
+  that gates the behaviour (dump the bytes around the env name) before building on a
+  string match, and say UNVERIFIED until the operator's run.
+- **Mistake:** told the operator to try a switch their shortcut did not pass -> read the
+  shortcut's launch line (`WScript.Shell` `CreateShortcut`) before asking for a trial.
+- **Avoid:** probing the Claude Code main screen in an offline throwaway container: it
+  never gets there without a server (3 tries, nothing learned; 2 stuck containers).
+- **Avoid:** fragment asserts on a PowerShell `throw`: the error view echoes the source
+  line, so fragments match the echo. Rebuild the text from the `|` lines, assert it whole.
+- **Better:** /diagnose after the first failed fix, then one approved build: fact sheet,
+  gate code read, fix, separate audit, operator confirmation in one round.

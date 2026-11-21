@@ -92,6 +92,16 @@ weights than the default and a 3.4 GB q4_0 KV at 131072, so the fit is marginal;
 GGUFs are a day old with no user reports, and Gemma 4 tool calls in llama.cpp have
 mixed community reports (UNVERIFIED here). Figures are in the row.
 
+Tested 2026-11-21 (operator request): Inkling 2 Mini Uncensored, AtomicChat/
+Inkling-2-Mini-Uncensored-GGUF `Inkling-2-Mini-Uncensored-AD-IQ3_S.gguf` (13.34 GB,
+sha256 equal to the LFS hash, repo revision `e298ba52`; 26.4B MoE, 3.4B active,
+Apache-2.0, abliterated per its card). NOT ADOPTED and not in the manifest. The pinned
+b11868 cannot load it; it ran on the official b12602 prebuilt kept outside the repo. At
+131072 it stays on the GPU only with `-ub 32 -ctk q4_0 -ctv q4_0 --fit-target 256`:
+62.24 tok/s decode, 42,047 ms prefill at 20K, tools 20 of 20, VRAM peak 15,825 MB, loop
+3 of 3 in 85.1 s; short ladder rungs 9 of 9, long-fix bar 0 of 6 with every test fixed.
+Full table and reasons: ROADMAP "Model test 3 results".
+
 | Model | HF repo | Quant | Size | Fits all-GPU? | Decode tok/s | Prefill 20K ms | Ctx target | Status | Local file |
 |---|---|---|---|---|---|---|---|---|---|
 | Qwen3.6-35B-A3B | unsloth/Qwen3.6-35B-A3B-GGUF | UD-IQ3_XXS | 13.2 GB | no, measured: `--fit` keeps 41/41 layers on GPU but moves part of 2 layers' experts to CPU (~535 MiB) at 131072 ctx with `--no-mmproj` and q8_0 KV | 134.0 | 5,351 | 131072 | benched (default until ruling 6; fallback) | - |

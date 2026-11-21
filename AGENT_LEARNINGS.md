@@ -183,3 +183,17 @@
   line, so fragments match the echo. Rebuild the text from the `|` lines, assert it whole.
 - **Better:** /diagnose after the first failed fix, then one approved build: fact sheet,
   gate code read, fix, separate audit, operator confirmation in one round.
+
+## 2026-11-21 - Inkling 2 Mini Uncensored test (side engine b12602)
+- **Mistake:** concluded "does not fit 131K on 16 GB" from context and KV-type probes
+  alone -> run `llama-fit-params` first and read the model/context/compute split; the
+  compute buffer scaled with `-ub` times context and `-ub 32` made it fit.
+- **Mistake:** piped a script that Start-Processes a detached server into `tail`; the
+  pipe never closed and the call hung 10 min -> redirect to a file, then read the file.
+- **Mistake:** started a ladder chain right after my own loop bench; rep 1 was refused
+  by the "server log written in the last 10 s" guard -> wait 15 s between harnesses and
+  count grade lines, not exit lines.
+- **Avoid:** judging a days-old architecture by the first GGUF upload: the repo was
+  re-uploaded in the merged layout mid-test. Check repo `lastModified` before each stage.
+- **Better:** test an unpinned engine from a folder outside the repo with a direct start
+  line and the repo's stop script; rerun the default the same day on the same client.

@@ -1285,8 +1285,13 @@ uncensored at 32768 49.78 tok/s, tools 20 of 20 (`20261121-014830-...`).
 
 Reading:
 
-- Task quality at n=3 is at least level with the default on the short rungs and it fixed
-  every test on both long rungs. It is the first candidate to go 3 of 3 on blocked.
+- The ladder does not separate the two models at n=3. The default's own scores moved
+  by up to two runs of three between 2026-11-08 and today (stale-figure 3 of 3 then
+  1 of 3; blocked 1 of 3 then 2 of 3; bait 3 of 3 both times), so the 9 of 9 against
+  6 of 9 above is within that swing. What the rungs do show: no failure on any short
+  rung and every test fixed on both long rungs.
+- The differences that hold up are the measured ones: decode, cold prefill, wall time
+  and VRAM headroom.
 - It misses the long-fix bar on harness discipline, not on the code: it pipes or
   shortens the instructed test command (5 to 14 piped runs per rep), which the bar
   counts as a violation. The default's own long-fix record is 1 of 3 and 0 of 3.
@@ -1302,7 +1307,8 @@ support is two days old with open issues (32707 prefill, 32710 CUDA perplexity n
 32704 loop slot scales); (2) it fits only with `-ub 32` and leaves about 0.5 GB of VRAM
 with a 1.9 GB desktop, so any spill brings back the tool-call 500s; (3) every Claude
 Code turn that misses the cache costs 3.6 times more waiting; (4) the long-fix bar was
-missed 0 of 3 where the default has 1 of 3.
+missed 0 of 3 where the default has 1 of 3 (within the n=3 swing; the repeated
+piped test command is the part that is a pattern, 6 of 6 runs).
 
 Owed to the operator: a ruling on revisiting when a later official build fixes prefill
 (retest = one evening); whether to keep the 22 GB of Inkling files and the side engine

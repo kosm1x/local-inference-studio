@@ -1308,7 +1308,7 @@ support is two days old with open issues (32707 prefill, 32710 CUDA perplexity n
 with a 1.9 GB desktop, so any spill brings back the tool-call 500s; (3) every Claude
 Code turn that misses the cache costs 3.6 times more waiting; (4) the long-fix bar was
 missed 0 of 3 where the default has 1 of 3 (within the n=3 swing; the repeated
-piped test command is the part that is a pattern, 6 of 6 runs).
+piped or shortened test command is the pattern: 6 of 6 runs, piped in 4).
 
 Owed to the operator: a ruling on revisiting when a later official build fixes prefill
 (retest = one evening); whether to keep the 22 GB of Inkling files and the side engine
